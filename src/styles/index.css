@@ -1,0 +1,263 @@
+@import "tailwindcss";
+
+/* ═══════════════════════════════════════
+   CUSTOM THEME — EduGuard
+   ═══════════════════════════════════════ */
+
+@theme {
+  --font-syne: 'Syne', sans-serif;
+  --font-dm: 'DM Sans', sans-serif;
+
+  --color-navy: #0A0F2E;
+  --color-navy-mid: #111736;
+  --color-navy-card: #161D3F;
+  --color-blue: #2563EB;
+  --color-blue-bright: #3B82F6;
+  --color-cyan: #06B6D4;
+  --color-gold: #F59E0B;
+  --color-green: #10B981;
+  --color-red: #EF4444;
+  --color-white-soft: #F8FAFF;
+  --color-muted: rgba(248, 250, 255, 0.55);
+  --color-border: rgba(59, 130, 246, 0.18);
+  --color-cyan-glow: rgba(6, 182, 212, 0.18);
+}
+
+/* ───── BASE ───── */
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-dm);
+  background: var(--color-navy);
+  color: var(--color-white-soft);
+  overflow-x: hidden;
+  line-height: 1.6;
+}
+
+/* ───── NOISE OVERLAY ───── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  opacity: 0.4;
+}
+
+/* ───── KEYFRAMES ───── */
+@keyframes pulse-glow {
+  from { transform: scale(1); opacity: 0.7; }
+  to   { transform: scale(1.12); opacity: 1; }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes floatBadge {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scan {
+  0% { top: 0; }
+  100% { top: 100%; }
+}
+
+@keyframes ringFill {
+  from { stroke-dashoffset: 283; }
+  to { stroke-dashoffset: 57; }
+}
+
+/* ───── ANIMATION UTILITY CLASSES ───── */
+.animate-pulse-glow {
+  animation: pulse-glow 6s ease-in-out infinite alternate;
+}
+
+.animate-blink {
+  animation: blink 1.4s ease-in-out infinite;
+}
+
+.animate-float {
+  animation: float 5s ease-in-out infinite;
+}
+
+.animate-float-up {
+  animation: floatUp 1s 0.2s ease both;
+}
+
+.animate-float-badge {
+  animation: floatBadge 4s ease-in-out infinite;
+}
+
+.animate-float-badge-delay {
+  animation: floatBadge 4s 0.8s ease-in-out infinite;
+}
+
+.animate-fade-slide-in {
+  animation: fadeSlideIn 0.8s ease both;
+}
+
+.animate-fade-slide-in-1 {
+  animation: fadeSlideIn 0.9s 0.1s ease both;
+}
+
+.animate-fade-slide-in-2 {
+  animation: fadeSlideIn 1s 0.2s ease both;
+}
+
+.animate-fade-slide-in-3 {
+  animation: fadeSlideIn 1s 0.3s ease both;
+}
+
+.animate-fade-slide-in-4 {
+  animation: fadeSlideIn 1s 0.45s ease both;
+}
+
+.animate-scan {
+  animation: scan 2s ease-in-out infinite;
+}
+
+.animate-ring-fill {
+  animation: ringFill 2s ease both;
+}
+
+/* ───── GRADIENT TEXT UTILITY ───── */
+.text-gradient-blue-cyan {
+  background: linear-gradient(90deg, var(--color-blue-bright), var(--color-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-white-cyan {
+  background: linear-gradient(90deg, var(--color-white-soft), var(--color-cyan));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-gold-green {
+  background: linear-gradient(90deg, var(--color-gold), var(--color-green));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-cyan-green {
+  background: linear-gradient(90deg, var(--color-cyan), var(--color-green));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-gold-red {
+  background: linear-gradient(90deg, var(--color-gold), var(--color-red));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ───── SCROLL REVEAL ───── */
+.reveal {
+  opacity: 0;
+  transform: translateY(30px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ───── HERO BACKGROUND GRID ───── */
+.hero-grid-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(59, 130, 246, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59, 130, 246, 0.06) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* ───── FEATURE CARD TOP GRADIENT BAR ───── */
+.feat-card-bar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--color-blue), var(--color-cyan));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.feat-card-bar:hover::before {
+  opacity: 1;
+}
+
+/* ───── SECTION LABEL LINE ───── */
+.section-label-line::before {
+  content: '';
+  width: 20px;
+  height: 2px;
+  background: currentColor;
+  border-radius: 2px;
+}
+
+/* ───── RESPONSIVE ───── */
+@media (max-width: 900px) {
+  .hero-responsive {
+    grid-template-columns: 1fr !important;
+    text-align: center;
+  }
+  .hero-right-responsive {
+    display: none !important;
+  }
+  .hero-stats-responsive {
+    justify-content: center;
+  }
+  .hiw-responsive {
+    grid-template-columns: 1fr !important;
+  }
+  .roles-responsive {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .pricing-responsive {
+    grid-template-columns: 1fr !important;
+  }
+  .stats-responsive {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .footer-responsive {
+    grid-template-columns: 1fr 1fr !important;
+  }
+  .nav-links-responsive {
+    display: none !important;
+  }
+  .feature-grid-responsive {
+    grid-template-columns: 1fr !important;
+  }
+}
