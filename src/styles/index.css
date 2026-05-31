@@ -21,6 +21,23 @@
   --color-muted: rgba(248, 250, 255, 0.55);
   --color-border: rgba(59, 130, 246, 0.18);
   --color-cyan-glow: rgba(6, 182, 212, 0.18);
+  --color-nav-bg: rgba(10, 15, 46, 0.82);
+}
+
+:root.light {
+  --color-navy: #F8FAFC;
+  --color-navy-mid: #F1F5F9;
+  --color-navy-card: #FFFFFF;
+  --color-white-soft: #0F172A;
+  --color-muted: #475569;
+  --color-border: rgba(15, 23, 42, 0.08);
+  --color-cyan-glow: rgba(6, 182, 212, 0.08);
+  --color-nav-bg: rgba(248, 250, 252, 0.85);
+
+  --color-cyan: #0891B2;
+  --color-gold: #D97706;
+  --color-green: #059669;
+  --color-red: #DC2626;
 }
 
 /* ───── BASE ───── */
@@ -34,7 +51,13 @@ body {
   color: var(--color-white-soft);
   overflow-x: hidden;
   line-height: 1.6;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
+
+nav, section, div, h1, h2, h3, h4, h5, h6, p, span, a, button, input, select {
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
 
 /* ───── NOISE OVERLAY ───── */
 body::before {
@@ -261,3 +284,72 @@ body::before {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* ───── DASHBOARD LAYOUT ───── */
+.sidebar-transition {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Custom scrollbar for dashboard */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.2);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.4);
+}
+
+/* Spinner animation for login */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 0.8s linear infinite;
+}
+
+/* Light mode dashboard adjustments */
+:root.light .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+:root.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.25);
+}
+
+/* Dashboard table styles */
+.dashboard-table th {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dashboard-table td {
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dashboard-table tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.dashboard-table tbody tr:hover {
+  background-color: rgba(59, 130, 246, 0.04);
+}
+
