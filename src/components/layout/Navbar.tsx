@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { NAV_LINKS } from '../../utils/constants';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -15,7 +16,9 @@ export default function Navbar() {
   };
 
   const handleDashboard = () => {
-    navigate(user.role === 'admin' ? '/admin' : '/profile');
+    if (user) {
+      navigate(user.role === 'admin' ? '/admin' : '/profile');
+    }
   };
 
   return (

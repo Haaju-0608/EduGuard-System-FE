@@ -1,6 +1,29 @@
 import { useState } from 'react';
 
-const features = [
+interface Feature {
+  icon: string;
+  title: string;
+  desc: string;
+  hoverBorder: string;
+  iconBg: string;
+}
+
+interface KPI {
+  value: string;
+  label: string;
+  change: string;
+  changeColor: string;
+  borderColor: string;
+}
+
+interface RecentActivity {
+  icon: string;
+  text: string;
+  time: string;
+  color: string;
+}
+
+const features: Feature[] = [
   {
     icon: '👥',
     title: 'Instructor & Student Management',
@@ -38,14 +61,14 @@ const features = [
   },
 ];
 
-const kpis = [
+const kpis: KPI[] = [
   { value: '2,350', label: 'Students', change: '+12.5%', changeColor: 'text-green', borderColor: 'border-blue-bright/30' },
   { value: '1,890', label: 'Present Today', change: '80.4%', changeColor: 'text-green', borderColor: 'border-green/30' },
   { value: '18', label: 'Exams', change: '+3', changeColor: 'text-cyan', borderColor: 'border-cyan/30' },
   { value: '12,450', label: 'Credits', change: '', changeColor: '', borderColor: 'border-gold/30' },
 ];
 
-const recentActivities = [
+const recentActivities: RecentActivity[] = [
   { icon: '✅', text: 'IT Class K21A checked in', time: '2 mins ago', color: 'text-green' },
   { icon: '🔴', text: 'Exam violation in Room B2-301', time: '5 mins ago', color: 'text-red' },
   { icon: '📤', text: 'May report exported successfully', time: '15 mins ago', color: 'text-cyan' },
@@ -53,7 +76,7 @@ const recentActivities = [
 ];
 
 export default function AdminFeatureSection() {
-  const [hoveredCard, setHoveredCard] = useState(null);
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
 
   return (
     <section id="admin-feature" className="relative bg-navy-mid py-24 px-6 overflow-hidden">

@@ -1,11 +1,18 @@
-const stats = [
+import React from 'react';
+
+interface Stat {
+  num: string;
+  label: string;
+}
+
+const stats: Stat[] = [
   { num: '300+', label: 'Partner Organizations' },
   { num: '50K+', label: 'Registered Students' },
   { num: '2M+', label: 'Attendance Checks' },
   { num: '99.9%', label: 'System Uptime' },
 ];
 
-export default function StatsBanner() {
+export default function StatsBanner(): React.ReactElement {
   return (
     <div
       id="about"

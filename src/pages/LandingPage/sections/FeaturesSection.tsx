@@ -1,4 +1,13 @@
-const featuresData = [
+import React from 'react';
+
+interface FeatureData {
+  icon: string;
+  name: string;
+  description: string;
+  iconBg: string;
+}
+
+const featuresData: FeatureData[] = [
   {
     icon: '🎯',
     name: 'Smart Attendance',
@@ -37,7 +46,7 @@ const featuresData = [
   },
 ];
 
-export default function FeaturesSection() {
+export default function FeaturesSection(): React.ReactElement {
   return (
     <section id="features" className="bg-navy-mid py-24 px-6 relative z-10">
       <div className="max-w-[1200px] mx-auto">

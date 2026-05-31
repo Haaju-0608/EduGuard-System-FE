@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { FiSearch, FiChevronDown, FiArrowUpRight, FiTrendingUp } from 'react-icons/fi';
+import React, { useState } from 'react';
+import { FiSearch, FiChevronDown, FiTrendingUp } from 'react-icons/fi';
 import { useAuth } from '../../contexts/AuthContext';
-import DashboardLayout from '../../components/layout/DashboardLayout';
+import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 
-const menuItems = [
+const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/admin' },
   { icon: '👥', label: 'Users', path: '/admin/users' },
   { icon: '📡', label: 'Live Monitor', path: '/admin/live' },
@@ -13,8 +13,23 @@ const menuItems = [
   { icon: '⚙️', label: 'Settings', path: '/admin/settings' },
 ];
 
+interface KpiCardData {
+  label: string;
+  value: string;
+  subtitle?: string;
+  icon: string;
+  colorClass: string;
+  bgGlow: string;
+  borderHover: string;
+  change: string | null;
+  changeColor?: string;
+  sparkPath: string;
+  sparkStroke: string;
+  sparkColor: string;
+}
+
 /* ── KPI Data ── */
-const kpiCards = [
+const kpiCards: KpiCardData[] = [
   {
     label: 'Total Students',
     value: '2,350',
@@ -68,8 +83,15 @@ const kpiCards = [
   },
 ];
 
+interface ActivityItem {
+  icon: string;
+  text: string;
+  time: string;
+  color: string;
+}
+
 /* ── Activities Data ── */
-const activities = [
+const activities: ActivityItem[] = [
   { icon: '✅', text: 'IT Class K21A checked in', time: '2 min ago', color: 'bg-green' },
   { icon: '🔴', text: 'Exam violation in Room B2-301', time: '5 min ago', color: 'bg-red' },
   { icon: '📤', text: 'May report exported', time: '15 min ago', color: 'bg-cyan' },
@@ -78,8 +100,19 @@ const activities = [
   { icon: '💳', text: '500 credits consumed', time: '3h ago', color: 'bg-gold' },
 ];
 
+type UserRole = 'Student' | 'Instructor';
+type UserStatus = 'Active' | 'Warning' | 'Suspended';
+
+interface UserRecord {
+  name: string;
+  email: string;
+  role: UserRole;
+  dept: string;
+  status: UserStatus;
+}
+
 /* ── Users Mock Data ── */
-const users = [
+const users: UserRecord[] = [
   { name: 'Nguyen Van An', email: 'user@eduguard.com', role: 'Student', dept: 'IT', status: 'Active' },
   { name: 'Tran Thi Bao', email: 'bao.tran@edu.vn', role: 'Student', dept: 'CS', status: 'Active' },
   { name: 'Dr. Le Minh', email: 'leminh@edu.vn', role: 'Instructor', dept: 'Math', status: 'Active' },
@@ -88,14 +121,19 @@ const users = [
   { name: 'Bui Kim', email: 'buikim@edu.vn', role: 'Student', dept: 'CS', status: 'Suspended' },
 ];
 
-const statusConfig = {
+const statusConfig: Record<UserStatus, { bg: string; text: string; border: string }> = {
   Active: { bg: 'bg-green/15', text: 'text-green', border: 'border-green/25' },
   Warning: { bg: 'bg-gold/15', text: 'text-gold', border: 'border-gold/25' },
   Suspended: { bg: 'bg-red/15', text: 'text-red', border: 'border-red/25' },
 };
 
 /* ── KPI Card Component ── */
-function KpiCard({ card, index }) {
+interface KpiCardProps {
+  card: KpiCardData;
+  index: number;
+}
+
+function KpiCard({ card, index }: KpiCardProps) {
   return (
     <div
       className={`relative overflow-hidden bg-navy-card border border-border rounded-[16px] p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_32px_rgba(6,182,212,0.08)] ${card.borderHover} group animate-fade-slide-in`}

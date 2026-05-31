@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import DashboardLayout from '../../components/layout/DashboardLayout';
+import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 
-const menuItems = [
+const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/profile' },
   { icon: '📊', label: 'Attendance', path: '/profile/attendance' },
   { icon: '📅', label: 'Schedule', path: '/profile/schedule' },
@@ -11,7 +11,18 @@ const menuItems = [
   { icon: '⚙️', label: 'Settings', path: '/profile/settings' },
 ];
 
-const kpiData = [
+interface KpiItem {
+  label: string;
+  value: string;
+  icon: string;
+  color: string;
+  bgColor: string;
+  borderHover: string;
+  change: string | null;
+  changeColor: string | null;
+}
+
+const kpiData: KpiItem[] = [
   {
     label: 'Attendance Rate',
     value: '85.2%',
@@ -54,7 +65,18 @@ const kpiData = [
   },
 ];
 
-const scheduleItems = [
+interface ScheduleItem {
+  time: string;
+  name: string;
+  room: string;
+  status: 'present' | 'upcoming' | 'exam' | 'later';
+  statusText: string;
+  statusColor: string;
+  borderColor: string;
+  bgAccent: string;
+}
+
+const scheduleItems: ScheduleItem[] = [
   {
     time: '07:30',
     name: 'Web Programming',
@@ -97,7 +119,15 @@ const scheduleItems = [
   },
 ];
 
-const recentAttendance = [
+interface AttendanceRecord {
+  subject: string;
+  date: string;
+  status: string;
+  color: string;
+  bgBadge: string;
+}
+
+const recentAttendance: AttendanceRecord[] = [
   { subject: 'Web Programming', date: 'May 30', status: '✓ Present', color: 'text-green', bgBadge: 'bg-green/10' },
   { subject: 'Database Systems', date: 'May 30', status: '✓ Present', color: 'text-green', bgBadge: 'bg-green/10' },
   { subject: 'Software Engineering', date: 'May 29', status: '✗ Absent', color: 'text-red', bgBadge: 'bg-red/10' },
@@ -105,7 +135,13 @@ const recentAttendance = [
   { subject: 'English Communication', date: 'May 28', status: '✓ Present', color: 'text-green', bgBadge: 'bg-green/10' },
 ];
 
-const quickActions = [
+interface QuickAction {
+  icon: string;
+  label: string;
+  style: string;
+}
+
+const quickActions: QuickAction[] = [
   {
     icon: '📸',
     label: 'Register Face',
@@ -164,7 +200,7 @@ function AttendanceRing() {
 
 export default function UserProfilePage() {
   const { user } = useAuth();
-  const [hoveredKpi, setHoveredKpi] = useState(null);
+  const [hoveredKpi, setHoveredKpi] = useState<number | null>(null);
 
   const todayDate = new Date().toLocaleDateString('en-US', {
     weekday: 'long',

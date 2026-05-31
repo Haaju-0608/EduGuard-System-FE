@@ -1,6 +1,22 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
-const stepsData = [
+interface StepData {
+  number: number;
+  title: string;
+  description: string;
+}
+
+interface ActivityData {
+  type: string;
+  icon: string;
+  name: string;
+  action: string;
+  time: string;
+  color: string;
+  dotColor: string;
+}
+
+const stepsData: StepData[] = [
   {
     number: 1,
     title: 'Students register their face',
@@ -23,7 +39,7 @@ const stepsData = [
   },
 ];
 
-const activitiesData = [
+const activitiesData: ActivityData[] = [
   {
     type: 'success',
     icon: '✓',
@@ -62,8 +78,8 @@ const activitiesData = [
   },
 ];
 
-export default function HowItWorksSection() {
-  const [activeStep, setActiveStep] = useState(0);
+export default function HowItWorksSection(): React.ReactElement {
+  const [activeStep, setActiveStep] = useState<number>(0);
 
   return (
     <section id="how" className="bg-navy py-24 px-6 relative z-10">
@@ -85,11 +101,11 @@ export default function HowItWorksSection() {
           style={{ gridTemplateColumns: '1fr 1fr', gap: '5rem' }}
         >
           {/* LEFT — Steps */}
-          <div className="space-y-3">
+          <div className="reveal space-y-3">
             {stepsData.map((step, index) => (
               <div
                 key={index}
-                className={`reveal group flex items-start gap-4 p-5 rounded-[14px] cursor-pointer transition-all duration-300 ${
+                className={`group flex items-start gap-4 p-5 rounded-[14px] cursor-pointer transition-all duration-300 ${
                   activeStep === index
                     ? 'bg-[rgba(37,99,235,0.1)] border border-blue'
                     : 'border border-transparent hover:bg-[rgba(37,99,235,0.05)]'

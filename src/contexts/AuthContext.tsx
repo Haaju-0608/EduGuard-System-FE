@@ -1,6 +1,30 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
 
-const AuthContext = createContext(undefined);
+export interface User {
+  id: number;
+  email: string;
+  role: 'user' | 'admin';
+  name: string;
+  studentId: string | null;
+  department: string;
+  avatar: string | null;
+  initials: string;
+}
+
+interface LoginResponse {
+  success: boolean;
+  error?: string;
+  user?: Omit<User, 'password'>;
+}
+
+interface AuthContextType {
+  user: User | null;
+  isAuthenticated: boolean;
+  login: (email: string, password: string) => LoginResponse;
+  logout: () => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // ── Mock User Database ──
 const MOCK_USERS = [
@@ -8,7 +32,7 @@ const MOCK_USERS = [
     id: 1,
     email: 'user@eduguard.com',
     password: '123456',
-    role: 'user',
+    role: 'user' as const,
     name: 'Nguyen Van An',
     studentId: '21110001',
     department: 'Information Technology',
@@ -19,7 +43,7 @@ const MOCK_USERS = [
     id: 2,
     email: 'admin@eduguard.com',
     password: 'admin123',
-    role: 'admin',
+    role: 'admin' as const,
     name: 'Le Quang Minh',
     studentId: null,
     department: 'System Administration',
@@ -28,8 +52,12 @@ const MOCK_USERS = [
   },
 ];
 
-export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export function AuthProvider({ children }: AuthProviderProps) {
+  const [user, setUser] = useState<User | null>(() => {
     try {
       const saved = localStorage.getItem('eduguard_user');
       return saved ? JSON.parse(saved) : null;
@@ -48,7 +76,7 @@ export function AuthProvider({ children }) {
     }
   }, [user]);
 
-  const login = (email, password) => {
+  const login = (email: string, password: string): LoginResponse => {
     const found = MOCK_USERS.find(
       (u) => u.email === email && u.password === password
     );
@@ -72,7 +100,7 @@ export function AuthProvider({ children }) {
   );
 }
 
-export function useAuth() {
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within an AuthProvider');

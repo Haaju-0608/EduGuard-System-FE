@@ -1,6 +1,30 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 
-const features = [
+interface Feature {
+  icon: string;
+  title: string;
+  desc: string;
+  hoverBorder: string;
+  iconBg: string;
+}
+
+interface ScheduleItem {
+  time: string;
+  name: string;
+  room: string;
+  status: string;
+  statusText: string;
+  statusColor: string;
+}
+
+interface Stat {
+  icon: string;
+  value: string;
+  label: string;
+  gradientClass: string;
+}
+
+const features: Feature[] = [
   {
     icon: '📸',
     title: 'Biometric Face Registration',
@@ -31,35 +55,35 @@ const features = [
   },
 ];
 
-const scheduleItems = [
+const scheduleItems: ScheduleItem[] = [
   { time: '07:30', name: 'Web Programming', room: 'A2-301', status: 'done', statusText: '✓ Done', statusColor: 'text-green' },
   { time: '09:45', name: 'Databases', room: 'B1-205', status: 'next', statusText: 'Next', statusColor: 'text-gold' },
   { time: '13:30', name: 'Discrete Math', room: 'C3-102', status: 'later', statusText: 'Afternoon', statusColor: 'text-muted' },
 ];
 
-const stats = [
+const stats: Stat[] = [
   { icon: '📱', value: '50K+', label: 'App Downloads', gradientClass: 'text-gradient-gold-green' },
   { icon: '⚡', value: '< 3s', label: 'Recognition Time', gradientClass: 'text-gradient-blue-cyan' },
   { icon: '🎯', value: '99.3%', label: 'AI Accuracy', gradientClass: 'text-gradient-cyan-green' },
   { icon: '⭐', value: '4.8/5', label: 'App Rating', gradientClass: 'text-gradient-gold-red' },
 ];
 
-export default function StudentSection() {
-  const [hoveredCard, setHoveredCard] = useState(null);
+export default function StudentSection(): React.ReactElement {
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
 
   return (
     <section id="student" className="relative bg-navy-mid py-24 px-6 overflow-hidden">
+      {/* Glow orb */}
+      <div
+        className="absolute w-[320px] h-[320px] rounded-full blur-[80px] opacity-25 animate-pulse-glow"
+        style={{ background: 'radial-gradient(circle, #3B82F6 0%, #06B6D4 50%, transparent 70%)' }}
+      />
+
       <div className="max-w-[1200px] mx-auto">
         {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center feature-grid-responsive mb-20">
           {/* LEFT — Phone Mockup */}
           <div className="relative flex justify-center items-center">
-            {/* Glow orb */}
-            <div
-              className="absolute w-[320px] h-[320px] rounded-full blur-[80px] opacity-25 animate-pulse-glow"
-              style={{ background: 'radial-gradient(circle, #3B82F6 0%, #06B6D4 50%, transparent 70%)' }}
-            />
-
             {/* Phone frame */}
             <div className="relative w-[258px] bg-navy-card border border-blue-bright/30 rounded-[36px] p-3 animate-float shadow-[0_0_60px_rgba(59,130,246,0.12)]">
               {/* Status bar */}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -14,7 +14,7 @@ export default function LoginPage() {
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -23,11 +23,11 @@ export default function LoginPage() {
     await new Promise((r) => setTimeout(r, 600));
 
     const result = login(email, password);
-    if (result.success) {
+    if (result.success && result.user) {
       const path = result.user.role === 'admin' ? '/admin' : '/profile';
       navigate(path, { replace: true });
     } else {
-      setError(result.error);
+      setError(result.error || 'Invalid credentials');
     }
     setLoading(false);
   };

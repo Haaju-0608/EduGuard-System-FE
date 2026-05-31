@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import LandingPage from './pages/LandingPage'
-import LoginPage from './pages/LoginPage'
-import UserProfilePage from './pages/UserProfile'
-import AdminDashboardPage from './pages/AdminDashboard'
-import ProtectedRoute from './components/auth/ProtectedRoute'
+import React from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import LandingPage from './pages/LandingPage';
+import LoginPage from './pages/LoginPage';
+import UserProfilePage from './pages/UserProfile';
+import AdminDashboardPage from './pages/AdminDashboard';
+import ProtectedRoute from './components/auth/ProtectedRoute';
 
 export default function App() {
   return (
@@ -29,5 +30,5 @@ export default function App() {
         />
       </Routes>
     </BrowserRouter>
-  )
+  );
 }

@@ -1,4 +1,14 @@
-const rolesData = [
+import React from 'react';
+
+interface RoleData {
+  icon: string;
+  title: string;
+  description: string;
+  iconBg: string;
+  permissions: string[];
+}
+
+const rolesData: RoleData[] = [
   {
     icon: '👑',
     title: 'Super Admin',
@@ -49,7 +59,7 @@ const rolesData = [
   },
 ];
 
-export default function RolesSection() {
+export default function RolesSection(): React.ReactElement {
   return (
     <section id="roles" className="bg-navy-mid py-24 px-6 relative z-10">
       <div className="max-w-[1200px] mx-auto">

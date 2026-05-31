@@ -1,4 +1,17 @@
-const footerLinks = {
+import React from 'react';
+
+interface FooterLinkGroup {
+  title: string;
+  links: string[];
+}
+
+interface FooterLinks {
+  product: FooterLinkGroup;
+  company: FooterLinkGroup;
+  support: FooterLinkGroup;
+}
+
+const footerLinks: FooterLinks = {
   product: {
     title: 'Products',
     links: ['Smart Attendance', 'Live Proctoring', 'Analytics', 'Mobile App'],
@@ -13,7 +26,7 @@ const footerLinks = {
   },
 };
 
-export default function Footer() {
+export default function Footer(): React.ReactElement {
   return (
     <footer className="relative bg-navy pt-16 pb-8 px-6 border-t border-border">
       <div className="max-w-[1200px] mx-auto">

@@ -1,11 +1,27 @@
-const heroStats = [
+import React from 'react';
+
+interface HeroStat {
+  num: string;
+  label: string;
+}
+
+interface CamCell {
+  initials: string;
+  gradient: string;
+  type: 'active' | 'warn';
+  status: string;
+  scan: boolean;
+  scanDelay: string | null;
+}
+
+const heroStats: HeroStat[] = [
   { num: '300+', label: 'Organizations' },
   { num: '50K+', label: 'Students' },
   { num: '2M+', label: 'Attendance Checks' },
   { num: '99.9%', label: 'Uptime' },
 ];
 
-const camCells = [
+const camCells: CamCell[] = [
   { initials: 'NT', gradient: 'linear-gradient(135deg, #3B82F6, #06B6D4)', type: 'active', status: '✓ Normal', scan: true, scanDelay: null },
   { initials: 'LH', gradient: 'linear-gradient(135deg, #EF4444, #F59E0B)', type: 'warn', status: '⚠ Looking away', scan: false, scanDelay: null },
   { initials: 'TM', gradient: 'linear-gradient(135deg, #10B981, #3B82F6)', type: 'active', status: '✓ Normal', scan: true, scanDelay: '0.5s' },
@@ -14,7 +30,7 @@ const camCells = [
   { initials: 'BK', gradient: 'linear-gradient(135deg, #06B6D4, #10B981)', type: 'warn', status: '⚠ 2 Faces', scan: false, scanDelay: null },
 ];
 
-export default function HeroSection() {
+export default function HeroSection(): React.ReactElement {
   return (
     <section className="hero-grid-bg hero-responsive min-h-screen grid grid-cols-2 items-center gap-16 pt-[100px] pb-[80px] px-[5vw] relative overflow-hidden">
       {/* Glow Orb */}

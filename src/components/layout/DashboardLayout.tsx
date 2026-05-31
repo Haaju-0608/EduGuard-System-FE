@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import React, { useState, ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell, FiSearch } from 'react-icons/fi';
 
-export default function DashboardLayout({ children, menuItems = [] }) {
+export interface MenuItem {
+  icon: string | ReactNode;
+  label: string;
+  path: string;
+}
+
+interface DashboardLayoutProps {
+  children: ReactNode;
+  menuItems?: MenuItem[];
+}
+
+export default function DashboardLayout({ children, menuItems = [] }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();

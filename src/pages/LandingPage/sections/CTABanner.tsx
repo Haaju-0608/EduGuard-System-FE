@@ -1,4 +1,6 @@
-export default function CTABanner() {
+import React from 'react';
+
+export default function CTABanner(): React.ReactElement {
   return (
     <section className="relative py-20 px-6">
       <div
@@ -45,7 +47,7 @@ export default function CTABanner() {
             href="#"
             className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-syne font-bold text-sm
               text-white-soft border border-border bg-transparent
-              hover:border-blue-bright/50 hover:bg-blue-bright/5 hover:scale-105 transition-all duration-300"
+              hover:border-blue-bright/5 hover:bg-blue-bright/5 hover:scale-105 transition-all duration-300"
           >
             📅 Schedule a Demo
           </a>

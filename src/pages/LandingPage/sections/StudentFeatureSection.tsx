@@ -1,6 +1,23 @@
 import { useState } from 'react';
 
-const features = [
+interface Feature {
+  icon: string;
+  title: string;
+  desc: string;
+  hoverBorder: string;
+  iconBg: string;
+}
+
+interface ScheduleItem {
+  time: string;
+  name: string;
+  room: string;
+  status: string;
+  statusText: string;
+  statusColor: string;
+}
+
+const features: Feature[] = [
   {
     icon: '📸',
     title: 'Biometric Face Registration',
@@ -38,14 +55,14 @@ const features = [
   },
 ];
 
-const scheduleItems = [
+const scheduleItems: ScheduleItem[] = [
   { time: '07:30', name: 'Web Programming', room: 'A2-301', status: 'done', statusText: '✓ Present', statusColor: 'text-green' },
   { time: '09:45', name: 'Databases', room: 'B1-205', status: 'upcoming', statusText: 'Upcoming', statusColor: 'text-gold' },
   { time: '13:30', name: 'Math Midterm', room: 'Hall A', status: 'exam', statusText: '🔴 Exam', statusColor: 'text-red' },
 ];
 
 export default function StudentFeatureSection() {
-  const [hoveredCard, setHoveredCard] = useState(null);
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null);
 
   return (
     <section id="student-feature" className="relative bg-navy py-24 px-6 overflow-hidden">
