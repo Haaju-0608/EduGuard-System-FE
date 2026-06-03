@@ -4,7 +4,14 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  allowedRole?: 'user' | 'admin';
+  allowedRole?: 'user' | 'admin' | 'lecture';
+}
+
+/** Lấy đường dẫn dashboard mặc định theo role */
+function getDashboardPath(role: string): string {
+  if (role === 'admin') return '/admin';
+  if (role === 'lecture') return '/lecture';
+  return '/profile';
 }
 
 export default function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {
@@ -16,8 +23,7 @@ export default function ProtectedRoute({ children, allowedRole }: ProtectedRoute
 
   // If user is trying to access a route not matching their role
   if (allowedRole && user && user.role !== allowedRole) {
-    const redirectPath = user.role === 'admin' ? '/admin' : '/profile';
-    return <Navigate to={redirectPath} replace />;
+    return <Navigate to={getDashboardPath(user.role)} replace />;
   }
 
   return children;

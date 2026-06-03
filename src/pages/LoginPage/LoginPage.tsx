@@ -24,7 +24,12 @@ export default function LoginPage() {
 
     const result = login(email, password);
     if (result.success && result.user) {
-      const path = result.user.role === 'admin' ? '/admin' : '/profile';
+      const path =
+        result.user.role === 'admin'
+          ? '/admin'
+          : result.user.role === 'lecture'
+            ? '/lecture'
+            : '/profile';
       navigate(path, { replace: true });
     } else {
       setError(result.error || 'Invalid credentials');
@@ -234,6 +239,17 @@ export default function LoginPage() {
               <div>
                 <p className="text-sm font-semibold text-white-soft group-hover:text-blue-bright transition-colors">Admin Account</p>
                 <p className="text-[11px] text-muted">admin@eduguard.com / admin123</p>
+              </div>
+            </button>
+            <button
+              type="button"
+              onClick={() => { setEmail('lecture@eduguard.com'); setPassword('lecture123'); setError(''); }}
+              className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-cyan/40 hover:bg-cyan/5 group"
+            >
+              <div className="w-[34px] h-[34px] rounded-full bg-cyan/15 grid place-items-center text-sm">👨‍🏫</div>
+              <div>
+                <p className="text-sm font-semibold text-white-soft group-hover:text-cyan transition-colors">Lecturer Account</p>
+                <p className="text-[11px] text-muted">lecture@eduguard.com / lecture123</p>
               </div>
             </button>
           </div>

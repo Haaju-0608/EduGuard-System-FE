@@ -3,6 +3,8 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell, FiSearch } from 'react-icons/fi';
+import { CampusBackground, AcademySeal } from '../lecturer/LecturerUI';
+import { getFacultyByDepartment, getFacultyTheme } from '../../utils/facultyTheme';
 
 export interface MenuItem {
   icon: string | ReactNode;
@@ -13,9 +15,11 @@ export interface MenuItem {
 interface DashboardLayoutProps {
   children: ReactNode;
   menuItems?: MenuItem[];
+  /** Bật ảnh nền campus cho portal giảng viên */
+  campusMode?: boolean;
 }
 
-export default function DashboardLayout({ children, menuItems = [] }: DashboardLayoutProps) {
+export default function DashboardLayout({ children, menuItems = [], campusMode = false }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -27,6 +31,10 @@ export default function DashboardLayout({ children, menuItems = [] }: DashboardL
     logout();
     navigate('/');
   };
+
+  const lecturerFaculty = campusMode && user?.department
+    ? getFacultyTheme(getFacultyByDepartment(user.department))
+    : null;
 
   return (
     <div className="flex h-screen overflow-hidden bg-navy">
@@ -40,11 +48,22 @@ export default function DashboardLayout({ children, menuItems = [] }: DashboardL
         {/* Logo Area */}
         <div className={`flex items-center h-[68px] border-b border-border px-4 ${collapsed ? 'justify-center' : 'justify-between'}`}>
           <Link to="/" className="flex items-center gap-[10px] no-underline">
-            <div className="w-[34px] h-[34px] min-w-[34px] bg-linear-to-br from-blue to-cyan rounded-[9px] grid place-items-center text-[1rem]">
-              🛡️
-            </div>
+            {campusMode ? (
+              <AcademySeal size="sm" />
+            ) : (
+              <div className="w-[34px] h-[34px] min-w-[34px] bg-linear-to-br from-blue to-cyan rounded-[9px] grid place-items-center text-[1rem]">
+                🛡️
+              </div>
+            )}
             {!collapsed && (
-              <span className="font-syne font-extrabold text-[1.1rem] text-white-soft">EduGuard</span>
+              <div>
+                <span className="font-syne font-extrabold text-[1.1rem] text-white-soft block leading-tight">EduGuard</span>
+                {campusMode && (
+                  <span className="text-[10px] text-cyan font-semibold tracking-wide">
+                    Faculty Portal{lecturerFaculty ? ` · ${lecturerFaculty.shortName}` : ''}
+                  </span>
+                )}
+              </div>
             )}
           </Link>
           <button
@@ -59,7 +78,10 @@ export default function DashboardLayout({ children, menuItems = [] }: DashboardL
         <nav className="flex-1 py-4 px-3 overflow-y-auto custom-scrollbar">
           <div className="flex flex-col gap-1">
             {menuItems.map((item) => {
-              const isActive = location.pathname === item.path;
+              const rootPaths = ['/lecture', '/admin', '/profile'];
+              const isActive =
+                location.pathname === item.path ||
+                (!rootPaths.includes(item.path) && location.pathname.startsWith(item.path));
               return (
                 <Link
                   key={item.path}
@@ -165,8 +187,9 @@ export default function DashboardLayout({ children, menuItems = [] }: DashboardL
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          {children}
+        <main className={`flex-1 overflow-y-auto p-6 custom-scrollbar relative ${campusMode ? 'lecture-main-campus' : ''}`}>
+          {campusMode && <CampusBackground />}
+          <div className="relative z-10">{children}</div>
         </main>
       </div>
     </div>

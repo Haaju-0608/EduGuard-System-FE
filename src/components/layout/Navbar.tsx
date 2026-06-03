@@ -17,7 +17,13 @@ export default function Navbar() {
 
   const handleDashboard = () => {
     if (user) {
-      navigate(user.role === 'admin' ? '/admin' : '/profile');
+      const path =
+        user.role === 'admin'
+          ? '/admin'
+          : user.role === 'lecture'
+            ? '/lecture'
+            : '/profile';
+      navigate(path);
     }
   };
 

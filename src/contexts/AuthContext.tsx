@@ -3,7 +3,7 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 export interface User {
   id: number;
   email: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'lecture';
   name: string;
   studentId: string | null;
   department: string;
@@ -49,6 +49,17 @@ const MOCK_USERS = [
     department: 'System Administration',
     avatar: null,
     initials: 'LM',
+  },
+  {
+    id: 3,
+    email: 'lecture@eduguard.com',
+    password: 'lecture123',
+    role: 'lecture' as const,
+    name: 'Dr. Tran Van Hai',
+    studentId: null,
+    department: 'Information Technology',
+    avatar: null,
+    initials: 'TH',
   },
 ];
 
