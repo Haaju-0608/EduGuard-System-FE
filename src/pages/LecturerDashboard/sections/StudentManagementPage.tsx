@@ -102,7 +102,7 @@ export default function StudentManagementPage() {
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
   const [selectedStudent, setSelectedStudent] = useState<LecturerStudent | null>(null);
 
-  const { data, loading } = useAsyncData(
+  const { data, loading, error, reload } = useAsyncData(
     async () => {
       const [students, classes] = await Promise.all([fetchLecturerStudents(), fetchLecturerClasses()]);
       return { students, classes };
@@ -172,6 +172,15 @@ export default function StudentManagementPage() {
         </div>
       </FilterBar>
 
+      {error ? (
+        <EmptyState
+          variant="error"
+          icon="👥"
+          title="Không tải được danh sách sinh viên"
+          description={error}
+          onRetry={reload}
+        />
+      ) : (
       <div className="uni-table-wrap">
         <div className="overflow-x-auto">
           <table className="uni-table w-full">
@@ -239,6 +248,7 @@ export default function StudentManagementPage() {
           <EmptyState icon="👥" title="Không tìm thấy sinh viên" description="Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm." />
         )}
       </div>
+      )}
 
       {selectedStudent && (
         <StudentDetailPanel student={selectedStudent} onClose={() => setSelectedStudent(null)} />

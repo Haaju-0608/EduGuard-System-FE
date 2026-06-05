@@ -10,6 +10,7 @@ import {
   getFacultyTheme,
 } from '../../utils/facultyTheme';
 import { AnimateIn, AnimatedProgressBar, FloatingOrbs } from './LecturerAnimations';
+import EmptyStatePage from '../feedback/EmptyStatePage';
 
 /* ── Icon học viện — huy hiệu trường ── */
 export function AcademySeal({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
@@ -242,15 +243,22 @@ export function FilterBar({ children }: { children: ReactNode }) {
   );
 }
 
-export function EmptyState({ icon, title, description }: { icon: string; title: string; description?: string }) {
+export function EmptyState({ icon, title, description, variant = 'empty', onRetry }: {
+  icon?: string;
+  title: string;
+  description?: string;
+  variant?: 'empty' | 'error';
+  onRetry?: () => void;
+}) {
   return (
-    <AnimateIn>
-      <div className="uni-empty-state text-center py-16 px-6">
-        <div className="uni-empty-icon animate-subtle-float">{icon}</div>
-        <h3 className="font-syne font-bold text-white-soft text-lg mt-4">{title}</h3>
-        {description && <p className="text-muted text-sm mt-2 max-w-sm mx-auto">{description}</p>}
-      </div>
-    </AnimateIn>
+    <EmptyStatePage
+      variant={variant}
+      title={title}
+      description={description}
+      icon={icon}
+      homePath="/lecture"
+      onRetry={onRetry}
+    />
   );
 }
 

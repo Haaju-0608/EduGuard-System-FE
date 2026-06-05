@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useToast } from '../../contexts/ToastContext';
 import { FiSun, FiMoon, FiMail, FiLock, FiArrowRight, FiEye, FiEyeOff } from 'react-icons/fi';
 
 export default function LoginPage() {
@@ -12,11 +13,30 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const toast = useToast();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    if (!email.trim()) {
+      toast.warning('Thiếu email', 'Vui lòng nhập địa chỉ email đăng nhập.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      toast.warning('Email không hợp lệ', 'Vui lòng kiểm tra lại định dạng email.');
+      return;
+    }
+    if (!password) {
+      toast.warning('Thiếu mật khẩu', 'Vui lòng nhập mật khẩu của bạn.');
+      return;
+    }
+    if (password.length < 6) {
+      toast.warning('Mật khẩu quá ngắn', 'Mật khẩu cần ít nhất 6 ký tự.');
+      return;
+    }
+
     setLoading(true);
 
     // Simulate network delay
@@ -24,6 +44,7 @@ export default function LoginPage() {
 
     const result = login(email, password);
     if (result.success && result.user) {
+      toast.success('Đăng nhập thành công', `Chào mừng trở lại, ${result.user.name}!`);
       const path =
         result.user.role === 'admin'
           ? '/admin'
@@ -32,7 +53,9 @@ export default function LoginPage() {
             : '/profile';
       navigate(path, { replace: true });
     } else {
-      setError(result.error || 'Invalid credentials');
+      const msg = result.error || 'Email hoặc mật khẩu không đúng.';
+      setError(msg);
+      toast.error('Đăng nhập thất bại', msg);
     }
     setLoading(false);
   };

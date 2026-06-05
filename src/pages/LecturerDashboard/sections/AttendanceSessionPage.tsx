@@ -8,6 +8,7 @@ import {
   FiUsers,
   FiXCircle,
 } from 'react-icons/fi';
+import { useToast } from '../../../contexts/ToastContext';
 import {
   EmptyState,
   FilterPills,
@@ -76,6 +77,7 @@ export default function AttendanceSessionPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [filter, setFilter] = useState<AttendanceStatus | 'all'>('all');
+  const toast = useToast();
 
   /** Tải danh sách lớp và phiên điểm danh hiện tại */
   const loadData = async () => {
@@ -95,10 +97,18 @@ export default function AttendanceSessionPage() {
 
   /** Mở phiên điểm danh mới */
   const handleStartSession = async () => {
-    if (!selectedClassId) return;
+    if (!selectedClassId) {
+      toast.warning('Chưa chọn lớp', 'Vui lòng chọn học phần trước khi bắt đầu điểm danh.');
+      return;
+    }
     setActionLoading(true);
     try {
-      setSession(await startAttendanceSession(selectedClassId));
+      const newSession = await startAttendanceSession(selectedClassId);
+      setSession(newSession);
+      const cls = classes.find((c) => c.id === selectedClassId);
+      toast.success('Bắt đầu điểm danh', cls ? `${cls.code} — ${cls.name}` : 'Phiên điểm danh đã mở.');
+    } catch {
+      toast.error('Không mở được phiên', 'Vui lòng thử lại sau vài giây.');
     } finally {
       setActionLoading(false);
     }
@@ -111,6 +121,9 @@ export default function AttendanceSessionPage() {
     try {
       await endAttendanceSession(session.id);
       setSession(null);
+      toast.info('Đã kết thúc phiên', 'Dữ liệu điểm danh đã được lưu.');
+    } catch {
+      toast.error('Không đóng được phiên', 'Vui lòng thử lại sau vài giây.');
     } finally {
       setActionLoading(false);
     }

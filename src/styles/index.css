@@ -17,27 +17,29 @@
   --color-gold: #F59E0B;
   --color-green: #10B981;
   --color-red: #EF4444;
-  --color-white-soft: #F8FAFF;
-  --color-muted: rgba(248, 250, 255, 0.55);
+  --color-white-soft: #F1F5FF;
+  --color-muted: rgba(241, 245, 255, 0.78);
   --color-border: rgba(59, 130, 246, 0.18);
   --color-cyan-glow: rgba(6, 182, 212, 0.18);
   --color-nav-bg: rgba(10, 15, 46, 0.82);
 }
 
 :root.light {
-  --color-navy: #F8FAFC;
-  --color-navy-mid: #F1F5F9;
+  --color-navy: #EEF2FF;
+  --color-navy-mid: #F8FAFC;
   --color-navy-card: #FFFFFF;
-  --color-white-soft: #0F172A;
-  --color-muted: #475569;
-  --color-border: rgba(15, 23, 42, 0.08);
-  --color-cyan-glow: rgba(6, 182, 212, 0.08);
-  --color-nav-bg: rgba(248, 250, 252, 0.85);
+  --color-white-soft: #0C1222;
+  --color-muted: #4B5563;
+  --color-border: rgba(99, 102, 241, 0.12);
+  --color-cyan-glow: rgba(6, 182, 212, 0.1);
+  --color-nav-bg: rgba(255, 255, 255, 0.92);
 
-  --color-cyan: #0891B2;
-  --color-gold: #D97706;
-  --color-green: #059669;
-  --color-red: #DC2626;
+  --color-blue: #4F46E5;
+  --color-blue-bright: #6366F1;
+  --color-cyan: #0E7490;
+  --color-gold: #B45309;
+  --color-green: #047857;
+  --color-red: #B91C1C;
 }
 
 /* ───── BASE ───── */
@@ -1093,4 +1095,499 @@ body::before {
 
 .bio-face-frame {
   transition: transform 0.3s ease;
+}
+
+/* ═══════════════════════════════════════
+   TOAST — kiểu Instagram / modern app
+   ═══════════════════════════════════════ */
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.animate-toast-in {
+  animation: toast-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.toast-container {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  max-width: min(380px, calc(100vw - 2rem));
+  pointer-events: none;
+}
+
+.toast-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 0.9rem 0.85rem;
+  border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-navy-card);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  pointer-events: auto;
+  backdrop-filter: blur(12px);
+}
+
+.toast-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.toast-title {
+  font-family: var(--font-syne);
+  font-weight: 700;
+  font-size: 0.875rem;
+  color: var(--color-white-soft);
+  line-height: 1.3;
+}
+
+.toast-message {
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin-top: 0.15rem;
+  line-height: 1.45;
+}
+
+.toast-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.toast-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-white-soft);
+}
+
+.toast-progress {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 3px;
+  width: 100%;
+  transform-origin: left;
+  animation: toast-progress linear forwards;
+}
+
+@keyframes toast-progress {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+.toast-success .toast-icon-wrap { background: rgba(16, 185, 129, 0.18); color: var(--color-green); }
+.toast-success .toast-progress { background: var(--color-green); }
+.toast-error .toast-icon-wrap { background: rgba(239, 68, 68, 0.18); color: var(--color-red); }
+.toast-error .toast-progress { background: var(--color-red); }
+.toast-warning .toast-icon-wrap { background: rgba(245, 158, 11, 0.18); color: var(--color-gold); }
+.toast-warning .toast-progress { background: var(--color-gold); }
+.toast-info .toast-icon-wrap { background: rgba(6, 182, 212, 0.18); color: var(--color-cyan); }
+.toast-info .toast-progress { background: var(--color-cyan); }
+
+:root.light .toast-item {
+  background: #FFFFFF;
+  box-shadow: 0 12px 32px rgba(79, 70, 229, 0.1), 0 2px 8px rgba(15, 23, 42, 0.06);
+  border-color: rgba(99, 102, 241, 0.14);
+}
+
+:root.light .toast-close:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+/* ═══════════════════════════════════════
+   NOTIFICATION PANEL — Facebook / Instagram
+   ═══════════════════════════════════════ */
+
+.notif-badge-count {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #EF4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-navy-card);
+  line-height: 1;
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(380px, calc(100vw - 2rem));
+  max-height: 480px;
+  background: var(--color-navy-card);
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  overflow: hidden;
+  z-index: 9990;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+}
+
+.notif-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.1rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.notif-panel-title {
+  font-family: var(--font-syne);
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--color-white-soft);
+}
+
+.notif-panel-sub {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  margin-top: 0.1rem;
+}
+
+.notif-mark-all {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-cyan);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.notif-mark-all:hover {
+  background: var(--color-cyan-glow);
+}
+
+.notif-panel-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 360px;
+}
+
+.notif-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.85rem 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.notif-item:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.notif-item-unread {
+  background: rgba(6, 182, 212, 0.06);
+}
+
+.notif-item-read .notif-item-title {
+  font-weight: 600;
+}
+
+.notif-avatar {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.notif-type-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-navy-card);
+}
+
+.notif-item-title {
+  font-weight: 700;
+  font-size: 0.8125rem;
+  color: var(--color-white-soft);
+  line-height: 1.3;
+}
+
+.notif-item-message {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+  margin-top: 0.15rem;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.notif-item-time {
+  font-size: 0.7rem;
+  color: var(--color-muted);
+  margin-top: 0.25rem;
+  opacity: 0.85;
+}
+
+.notif-unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-cyan);
+  flex-shrink: 0;
+}
+
+.notif-skeleton {
+  height: 72px;
+  margin: 0.5rem 1rem;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+.notif-empty {
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  color: var(--color-muted);
+  font-size: 0.875rem;
+}
+
+.notif-panel-footer {
+  padding: 0.65rem 1rem;
+  border-top: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.notif-see-all {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0.4rem 0.75rem;
+  border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.notif-see-all:hover {
+  color: var(--color-white-soft);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+:root.light .notif-panel {
+  background: #FFFFFF;
+  box-shadow: 0 20px 50px rgba(79, 70, 229, 0.12), 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+:root.light .notif-item-unread {
+  background: rgba(6, 182, 212, 0.05);
+}
+
+:root.light .notif-item:hover {
+  background: rgba(99, 102, 241, 0.05);
+}
+
+/* ═══════════════════════════════════════
+   EMPTY STATE PAGE
+   ═══════════════════════════════════════ */
+
+.empty-state-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 3.5rem 1.5rem;
+  min-height: 320px;
+}
+
+.empty-state-illustration {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.empty-state-glow {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--color-cyan-glow) 0%, transparent 70%);
+  animation: pulse-glow 3s ease-in-out infinite alternate;
+}
+
+.empty-state-icon-svg {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  color: var(--color-muted);
+  opacity: 0.25;
+}
+
+.empty-state-emoji {
+  position: relative;
+  font-size: 2.75rem;
+  z-index: 1;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.2));
+}
+
+.empty-state-title {
+  font-family: var(--font-syne);
+  font-weight: 800;
+  font-size: 1.35rem;
+  color: var(--color-white-soft);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state-desc {
+  font-size: 0.9rem;
+  color: var(--color-muted);
+  max-width: 400px;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.empty-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: center;
+}
+
+.empty-state-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.65rem 1.25rem;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 0.875rem;
+  text-decoration: none;
+  background: linear-gradient(135deg, var(--color-blue) 0%, var(--color-cyan) 100%);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 4px 16px rgba(37, 99, 235, 0.25);
+}
+
+.empty-state-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.35);
+}
+
+.empty-state-btn-secondary {
+  background: transparent;
+  color: var(--color-white-soft);
+  border: 1px solid var(--color-border);
+  box-shadow: none;
+}
+
+.empty-state-btn-secondary:hover {
+  background: var(--color-cyan-glow);
+  border-color: rgba(6, 182, 212, 0.35);
+  box-shadow: none;
+}
+
+:root.light .empty-state-btn-secondary {
+  color: var(--color-white-soft);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+:root.light .empty-state-btn-secondary:hover {
+  background: rgba(99, 102, 241, 0.06);
+}
+
+/* ── Light mode polish ── */
+:root.light .uni-card,
+:root.light .uni-table-wrap,
+:root.light .roster-panel,
+:root.light .bio-id-card {
+  box-shadow: 0 4px 24px rgba(79, 70, 229, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(99, 102, 241, 0.08);
+}
+
+:root.light .uni-page-banner {
+  background: linear-gradient(135deg, #FFFFFF 0%, #EEF2FF 50%, #F8FAFC 100%);
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  box-shadow: 0 8px 32px rgba(79, 70, 229, 0.06);
+}
+
+:root.light .uni-stat-pill {
+  background: #FFFFFF;
+  border-color: rgba(99, 102, 241, 0.1);
+}
+
+:root.light .uni-filter-input {
+  background: #FFFFFF;
+  border-color: rgba(99, 102, 241, 0.12);
+}
+
+:root.light body::before {
+  opacity: 0.15;
+}
+
+/* ── Dark mode — chữ sáng hơn ── */
+:root:not(.light) .text-muted,
+:root:not(.light) .uni-table td,
+:root:not(.light) .notif-item-message {
+  color: rgba(241, 245, 255, 0.78);
+}
+
+:root:not(.light) h1,
+:root:not(.light) h2,
+:root:not(.light) h3,
+:root:not(.light) .text-white-soft {
+  color: #F8FAFF;
 }

@@ -8,6 +8,7 @@ import {
   PageShell,
   SkeletonCard,
 } from '../../../components/lecturer/LecturerUI';
+import { useToast } from '../../../contexts/ToastContext';
 import { fetchBiometricRequests, reviewBiometricRequest } from '../../../services/lecturerApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
@@ -95,6 +96,7 @@ export default function BiometricApprovalPage() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('pending');
   const [reviewing, setReviewing] = useState<string | null>(null);
+  const toast = useToast();
 
   /** Tải danh sách yêu cầu duyệt */
   const loadRequests = async () => {
@@ -114,6 +116,12 @@ export default function BiometricApprovalPage() {
     try {
       const updated = await reviewBiometricRequest(requestId, status);
       setRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
+      toast.success(
+        status === 'approved' ? 'Đã duyệt sinh trắc học' : 'Đã từ chối yêu cầu',
+        `${updated.studentName} — ${updated.classCode}`,
+      );
+    } catch {
+      toast.error('Không thể cập nhật', 'Vui lòng thử lại sau vài giây.');
     } finally {
       setReviewing(null);
     }

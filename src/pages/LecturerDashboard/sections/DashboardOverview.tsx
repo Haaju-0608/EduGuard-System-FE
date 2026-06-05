@@ -7,12 +7,14 @@ import {
 } from '../../../components/lecturer/LecturerAnimations';
 import {
   CourseCodeBadge,
+  EmptyState,
   PageHeader,
   PageShell,
   PrimaryButton,
   SectionTitle,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
+import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
 import {
@@ -131,8 +133,9 @@ function ViolationItem({ alert, index }: { alert: ViolationAlert; index: number 
 /** Dashboard giảng viên */
 export default function DashboardOverview() {
   const { facultyId, lastName } = useLecturerFaculty();
+  const toast = useToast();
 
-  const { data, loading, reload } = useAsyncData(
+  const { data, loading, error, reload } = useAsyncData(
     async () => {
       const [kpis, cameras, violations] = await Promise.all([
         fetchLecturerKpis(),
@@ -150,6 +153,20 @@ export default function DashboardOverview() {
   const onlineCount = cameras.filter((c) => c.isOnline).length;
   const violationCount = cameras.filter((c) => c.hasViolation).length;
 
+  const handleRefresh = async () => {
+    const ok = await reload();
+    if (ok) toast.success('Đã làm mới', 'Dữ liệu dashboard đã cập nhật.');
+    else toast.error('Lỗi tải dữ liệu', 'Không thể kết nối máy chủ. Thử lại sau.');
+  };
+
+  if (error && !loading && !data) {
+    return (
+      <PageShell>
+        <EmptyState variant="error" title="Không tải được dashboard" description={error} onRetry={reload} />
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell>
       <PageHeader
@@ -158,7 +175,7 @@ export default function DashboardOverview() {
         subtitle="Giám sát lớp học trực tuyến đa khoa — theo dõi camera sinh viên và xử lý cảnh báo vi phạm."
         facultyId={facultyId}
         actions={
-          <PrimaryButton variant="ghost" onClick={reload} disabled={loading}>
+          <PrimaryButton variant="ghost" onClick={handleRefresh} disabled={loading}>
             <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
             Làm mới
           </PrimaryButton>

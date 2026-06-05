@@ -6,6 +6,7 @@ import ClassManagementPage from './sections/ClassManagementPage';
 import StudentManagementPage from './sections/StudentManagementPage';
 import AttendanceSessionPage from './sections/AttendanceSessionPage';
 import BiometricApprovalPage from './sections/BiometricApprovalPage';
+import LecturerNotFoundPage from './sections/NotFoundPage';
 
 /** Menu sidebar cho role giảng viên */
 const menuItems: MenuItem[] = [
@@ -26,6 +27,7 @@ export default function LecturerDashboardPage() {
         <Route path="students" element={<StudentManagementPage />} />
         <Route path="attendance" element={<AttendanceSessionPage />} />
         <Route path="biometric" element={<BiometricApprovalPage />} />
+        <Route path="*" element={<LecturerNotFoundPage />} />
       </Routes>
     </DashboardLayout>
   );

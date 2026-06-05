@@ -5,6 +5,8 @@ import { useAuth } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell, FiSearch } from 'react-icons/fi';
 import { CampusBackground, AcademySeal } from '../lecturer/LecturerUI';
 import { getFacultyByDepartment, getFacultyTheme } from '../../utils/facultyTheme';
+import NotificationPanel from '../feedback/NotificationPanel';
+import { useNotifications } from '../../contexts/NotificationContext';
 
 export interface MenuItem {
   icon: string | ReactNode;
@@ -22,8 +24,10 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children, menuItems = [], campusMode = false }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { unreadCount } = useNotifications();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -140,9 +144,9 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
       )}
 
       {/* ── MAIN CONTENT ── */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top Header */}
-        <header className="h-[68px] flex items-center justify-between px-6 border-b border-border bg-navy-card/50 backdrop-blur-[12px]">
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Top Header — z cao để dropdown thông báo nổi trên content */}
+        <header className="relative z-[100] shrink-0 h-[68px] flex items-center justify-between px-6 border-b border-border bg-navy-card/50 backdrop-blur-[12px] overflow-visible">
           <div className="flex items-center gap-4">
             {/* Mobile menu button */}
             <button
@@ -173,11 +177,23 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
               {theme === 'light' ? <FiMoon className="text-[1.05rem]" /> : <FiSun className="text-[1.05rem]" />}
             </button>
 
-            {/* Notifications */}
-            <button className="relative w-[36px] h-[36px] rounded-full bg-transparent border border-border text-white-soft flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-cyan hover:bg-cyan-glow">
-              <FiBell className="text-[1.05rem]" />
-              <span className="absolute -top-0.5 -right-0.5 w-[8px] h-[8px] bg-red rounded-full border-2 border-navy-card" />
-            </button>
+            {/* Notifications — dropdown kiểu social */}
+            <div className="relative z-[110]">
+              <button
+                type="button"
+                onClick={() => setNotifOpen((v) => !v)}
+                aria-label="Thông báo"
+                className={`relative w-[36px] h-[36px] rounded-full bg-transparent border text-white-soft flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-cyan hover:bg-cyan-glow
+                  ${notifOpen ? 'border-cyan bg-cyan-glow' : 'border-border'}
+                `}
+              >
+                <FiBell className="text-[1.05rem]" />
+                {unreadCount > 0 && (
+                  <span className="notif-badge-count">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                )}
+              </button>
+              <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />
+            </div>
 
             {/* Avatar */}
             <div className="w-[36px] h-[36px] rounded-full bg-linear-to-br from-blue to-cyan grid place-items-center text-white text-xs font-syne font-bold cursor-pointer">
@@ -187,9 +203,9 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
         </header>
 
         {/* Page Content */}
-        <main className={`flex-1 overflow-y-auto p-6 custom-scrollbar relative ${campusMode ? 'lecture-main-campus' : ''}`}>
+        <main className={`flex-1 overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
           {campusMode && <CampusBackground />}
-          <div className="relative z-10">{children}</div>
+          <div className="relative z-[1]">{children}</div>
         </main>
       </div>
     </div>

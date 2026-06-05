@@ -87,7 +87,8 @@ export default function ClassManagementPage() {
   const [statusFilter, setStatusFilter] = useState<ClassStatus | 'all'>('all');
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
 
-  const { data: classes = [], loading } = useAsyncData(fetchLecturerClasses, []);
+  const { data, loading, error, reload } = useAsyncData(fetchLecturerClasses, []);
+  const classes = data ?? [];
 
   const predicates = useMemo(
     () => [
@@ -160,6 +161,14 @@ export default function ClassManagementPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
         </div>
+      ) : error ? (
+        <EmptyState
+          variant="error"
+          icon="📚"
+          title="Không tải được danh sách lớp"
+          description={error}
+          onRetry={reload}
+        />
       ) : filteredClasses.length === 0 ? (
         <EmptyState icon="📚" title="Không tìm thấy lớp học" description="Thử thay đổi bộ lọc khoa hoặc từ khóa tìm kiếm." />
       ) : (
