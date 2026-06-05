@@ -168,8 +168,10 @@ export default function BiometricApprovalPage() {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {filteredRequests.map((req) => (
-            <BiometricCard key={req.id} request={req} onReview={handleReview} reviewing={reviewing} />
+          {filteredRequests.map((req, i) => (
+            <div key={req.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
+            <BiometricCard key={req.id} request={req} onReview={handleReview} reviewing={reviewing}             />
+            </div>
           ))}
         </div>
       )}

@@ -221,8 +221,12 @@ export default function AttendanceSessionPage() {
                 {presentRecords.length === 0 ? (
                   <p className="text-muted text-sm text-center py-8">Chưa có sinh viên</p>
                 ) : (
-                  presentRecords.map((record) => (
-                    <div key={record.id} className="roster-item">
+                  presentRecords.map((record, i) => (
+                    <div
+                      key={record.id}
+                      className="roster-item animate-stagger-in"
+                      style={{ animationDelay: `${i * 0.06}s` }}
+                    >
                       <div className="flex items-center gap-3">
                         <StudentAvatar initials={record.initials} size="sm" variant="present" />
                         <div>
@@ -251,8 +255,12 @@ export default function AttendanceSessionPage() {
                 {absentRecords.length === 0 ? (
                   <p className="text-muted text-sm text-center py-8">Tất cả sinh viên đều có mặt 🎉</p>
                 ) : (
-                  absentRecords.map((record) => (
-                    <div key={record.id} className="roster-item">
+                  absentRecords.map((record, i) => (
+                    <div
+                      key={record.id}
+                      className="roster-item animate-stagger-in"
+                      style={{ animationDelay: `${i * 0.06}s` }}
+                    >
                       <div className="flex items-center gap-3">
                         <StudentAvatar initials={record.initials} size="sm" variant="absent" />
                         <div>

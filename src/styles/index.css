@@ -5,8 +5,8 @@
    ═══════════════════════════════════════ */
 
 @theme {
-  --font-syne: 'Syne', sans-serif;
-  --font-dm: 'DM Sans', sans-serif;
+  --font-syne: 'Outfit', system-ui, sans-serif;
+  --font-dm: 'Plus Jakarta Sans', system-ui, sans-serif;
 
   --color-navy: #0A0F2E;
   --color-navy-mid: #111736;
@@ -50,11 +50,19 @@ body {
   background: var(--color-navy);
   color: var(--color-white-soft);
   overflow-x: hidden;
-  line-height: 1.6;
+  line-height: 1.65;
+  font-size: 0.9375rem;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
-nav, section, div, h1, h2, h3, h4, h5, h6, p, span, a, button, input, select {
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-syne);
+  letter-spacing: -0.02em;
+}
+
+nav, section, a, button, input, select {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -111,6 +119,53 @@ body::before {
   to { stroke-dashoffset: 57; }
 }
 
+@keyframes staggerIn {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeInFast {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes orbDrift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-12px, 8px) scale(1.05); }
+}
+
+@keyframes orbDriftReverse {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(10px, -6px); }
+}
+
+@keyframes campusDrift {
+  0%, 100% { transform: scale(1.05) translateY(0); }
+  50% { transform: scale(1.08) translateY(-6px); }
+}
+
+@keyframes scanBeam {
+  0% { top: -20%; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { top: 120%; opacity: 0; }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes subtleFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
 /* ───── ANIMATION UTILITY CLASSES ───── */
 .animate-pulse-glow {
   animation: pulse-glow 6s ease-in-out infinite alternate;
@@ -162,6 +217,53 @@ body::before {
 
 .animate-ring-fill {
   animation: ringFill 2s ease both;
+}
+
+.animate-stagger-in {
+  animation: staggerIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-fade-in-fast {
+  animation: fadeInFast 0.25s ease both;
+}
+
+.animate-scale-in {
+  animation: scaleIn 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-orb-drift {
+  animation: orbDrift 8s ease-in-out infinite;
+}
+
+.animate-orb-drift-reverse {
+  animation: orbDriftReverse 10s ease-in-out infinite;
+}
+
+.animate-slide-in-right {
+  animation: slideInRight 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-subtle-float {
+  animation: subtleFloat 4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-stagger-in,
+  .animate-fade-in-fast,
+  .animate-scale-in,
+  .animate-orb-drift,
+  .animate-orb-drift-reverse,
+  .animate-slide-in-right,
+  .animate-subtle-float,
+  .animate-fade-slide-in,
+  .campus-bg-image,
+  .proctor-scan-beam {
+    animation: none !important;
+  }
+
+  .attendance-progress-fill {
+    transition: none !important;
+  }
 }
 
 /* ───── GRADIENT TEXT UTILITY ───── */
@@ -919,4 +1021,76 @@ body::before {
 .proctor-tile.fac-card-engineering::before,
 .proctor-tile.fac-card-foreign-lang::before {
   display: none;
+}
+
+/* ── Motion enhancements ── */
+.campus-bg-image {
+  animation: campusDrift 24s ease-in-out infinite;
+}
+
+.academy-seal {
+  animation: subtleFloat 5s ease-in-out infinite;
+}
+
+.proctor-scan-beam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: linear-gradient(180deg, transparent, rgba(6, 182, 212, 0.12), transparent);
+  animation: scanBeam 3.5s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.uni-stat-pill {
+  transition: transform 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.uni-stat-pill:hover {
+  transform: translateY(-2px);
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 8px 24px rgba(37, 99, 235, 0.08);
+}
+
+.uni-kpi-card {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease;
+}
+
+.uni-kpi-card:hover {
+  transform: translateY(-4px) scale(1.01);
+}
+
+.proctor-tile {
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.proctor-tile:hover {
+  transform: scale(1.03);
+  z-index: 2;
+}
+
+.roster-item {
+  transition: transform 0.2s ease, background 0.15s ease;
+}
+
+.roster-item:hover {
+  transform: translateX(4px);
+}
+
+.uni-filter-pill {
+  transition: transform 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.uni-filter-pill:active {
+  transform: scale(0.97);
+}
+
+.bio-id-card:hover .bio-face-frame {
+  transform: scale(1.05);
+  transition: transform 0.3s ease;
+}
+
+.bio-face-frame {
+  transition: transform 0.3s ease;
 }

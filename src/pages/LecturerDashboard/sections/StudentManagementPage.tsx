@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FiBookOpen, FiChevronDown, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
+import { ModalOverlay } from '../../../components/lecturer/LecturerAnimations';
 import {
   AttendanceProgressBar,
   CourseCodeBadge,
@@ -12,9 +13,10 @@ import {
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
 import { fetchLecturerClasses, fetchLecturerStudents } from '../../../services/lecturerApi';
-import type { FacultyId, LecturerClass, LecturerStudent, StudentStatus } from '../../../types/lecturer';
-import { getFacultyByDepartment } from '../../../utils/facultyTheme';
-import { useAuth } from '../../../contexts/AuthContext';
+import type { FacultyId, LecturerStudent, StudentStatus } from '../../../types/lecturer';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useListFilters } from '../../../hooks/useListFilters';
+import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
 
 /** Badge trạng thái sinh viên */
 function StudentStatusBadge({ status }: { status: StudentStatus }) {
@@ -32,8 +34,8 @@ function StudentStatusBadge({ status }: { status: StudentStatus }) {
 /** Modal chi tiết sinh viên — hiển thị thông tin lớp học */
 function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="uni-card uni-card-accent-blue w-full max-w-[500px] !p-0 overflow-hidden animate-fade-slide-in" onClick={(e) => e.stopPropagation()}>
+    <ModalOverlay onClose={onClose}>
+      <div className="uni-card uni-card-accent-blue w-full max-w-[500px] !p-0 overflow-hidden mx-auto">
         {/* Header thẻ sinh viên */}
         <div className="relative bg-linear-to-br from-blue/20 to-cyan/10 p-6 border-b border-border">
           <button onClick={onClose} className="absolute top-4 right-4 w-8 h-8 rounded-full bg-navy/60 border border-border text-muted hover:text-white-soft cursor-pointer grid place-items-center">
@@ -88,44 +90,38 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
           </UniCard>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   );
 }
 
 /** Trang quản lý sinh viên */
 export default function StudentManagementPage() {
-  const { user } = useAuth();
-  const [students, setStudents] = useState<LecturerStudent[]>([]);
-  const [classes, setClasses] = useState<LecturerClass[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { facultyId } = useLecturerFaculty();
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
   const [selectedStudent, setSelectedStudent] = useState<LecturerStudent | null>(null);
 
-  const homeFaculty = user?.department ? getFacultyByDepartment(user.department) : 'it';
+  const { data, loading } = useAsyncData(
+    async () => {
+      const [students, classes] = await Promise.all([fetchLecturerStudents(), fetchLecturerClasses()]);
+      return { students, classes };
+    },
+    []
+  );
 
-  /** Tải danh sách sinh viên và lớp học từ API */
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [studentData, classData] = await Promise.all([fetchLecturerStudents(), fetchLecturerClasses()]);
-      setStudents(studentData);
-      setClasses(classData);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const students = data?.students ?? [];
+  const classes = data?.classes ?? [];
 
-  useEffect(() => { loadData(); }, []);
+  const predicates = useMemo(
+    () => [
+      (s: LecturerStudent) => classFilter === 'all' || s.classId === classFilter,
+      (s: LecturerStudent) => facultyFilter === 'all' || s.facultyId === facultyFilter,
+    ],
+    [classFilter, facultyFilter]
+  );
 
-  /** Lọc sinh viên theo từ khóa và lớp */
-  const filteredStudents = students.filter((s) => {
-    const matchSearch = s.name.toLowerCase().includes(search.toLowerCase()) || s.studentId.includes(search) || s.email.toLowerCase().includes(search.toLowerCase());
-    const matchClass = classFilter === 'all' || s.classId === classFilter;
-    const matchFaculty = facultyFilter === 'all' || s.facultyId === facultyFilter;
-    return matchSearch && matchClass && matchFaculty;
-  });
+  const filteredStudents = useListFilters(students, search, ['name', 'studentId', 'email'], predicates);
 
   const activeCount = students.filter((s) => s.status === 'active').length;
 
@@ -135,7 +131,7 @@ export default function StudentManagementPage() {
         eyebrow="Student Registry"
         title="Quản lý sinh viên"
         subtitle="Danh sách sinh viên theo học phần và khoa. Nhấn vào dòng để xem hồ sơ."
-        facultyId={homeFaculty}
+        facultyId={facultyId}
         stats={[
           { label: 'Tổng SV', value: String(students.length), icon: '👥' },
           { label: 'Đang học', value: String(activeCount), icon: '✅' },
@@ -196,8 +192,13 @@ export default function StudentManagementPage() {
                       <td colSpan={6}><div className="uni-skeleton h-12 rounded-xl my-1" /></td>
                     </tr>
                   ))
-                : filteredStudents.map((student) => (
-                    <tr key={student.id} onClick={() => setSelectedStudent(student)}>
+                : filteredStudents.map((student, i) => (
+                    <tr
+                      key={student.id}
+                      onClick={() => setSelectedStudent(student)}
+                      className="animate-stagger-in"
+                      style={{ animationDelay: `${Math.min(i * 0.05, 0.4)}s` }}
+                    >
                       <td>
                         <div className="flex items-center gap-3">
                           <StudentAvatar initials={student.initials} size="md" facultyId={student.facultyId} />

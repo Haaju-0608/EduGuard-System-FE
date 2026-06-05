@@ -9,6 +9,7 @@ import {
   getFacultyByCourseCode,
   getFacultyTheme,
 } from '../../utils/facultyTheme';
+import { AnimateIn, AnimatedProgressBar, FloatingOrbs } from './LecturerAnimations';
 
 /* ── Icon học viện — huy hiệu trường ── */
 export function AcademySeal({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
@@ -24,7 +25,7 @@ export function AcademySeal({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 /* ── Wrapper trang với ảnh nền campus ── */
 export function PageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="lecture-page-shell max-w-[1400px] mx-auto space-y-6 animate-fade-slide-in relative z-10">
+    <div className="lecture-page-shell max-w-[1400px] mx-auto space-y-6 relative z-10">
       {children}
     </div>
   );
@@ -58,18 +59,13 @@ export function PageHeader({ eyebrow, title, subtitle, actions, stats, facultyId
   const faculty = facultyId ? getFacultyTheme(facultyId) : null;
 
   return (
+    <AnimateIn>
     <div
       className={`uni-page-banner relative overflow-hidden rounded-[24px] border p-6 sm:p-8 ${faculty ? faculty.cardClass : ''}`}
       style={faculty ? { borderColor: `${faculty.primary}33` } : undefined}
     >
       <div className="absolute inset-0 uni-banner-grid pointer-events-none" />
-      {faculty && (
-        <div
-          className="absolute -top-24 -right-24 w-72 h-72 rounded-full blur-3xl pointer-events-none opacity-20"
-          style={{ background: faculty.primary }}
-        />
-      )}
-      <div className="absolute -bottom-16 -left-16 w-48 h-48 rounded-full bg-cyan/8 blur-3xl pointer-events-none" />
+      <FloatingOrbs color={faculty?.primary} />
 
       <div className="relative z-10 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
         <div className="flex items-start gap-4">
@@ -90,18 +86,21 @@ export function PageHeader({ eyebrow, title, subtitle, actions, stats, facultyId
 
       {stats && stats.length > 0 && (
         <div className="relative z-10 grid grid-cols-2 sm:grid-cols-4 gap-3 mt-6 pt-6 border-t border-border/60">
-          {stats.map((s) => (
-            <div key={s.label} className="uni-stat-pill">
-              {s.icon && <span className="text-lg">{s.icon}</span>}
-              <div>
-                <p className="font-syne font-extrabold text-lg text-white-soft">{s.value}</p>
-                <p className="text-[11px] text-muted uppercase tracking-wider">{s.label}</p>
+          {stats.map((s, i) => (
+            <AnimateIn key={s.label} index={i + 1}>
+              <div className="uni-stat-pill h-full">
+                {s.icon && <span className="text-lg">{s.icon}</span>}
+                <div>
+                  <p className="font-syne font-extrabold text-lg text-white-soft">{s.value}</p>
+                  <p className="text-[11px] text-muted uppercase tracking-wider">{s.label}</p>
+                </div>
               </div>
-            </div>
+            </AnimateIn>
           ))}
         </div>
       )}
     </div>
+    </AnimateIn>
   );
 }
 
@@ -245,11 +244,13 @@ export function FilterBar({ children }: { children: ReactNode }) {
 
 export function EmptyState({ icon, title, description }: { icon: string; title: string; description?: string }) {
   return (
-    <div className="uni-empty-state text-center py-16 px-6">
-      <div className="uni-empty-icon">{icon}</div>
-      <h3 className="font-syne font-bold text-white-soft text-lg mt-4">{title}</h3>
-      {description && <p className="text-muted text-sm mt-2 max-w-sm mx-auto">{description}</p>}
-    </div>
+    <AnimateIn>
+      <div className="uni-empty-state text-center py-16 px-6">
+        <div className="uni-empty-icon animate-subtle-float">{icon}</div>
+        <h3 className="font-syne font-bold text-white-soft text-lg mt-4">{title}</h3>
+        {description && <p className="text-muted text-sm mt-2 max-w-sm mx-auto">{description}</p>}
+      </div>
+    </AnimateIn>
   );
 }
 
@@ -360,23 +361,11 @@ export function StudentAvatar({
 
 export function AttendanceProgressBar({ rate, facultyId }: { rate: number; facultyId?: FacultyId }) {
   const faculty = facultyId ? getFacultyTheme(facultyId) : null;
-  const color = rate >= 80
+  const gradient = rate >= 80
     ? faculty ? faculty.gradient : 'from-green to-cyan'
     : rate >= 60 ? 'from-gold to-orange-400' : 'from-red to-orange-400';
 
-  return (
-    <div className="attendance-progress">
-      <div className="flex justify-between mb-1.5">
-        <span className="text-[11px] text-muted">Tỷ lệ điểm danh</span>
-        <span className={`text-xs font-bold ${rate >= 80 ? 'text-green' : rate >= 60 ? 'text-gold' : 'text-red'}`}>
-          {rate}%
-        </span>
-      </div>
-      <div className="attendance-progress-track">
-        <div className={`attendance-progress-fill bg-linear-to-r ${color}`} style={{ width: `${rate}%` }} />
-      </div>
-    </div>
-  );
+  return <AnimatedProgressBar rate={rate} gradientClass={gradient} />;
 }
 
 /** @deprecated Dùng facultyId trực tiếp thay vì hash mã lớp */
