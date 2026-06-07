@@ -38,7 +38,7 @@ export default function ToastContainer() {
               type="button"
               onClick={() => dismiss(toast.id)}
               className="toast-close"
-              aria-label="Đóng"
+              aria-label="Close"
             >
               <FiX />
             </button>

@@ -41,10 +41,10 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
     : null;
 
   return (
-    <div className="flex h-screen overflow-hidden bg-navy">
+    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-navy">
       {/* ── SIDEBAR ── */}
       <aside
-        className={`sidebar-transition fixed lg:relative z-50 h-full flex flex-col bg-navy-card border-r border-border
+        className={`sidebar-transition fixed top-0 left-0 lg:relative lg:top-auto lg:left-auto z-50 h-full flex flex-col bg-navy-card border-r border-border
           ${collapsed ? 'w-[72px]' : 'w-[260px]'}
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         `}
@@ -144,9 +144,9 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
       )}
 
       {/* ── MAIN CONTENT ── */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-screen lg:min-h-0 w-full lg:w-auto max-w-full overflow-x-hidden">
         {/* Top Header — z cao để dropdown thông báo nổi trên content */}
-        <header className="relative z-[100] shrink-0 h-[68px] flex items-center justify-between px-6 border-b border-border bg-navy-card/50 backdrop-blur-[12px] overflow-visible">
+        <header className="sticky top-0 z-[100] shrink-0 h-[68px] flex items-center justify-between px-6 border-b border-border bg-navy-card/50 backdrop-blur-[12px] overflow-visible">
           <div className="flex items-center gap-4">
             {/* Mobile menu button */}
             <button
@@ -182,7 +182,7 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
               <button
                 type="button"
                 onClick={() => setNotifOpen((v) => !v)}
-                aria-label="Thông báo"
+                aria-label="Notifications"
                 className={`relative w-[36px] h-[36px] rounded-full bg-transparent border text-white-soft flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-cyan hover:bg-cyan-glow
                   ${notifOpen ? 'border-cyan bg-cyan-glow' : 'border-border'}
                 `}
@@ -203,7 +203,7 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
         </header>
 
         {/* Page Content */}
-        <main className={`flex-1 overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
+        <main className={`flex-1 overflow-y-visible lg:overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
           {campusMode && <CampusBackground />}
           <div className="relative z-[1]">{children}</div>
         </main>

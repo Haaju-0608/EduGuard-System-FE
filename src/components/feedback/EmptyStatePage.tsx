@@ -16,26 +16,26 @@ interface EmptyStatePageProps {
 const VARIANTS: Record<EmptyPageVariant, { icon: string; title: string; description: string; Illustration: React.ElementType }> = {
   empty: {
     icon: '📭',
-    title: 'Chưa có dữ liệu',
-    description: 'Hiện tại chưa có nội dung để hiển thị. Hãy thử thay đổi bộ lọc hoặc quay lại sau.',
+    title: 'No Data Available',
+    description: 'There is currently no content to display. Try changing the filters or check back later.',
     Illustration: FiInbox,
   },
   error: {
     icon: '⚠️',
-    title: 'Không tải được dữ liệu',
-    description: 'Đã xảy ra lỗi khi kết nối máy chủ. Vui lòng thử lại sau vài giây.',
+    title: 'Failed to Load Data',
+    description: 'An error occurred while connecting to the server. Please try again in a few seconds.',
     Illustration: FiAlertCircle,
   },
   'not-found': {
     icon: '🔍',
-    title: 'Không tìm thấy trang',
-    description: 'Trang bạn truy cập không tồn tại hoặc đã bị di chuyển.',
+    title: 'Page Not Found',
+    description: 'The page you accessed does not exist or has been moved.',
     Illustration: FiSearch,
   },
   loading: {
     icon: '⏳',
-    title: 'Đang tải...',
-    description: 'Vui lòng đợi trong giây lát.',
+    title: 'Loading...',
+    description: 'Please wait a moment.',
     Illustration: FiInbox,
   },
 };
@@ -67,12 +67,12 @@ export default function EmptyStatePage({
           {onRetry && (
             <button type="button" onClick={onRetry} className="empty-state-btn empty-state-btn-secondary">
               <FiRefreshCw className="text-sm" />
-              Thử lại
+              Try Again
             </button>
           )}
           <Link to={homePath} className="empty-state-btn">
             <FiHome className="text-sm" />
-            Về Dashboard
+            Back to Dashboard
           </Link>
         </div>
       )}

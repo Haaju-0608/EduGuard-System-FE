@@ -14,7 +14,7 @@ export function useAsyncData<T>(fetcher: () => Promise<T>, deps: unknown[] = [])
       setData(result);
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Đã xảy ra lỗi');
+      setError(e instanceof Error ? e.message : 'An error occurred');
       return false;
     } finally {
       setLoading(false);

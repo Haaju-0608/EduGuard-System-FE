@@ -155,14 +155,14 @@ export default function DashboardOverview() {
 
   const handleRefresh = async () => {
     const ok = await reload();
-    if (ok) toast.success('Đã làm mới', 'Dữ liệu dashboard đã cập nhật.');
-    else toast.error('Lỗi tải dữ liệu', 'Không thể kết nối máy chủ. Thử lại sau.');
+    if (ok) toast.success('Refreshed', 'Dashboard data has been updated.');
+    else toast.error('Error loading data', 'Unable to connect to the server. Try again later.');
   };
 
   if (error && !loading && !data) {
     return (
       <PageShell>
-        <EmptyState variant="error" title="Không tải được dashboard" description={error} onRetry={reload} />
+        <EmptyState variant="error" title="Failed to load dashboard" description={error} onRetry={reload} />
       </PageShell>
     );
   }
@@ -171,20 +171,20 @@ export default function DashboardOverview() {
     <PageShell>
       <PageHeader
         eyebrow="Faculty Control Center"
-        title={<>Xin chào, <span className="text-gradient-blue-cyan">{lastName}</span></>}
-        subtitle="Giám sát lớp học trực tuyến đa khoa — theo dõi camera sinh viên và xử lý cảnh báo vi phạm."
+        title={<>Welcome back, <span className="text-gradient-blue-cyan">{lastName}</span></>}
+        subtitle="Cross-faculty online classroom proctoring — monitor student cameras and resolve violation alerts."
         facultyId={facultyId}
         actions={
           <PrimaryButton variant="ghost" onClick={handleRefresh} disabled={loading}>
             <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
-            Làm mới
+            Refresh
           </PrimaryButton>
         }
         stats={[
-          { label: 'Camera online', value: `${onlineCount}/${cameras.length}`, icon: '📹' },
-          { label: 'Vi phạm', value: String(violationCount), icon: '⚠️' },
-          { label: 'Cảnh báo mới', value: String(violations.length), icon: '🔔' },
-          { label: 'Học kỳ', value: 'HK1 25-26', icon: '🎓' },
+          { label: 'Cameras online', value: `${onlineCount}/${cameras.length}`, icon: '📹' },
+          { label: 'Violations', value: String(violationCount), icon: '⚠️' },
+          { label: 'New Alerts', value: String(violations.length), icon: '🔔' },
+          { label: 'Semester', value: 'Term 1 25-26', icon: '🎓' },
         ]}
       />
 
@@ -202,8 +202,8 @@ export default function DashboardOverview() {
           <UniCard accent="cyan" hover={false} className="!p-6 h-full">
             <SectionTitle
               icon={<FiMonitor className="text-cyan" />}
-              title="Phòng giám sát trực tuyến"
-              subtitle={`${onlineCount} sinh viên đang online · ${violationCount} cần chú ý`}
+              title="Online Proctoring Room"
+              subtitle={`${onlineCount} students online · ${violationCount} need attention`}
               badge={
                 <span className="flex items-center gap-1.5 text-[11px] text-green font-bold bg-green/10 border border-green/25 px-3 py-1 rounded-full">
                   <LiveDot color="bg-green" /> LIVE
@@ -231,11 +231,11 @@ export default function DashboardOverview() {
           <UniCard accent="red" hover={false} className="!p-6 flex flex-col h-full">
             <SectionTitle
               icon={<FiAlertTriangle className="text-red" />}
-              title="Cảnh báo vi phạm"
-              subtitle="Danh sách sự kiện AI phát hiện"
+              title="Violation Alerts"
+              subtitle="List of events detected by AI"
               badge={
                 <span className="text-xs font-bold text-red bg-red/10 border border-red/25 px-3 py-1 rounded-full">
-                  {violations.length} mới
+                  {violations.length} new
                 </span>
               }
             />

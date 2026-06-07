@@ -214,7 +214,7 @@ export function FacultyFilterBar({
         onClick={() => onChange('all')}
         className={`uni-filter-pill ${active === 'all' ? 'uni-filter-pill-active' : ''}`}
       >
-        Tất cả khoa
+        All Faculties
         {counts?.all !== undefined && <span className="uni-filter-count">{counts.all}</span>}
       </button>
       {faculties.map((f) => {

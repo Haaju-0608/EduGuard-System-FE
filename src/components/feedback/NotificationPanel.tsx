@@ -47,14 +47,14 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
     <div ref={panelRef} className="notif-panel animate-scale-in">
       <div className="notif-panel-header">
         <div>
-          <h3 className="notif-panel-title">Thông báo</h3>
+          <h3 className="notif-panel-title">Notifications</h3>
           {unreadCount > 0 && (
-            <p className="notif-panel-sub">{unreadCount} chưa đọc</p>
+            <p className="notif-panel-sub">{unreadCount} unread</p>
           )}
         </div>
         {unreadCount > 0 && (
           <button type="button" onClick={markAllAsRead} className="notif-mark-all">
-            <FiCheck className="text-sm" /> Đọc tất cả
+            <FiCheck className="text-sm" /> Mark all as read
           </button>
         )}
       </div>
@@ -67,7 +67,7 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
         ) : notifications.length === 0 ? (
           <div className="notif-empty">
             <span className="text-3xl">🔔</span>
-            <p>Không có thông báo</p>
+            <p>No notifications</p>
           </div>
         ) : (
           notifications.map((notif) => {
@@ -107,7 +107,7 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
 
       <div className="notif-panel-footer">
         <button type="button" className="notif-see-all" onClick={onClose}>
-          Đóng
+          Close
         </button>
       </div>
     </div>

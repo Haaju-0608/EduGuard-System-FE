@@ -30,10 +30,10 @@ import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerCla
 /** Badge trạng thái điểm danh */
 function AttendanceBadge({ status }: { status: AttendanceStatus }) {
   const config = {
-    present: { label: 'Có mặt', icon: FiCheckCircle, className: 'text-green bg-green/10 border-green/25' },
-    absent: { label: 'Vắng', icon: FiXCircle, className: 'text-red bg-red/10 border-red/25' },
-    late: { label: 'Muộn', icon: FiClock, className: 'text-gold bg-gold/10 border-gold/25' },
-    excused: { label: 'Có phép', icon: FiCheckCircle, className: 'text-blue-bright bg-blue/10 border-blue/25' },
+    present: { label: 'Present', icon: FiCheckCircle, className: 'text-green bg-green/10 border-green/25' },
+    absent: { label: 'Absent', icon: FiXCircle, className: 'text-red bg-red/10 border-red/25' },
+    late: { label: 'Late', icon: FiClock, className: 'text-gold bg-gold/10 border-gold/25' },
+    excused: { label: 'Excused', icon: FiCheckCircle, className: 'text-blue-bright bg-blue/10 border-blue/25' },
   };
   const { label, icon: Icon, className } = config[status];
   return (
@@ -50,10 +50,10 @@ function SessionStats({ session }: { session: AttendanceSession }) {
   const rate = session.records.length > 0 ? Math.round((presentCount / session.records.length) * 100) : 0;
 
   const stats = [
-    { label: 'Tổng sinh viên', value: session.records.length, color: 'text-blue-bright', bg: 'bg-blue/10', icon: FiUsers },
-    { label: 'Có mặt', value: presentCount, color: 'text-green', bg: 'bg-green/10', icon: FiCheckCircle },
-    { label: 'Vắng mặt', value: absentCount, color: 'text-red', bg: 'bg-red/10', icon: FiXCircle },
-    { label: 'Tỷ lệ tham dự', value: `${rate}%`, color: 'text-cyan', bg: 'bg-cyan/10', icon: FiClock },
+    { label: 'Total Students', value: session.records.length, color: 'text-blue-bright', bg: 'bg-blue/10', icon: FiUsers },
+    { label: 'Present', value: presentCount, color: 'text-green', bg: 'bg-green/10', icon: FiCheckCircle },
+    { label: 'Absent', value: absentCount, color: 'text-red', bg: 'bg-red/10', icon: FiXCircle },
+    { label: 'Attendance Rate', value: `${rate}%`, color: 'text-cyan', bg: 'bg-cyan/10', icon: FiClock },
   ];
 
   return (
@@ -98,7 +98,7 @@ export default function AttendanceSessionPage() {
   /** Mở phiên điểm danh mới */
   const handleStartSession = async () => {
     if (!selectedClassId) {
-      toast.warning('Chưa chọn lớp', 'Vui lòng chọn học phần trước khi bắt đầu điểm danh.');
+      toast.warning('No class selected', 'Please select a course before starting attendance.');
       return;
     }
     setActionLoading(true);
@@ -106,9 +106,9 @@ export default function AttendanceSessionPage() {
       const newSession = await startAttendanceSession(selectedClassId);
       setSession(newSession);
       const cls = classes.find((c) => c.id === selectedClassId);
-      toast.success('Bắt đầu điểm danh', cls ? `${cls.code} — ${cls.name}` : 'Phiên điểm danh đã mở.');
+      toast.success('Attendance started', cls ? `${cls.code} — ${cls.name}` : 'Attendance session opened.');
     } catch {
-      toast.error('Không mở được phiên', 'Vui lòng thử lại sau vài giây.');
+      toast.error('Failed to open session', 'Please try again in a few seconds.');
     } finally {
       setActionLoading(false);
     }
@@ -121,9 +121,9 @@ export default function AttendanceSessionPage() {
     try {
       await endAttendanceSession(session.id);
       setSession(null);
-      toast.info('Đã kết thúc phiên', 'Dữ liệu điểm danh đã được lưu.');
+      toast.info('Session ended', 'Attendance data has been saved.');
     } catch {
-      toast.error('Không đóng được phiên', 'Vui lòng thử lại sau vài giây.');
+      toast.error('Failed to close session', 'Please try again in a few seconds.');
     } finally {
       setActionLoading(false);
     }
@@ -148,12 +148,12 @@ export default function AttendanceSessionPage() {
     <PageShell>
       <PageHeader
         eyebrow="Attendance Session"
-        title="Phiên điểm danh"
-        subtitle="Mở phiên điểm danh cho lớp học và theo dõi sinh viên có mặt / vắng theo thời gian thực."
+        title="Attendance Session"
+        subtitle="Open attendance sessions for classes and track student presence in real time."
         actions={
           <PrimaryButton variant="ghost" onClick={loadData} disabled={loading}>
             <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
-            Làm mới
+            Refresh
           </PrimaryButton>
         }
       />
@@ -161,13 +161,13 @@ export default function AttendanceSessionPage() {
       <UniCard accent="green" hover={false} className="!p-6">
         <SectionTitle
           icon={<FiUsers className="text-green" />}
-          title="Điều khiển phiên"
-          subtitle="Chọn học phần và bắt đầu điểm danh"
+          title="Session Control"
+          subtitle="Select course and start attendance"
         />
 
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
           <div className="flex-1 w-full">
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Học phần</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Course</label>
             <div className="uni-filter-input">
               <select
                 value={selectedClassId}
@@ -175,7 +175,7 @@ export default function AttendanceSessionPage() {
                 disabled={!!session}
               >
                 {classes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.code} — {c.name} · Phòng {c.room}</option>
+                  <option key={c.id} value={c.id}>{c.code} — {c.name} · Room {c.room}</option>
                 ))}
               </select>
             </div>
@@ -183,11 +183,11 @@ export default function AttendanceSessionPage() {
 
           {!session ? (
             <PrimaryButton variant="success" onClick={handleStartSession} disabled={actionLoading || !selectedClassId}>
-              <FiPlay /> {actionLoading ? 'Đang mở...' : 'Mở phiên điểm danh'}
+              <FiPlay /> {actionLoading ? 'Starting...' : 'Start Attendance Session'}
             </PrimaryButton>
           ) : (
             <PrimaryButton variant="danger" onClick={handleEndSession} disabled={actionLoading}>
-              <FiStopCircle /> {actionLoading ? 'Đang đóng...' : 'Kết thúc phiên'}
+              <FiStopCircle /> {actionLoading ? 'Ending...' : 'End Session'}
             </PrimaryButton>
           )}
         </div>
@@ -196,11 +196,11 @@ export default function AttendanceSessionPage() {
           <div className="mt-6 pt-6 border-t border-border/60">
             <div className="flex flex-wrap items-center gap-3 mb-5">
               <span className="flex items-center gap-1.5 text-xs text-green font-bold bg-green/10 border border-green/25 px-3 py-1.5 rounded-full">
-                <span className="w-2 h-2 bg-green rounded-full animate-pulse" /> Phiên đang diễn ra
+                <span className="w-2 h-2 bg-green rounded-full animate-pulse" /> Active Session
               </span>
               <span className="course-code-badge text-xs">{session.classCode}</span>
               <span className="text-sm text-white-soft font-semibold">{session.className}</span>
-              <span className="text-xs text-muted">📍 Phòng {session.room} · 🕐 {session.startTime}</span>
+              <span className="text-xs text-muted">📍 Room {session.room} · 🕐 {session.startTime}</span>
             </div>
             <SessionStats session={session} />
           </div>
@@ -211,11 +211,11 @@ export default function AttendanceSessionPage() {
         <>
           <FilterPills
             tabs={[
-              { key: 'all', label: 'Tất cả' },
-              { key: 'present', label: 'Có mặt' },
-              { key: 'absent', label: 'Vắng' },
-              { key: 'late', label: 'Muộn' },
-              { key: 'excused', label: 'Có phép' },
+              { key: 'all', label: 'All' },
+              { key: 'present', label: 'Present' },
+              { key: 'absent', label: 'Absent' },
+              { key: 'late', label: 'Late' },
+              { key: 'excused', label: 'Excused' },
             ]}
             active={filter}
             onChange={setFilter}
@@ -227,12 +227,12 @@ export default function AttendanceSessionPage() {
             <div className="roster-panel roster-panel-present">
               <h2 className="font-syne font-bold text-white-soft mb-4 flex items-center gap-2">
                 <FiCheckCircle className="text-green text-lg" />
-                Danh sách có mặt
+                Present List
                 <span className="text-sm font-normal text-muted">({presentRecords.length})</span>
               </h2>
               <div className="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar">
                 {presentRecords.length === 0 ? (
-                  <p className="text-muted text-sm text-center py-8">Chưa có sinh viên</p>
+                  <p className="text-muted text-sm text-center py-8">No students yet</p>
                 ) : (
                   presentRecords.map((record, i) => (
                     <div
@@ -261,12 +261,12 @@ export default function AttendanceSessionPage() {
             <div className="roster-panel roster-panel-absent">
               <h2 className="font-syne font-bold text-white-soft mb-4 flex items-center gap-2">
                 <FiXCircle className="text-red text-lg" />
-                Danh sách vắng mặt
+                Absent List
                 <span className="text-sm font-normal text-muted">({absentRecords.length})</span>
               </h2>
               <div className="space-y-2 max-h-[420px] overflow-y-auto custom-scrollbar">
                 {absentRecords.length === 0 ? (
-                  <p className="text-muted text-sm text-center py-8">Tất cả sinh viên đều có mặt 🎉</p>
+                  <p className="text-muted text-sm text-center py-8">All students are present 🎉</p>
                 ) : (
                   absentRecords.map((record, i) => (
                     <div
@@ -294,8 +294,8 @@ export default function AttendanceSessionPage() {
       {!session && !loading && (
         <EmptyState
           icon="📋"
-          title="Chưa có phiên điểm danh"
-          description='Chọn học phần ở trên và nhấn "Mở phiên điểm danh" để bắt đầu buổi học.'
+          title="No Active Attendance Session"
+          description='Select a course above and click "Start Attendance Session" to begin.'
         />
       )}
     </PageShell>

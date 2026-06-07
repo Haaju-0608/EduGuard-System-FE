@@ -47,7 +47,7 @@ export function StaggerGrid({
 export function AnimatedProgressBar({
   rate,
   gradientClass,
-  label = 'Tỷ lệ điểm danh',
+  label = 'Attendance Rate',
 }: {
   rate: number;
   gradientClass: string;

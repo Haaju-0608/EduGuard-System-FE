@@ -8,8 +8,8 @@ export default function LecturerNotFoundPage() {
     <PageShell>
       <EmptyStatePage
         variant="not-found"
-        title="Trang không tồn tại"
-        description="Đường dẫn bạn truy cập không có trong hệ thống giảng viên."
+        title="Page Not Found"
+        description="The page you are looking for does not exist in the lecturer system."
         homePath="/lecture"
       />
     </PageShell>

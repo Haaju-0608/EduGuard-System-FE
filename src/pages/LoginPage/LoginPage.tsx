@@ -21,19 +21,19 @@ export default function LoginPage() {
     setError('');
 
     if (!email.trim()) {
-      toast.warning('Thiếu email', 'Vui lòng nhập địa chỉ email đăng nhập.');
+      toast.warning('Email missing', 'Please enter your login email address.');
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      toast.warning('Email không hợp lệ', 'Vui lòng kiểm tra lại định dạng email.');
+      toast.warning('Invalid email', 'Please double check your email format.');
       return;
     }
     if (!password) {
-      toast.warning('Thiếu mật khẩu', 'Vui lòng nhập mật khẩu của bạn.');
+      toast.warning('Password missing', 'Please enter your password.');
       return;
     }
     if (password.length < 6) {
-      toast.warning('Mật khẩu quá ngắn', 'Mật khẩu cần ít nhất 6 ký tự.');
+      toast.warning('Password too short', 'Password must be at least 6 characters.');
       return;
     }
 
@@ -44,7 +44,7 @@ export default function LoginPage() {
 
     const result = login(email, password);
     if (result.success && result.user) {
-      toast.success('Đăng nhập thành công', `Chào mừng trở lại, ${result.user.name}!`);
+      toast.success('Login successful', `Welcome back, ${result.user.name}!`);
       const path =
         result.user.role === 'admin'
           ? '/admin'
@@ -53,9 +53,9 @@ export default function LoginPage() {
             : '/profile';
       navigate(path, { replace: true });
     } else {
-      const msg = result.error || 'Email hoặc mật khẩu không đúng.';
+      const msg = result.error || 'Incorrect email or password.';
       setError(msg);
-      toast.error('Đăng nhập thất bại', msg);
+      toast.error('Login failed', msg);
     }
     setLoading(false);
   };

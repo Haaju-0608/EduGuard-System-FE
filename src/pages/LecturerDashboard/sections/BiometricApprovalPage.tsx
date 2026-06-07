@@ -15,9 +15,9 @@ import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer'
 /** Badge trạng thái duyệt sinh trắc học */
 function BiometricStatusBadge({ status }: { status: BiometricStatus }) {
   const config = {
-    pending: { label: 'Chờ duyệt', className: 'text-gold bg-gold/10 border-gold/25' },
-    approved: { label: 'Đã duyệt', className: 'text-green bg-green/10 border-green/25' },
-    rejected: { label: 'Từ chối', className: 'text-red bg-red/10 border-red/25' },
+    pending: { label: 'Pending', className: 'text-gold bg-gold/10 border-gold/25' },
+    approved: { label: 'Approved', className: 'text-green bg-green/10 border-green/25' },
+    rejected: { label: 'Rejected', className: 'text-red bg-red/10 border-red/25' },
   };
   const { label, className } = config[status];
   return (
@@ -44,12 +44,12 @@ function BiometricCard({
         <div className="absolute top-3 right-3">
           <BiometricStatusBadge status={request.status} />
         </div>
-        <div className="absolute top-3 left-3 flex items-center gap-1 text-[9px] text-cyan font-bold uppercase tracking-widest bg-black/40 backdrop-blur-sm px-2 py-1 rounded-md border border-cyan/20">
+        <div className="absolute top-3 left-3 flex items-center gap-1 text-[9px] font-bold uppercase tracking-widest bio-id-badge">
           <FiShield className="text-[10px]" /> ID Verify
         </div>
-        <div className="absolute bottom-0 inset-x-0 bg-linear-to-t from-black/90 to-transparent p-4">
+        <div className="absolute bottom-0 inset-x-0 p-4 bio-id-overlay">
           <p className="font-syne font-bold text-white-soft">{request.studentName}</p>
-          <p className="text-[11px] text-muted font-mono mt-0.5">MSSV: {request.studentId}</p>
+          <p className="text-[11px] text-muted font-mono mt-0.5">Student ID: {request.studentId}</p>
         </div>
       </div>
 
@@ -72,16 +72,16 @@ function BiometricCard({
             <button
               onClick={() => onReview(request.id, 'approved')}
               disabled={reviewing === request.id}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-green/10 border border-green/30 text-green text-xs font-bold py-2.5 rounded-xl cursor-pointer hover:bg-green/20 transition-all disabled:opacity-50"
+              className="flex-1 flex items-center justify-center gap-1.5 bio-btn-approve text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
             >
-              <FiCheck /> Duyệt
+              <FiCheck /> Approve
             </button>
             <button
               onClick={() => onReview(request.id, 'rejected')}
               disabled={reviewing === request.id}
-              className="flex-1 flex items-center justify-center gap-1.5 bg-red/10 border border-red/30 text-red text-xs font-bold py-2.5 rounded-xl cursor-pointer hover:bg-red/20 transition-all disabled:opacity-50"
+              className="flex-1 flex items-center justify-center gap-1.5 bio-btn-reject text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
             >
-              <FiX /> Từ chối
+              <FiX /> Reject
             </button>
           </div>
         )}
@@ -117,11 +117,11 @@ export default function BiometricApprovalPage() {
       const updated = await reviewBiometricRequest(requestId, status);
       setRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
       toast.success(
-        status === 'approved' ? 'Đã duyệt sinh trắc học' : 'Đã từ chối yêu cầu',
+        status === 'approved' ? 'Biometrics approved' : 'Request rejected',
         `${updated.studentName} — ${updated.classCode}`,
       );
     } catch {
-      toast.error('Không thể cập nhật', 'Vui lòng thử lại sau vài giây.');
+      toast.error('Failed to update', 'Please try again in a few seconds.');
     } finally {
       setReviewing(null);
     }
@@ -137,22 +137,22 @@ export default function BiometricApprovalPage() {
     <PageShell>
       <PageHeader
         eyebrow="Biometric Verification"
-        title="Duyệt sinh trắc học"
-        subtitle="Xác minh ảnh khuôn mặt sinh viên đăng ký trước khi tham gia điểm danh và giám sát thi."
+        title="Biometric Verification"
+        subtitle="Verify student face photos registered before they join attendance sessions and proctored exams."
         stats={[
-          { label: 'Chờ duyệt', value: String(pendingCount), icon: '⏳' },
-          { label: 'Đã duyệt', value: String(requests.filter((r) => r.status === 'approved').length), icon: '✅' },
-          { label: 'Từ chối', value: String(requests.filter((r) => r.status === 'rejected').length), icon: '❌' },
-          { label: 'Tổng', value: String(requests.length), icon: '🔐' },
+          { label: 'Pending', value: String(pendingCount), icon: '⏳' },
+          { label: 'Approved', value: String(requests.filter((r) => r.status === 'approved').length), icon: '✅' },
+          { label: 'Rejected', value: String(requests.filter((r) => r.status === 'rejected').length), icon: '❌' },
+          { label: 'Total', value: String(requests.length), icon: '🔐' },
         ]}
       />
 
       <FilterPills
         tabs={[
-          { key: 'pending', label: 'Chờ duyệt' },
-          { key: 'approved', label: 'Đã duyệt' },
-          { key: 'rejected', label: 'Từ chối' },
-          { key: 'all', label: 'Tất cả' },
+          { key: 'pending', label: 'Pending' },
+          { key: 'approved', label: 'Approved' },
+          { key: 'rejected', label: 'Rejected' },
+          { key: 'all', label: 'All' },
         ]}
         active={statusFilter}
         onChange={setStatusFilter}
@@ -171,8 +171,8 @@ export default function BiometricApprovalPage() {
       ) : filteredRequests.length === 0 ? (
         <EmptyState
           icon="🔐"
-          title="Không có yêu cầu"
-          description="Chưa có yêu cầu duyệt sinh trắc học nào trong mục này."
+          title="No requests"
+          description="There are no biometric verification requests in this section."
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">

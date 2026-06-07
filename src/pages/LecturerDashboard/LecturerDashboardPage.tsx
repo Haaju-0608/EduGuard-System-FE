@@ -11,10 +11,10 @@ import LecturerNotFoundPage from './sections/NotFoundPage';
 /** Menu sidebar cho role giảng viên */
 const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/lecture' },
-  { icon: '📚', label: 'Lớp học', path: '/lecture/classes' },
-  { icon: '👥', label: 'Sinh viên', path: '/lecture/students' },
-  { icon: '📋', label: 'Điểm danh', path: '/lecture/attendance' },
-  { icon: '🔐', label: 'Sinh trắc học', path: '/lecture/biometric' },
+  { icon: '📚', label: 'Classes', path: '/lecture/classes' },
+  { icon: '👥', label: 'Students', path: '/lecture/students' },
+  { icon: '📋', label: 'Attendance', path: '/lecture/attendance' },
+  { icon: '🔐', label: 'Biometrics', path: '/lecture/biometric' },
 ];
 
 /** Layout chính dashboard giảng viên — điều hướng các trang con */

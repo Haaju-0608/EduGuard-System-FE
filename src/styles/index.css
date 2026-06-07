@@ -905,7 +905,8 @@ body::before {
 :root.light .uni-card,
 :root.light .uni-table-wrap,
 :root.light .roster-panel,
-:root.light .bio-id-card {
+:root.light .bio-id-card,
+:root.light .uni-kpi-card {
   background: #FFFFFF;
 }
 
@@ -1553,7 +1554,8 @@ body::before {
 :root.light .uni-card,
 :root.light .uni-table-wrap,
 :root.light .roster-panel,
-:root.light .bio-id-card {
+:root.light .bio-id-card,
+:root.light .uni-kpi-card {
   box-shadow: 0 4px 24px rgba(79, 70, 229, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
   border: 1px solid rgba(99, 102, 241, 0.08);
 }
@@ -1590,4 +1592,173 @@ body::before {
 :root:not(.light) h3,
 :root:not(.light) .text-white-soft {
   color: #F8FAFF;
+}
+
+/* ── Light Mode Polish Extra ── */
+:root.light .uni-filter-bar {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 20px rgba(79, 70, 229, 0.04);
+}
+
+:root.light .uni-table thead tr {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+:root.light .uni-btn-ghost {
+  background: #FFFFFF;
+  color: #0C1222;
+  border-color: rgba(99, 102, 241, 0.16);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+}
+
+:root.light .uni-btn-ghost:hover {
+  background: rgba(99, 102, 241, 0.05);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+:root.light .uni-kpi-card span.bg-white\/5 {
+  background: rgba(15, 23, 42, 0.06) !important;
+}
+
+:root.light .uni-filter-input input::placeholder {
+  color: #6B7280;
+  opacity: 0.8;
+}
+
+:root.light select option {
+  background-color: #FFFFFF;
+  color: #0C1222;
+}
+
+/* Keep proctor tiles dark but guarantee text contrast in light mode */
+:root.light .proctor-tile {
+  background: linear-gradient(145deg, #0A0F2E, #161D3F);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+:root.light .proctor-tile .text-muted,
+:root.light .proctor-tile span.text-muted {
+  color: rgba(241, 245, 255, 0.6) !important;
+}
+:root.light .proctor-tile .text-white-soft {
+  color: #F1F5FF !important;
+}
+
+/* ── Biometric ID Card Style Refinements ── */
+.bio-id-badge {
+  color: var(--color-cyan);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(6, 182, 212, 0.2);
+}
+
+.bio-id-overlay {
+  background: linear-gradient(to top, rgba(10, 15, 46, 0.95) 0%, rgba(10, 15, 46, 0.4) 60%, transparent 100%);
+}
+
+.bio-btn-approve {
+  background: var(--color-green);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+}
+
+.bio-btn-approve:hover:not(:disabled) {
+  background: #059669;
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.4);
+}
+
+.bio-btn-reject {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: var(--color-red);
+}
+
+.bio-btn-reject:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: var(--color-red);
+}
+
+/* ── Light Mode Polish for Biometric ID Card ── */
+:root.light .bio-id-badge {
+  color: #0E7490;
+  background: rgba(14, 116, 144, 0.08);
+  border-color: rgba(14, 116, 144, 0.2);
+}
+
+:root.light .bio-id-overlay {
+  background: linear-gradient(to top, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.65) 60%, transparent 100%);
+}
+
+:root.light .bio-id-photo {
+  background: linear-gradient(135deg, #EEF2FF 0%, #E0E7FF 100%);
+}
+
+:root.light .bio-id-photo::before {
+  border: 1px solid rgba(99, 102, 241, 0.12);
+  inset: 12px;
+}
+
+:root.light .bio-face-frame {
+  background: #FFFFFF;
+  border: 2px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.12);
+}
+
+:root.light .bio-btn-approve {
+  background: #10B981;
+  color: white;
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+:root.light .bio-btn-approve:hover:not(:disabled) {
+  background: #059669;
+  box-shadow: 0 6px 16px rgba(5, 150, 105, 0.3);
+}
+
+:root.light .bio-btn-reject {
+  background: transparent;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #DC2626;
+}
+
+:root.light .bio-btn-reject:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.06);
+  border-color: #DC2626;
+}
+
+/* ── Light Mode filter pill enhancements ── */
+:root.light .uni-filter-pill-active {
+  background: linear-gradient(135deg, var(--color-blue), var(--color-blue-bright)) !important;
+  color: #FFFFFF !important;
+  border-color: transparent !important;
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.25) !important;
+}
+
+:root.light .uni-filter-pill-active .uni-filter-count {
+  background: rgba(255, 255, 255, 0.25) !important;
+  color: #FFFFFF !important;
+}
+
+:root.light .uni-filter-count {
+  background: rgba(15, 23, 42, 0.06);
+  color: var(--color-muted);
+}
+
+/* ── Light Mode Polish for Roster & Empty State ── */
+:root.light .roster-item {
+  background: #F8FAFC;
+  border-color: rgba(99, 102, 241, 0.08);
+}
+
+:root.light .roster-item:hover {
+  background: #F1F5F9;
+  border-color: rgba(99, 102, 241, 0.15);
+}
+
+:root.light .uni-empty-state {
+  background: linear-gradient(160deg, #F8FAFC, #F1F5F9);
+  border-color: rgba(99, 102, 241, 0.16);
 }

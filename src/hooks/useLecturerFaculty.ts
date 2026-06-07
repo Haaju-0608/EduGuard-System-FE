@@ -9,7 +9,7 @@ export function useLecturerFaculty() {
     ? getFacultyByDepartment(user.department)
     : 'it';
   const faculty = getFacultyTheme(facultyId);
-  const lastName = user?.name?.split(' ').slice(-1)[0] ?? 'Thầy/Cô';
+  const lastName = user?.name?.split(' ').slice(-1)[0] ?? 'Instructor';
 
   return { facultyId, faculty, lastName, user };
 }

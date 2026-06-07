@@ -25,8 +25,8 @@ export interface FacultyTheme {
 export const FACULTY_THEMES: Record<FacultyId, FacultyTheme> = {
   it: {
     id: 'it',
-    name: 'Công nghệ Thông tin',
-    shortName: 'CNTT',
+    name: 'Information Technology',
+    shortName: 'IT',
     icon: FiCpu,
     emoji: '💻',
     primary: '#2563EB',
@@ -40,8 +40,8 @@ export const FACULTY_THEMES: Record<FacultyId, FacultyTheme> = {
   },
   economics: {
     id: 'economics',
-    name: 'Kinh tế',
-    shortName: 'Kinh tế',
+    name: 'Economics',
+    shortName: 'Economics',
     icon: FiBarChart2,
     emoji: '📊',
     primary: '#D97706',
@@ -55,8 +55,8 @@ export const FACULTY_THEMES: Record<FacultyId, FacultyTheme> = {
   },
   business: {
     id: 'business',
-    name: 'Quản trị Kinh doanh',
-    shortName: 'QTKD',
+    name: 'Business Administration',
+    shortName: 'Business',
     icon: FiBriefcase,
     emoji: '💼',
     primary: '#059669',
@@ -70,8 +70,8 @@ export const FACULTY_THEMES: Record<FacultyId, FacultyTheme> = {
   },
   engineering: {
     id: 'engineering',
-    name: 'Kỹ thuật',
-    shortName: 'Kỹ thuật',
+    name: 'Engineering',
+    shortName: 'Engineering',
     icon: FiTool,
     emoji: '⚙️',
     primary: '#EA580C',
@@ -85,8 +85,8 @@ export const FACULTY_THEMES: Record<FacultyId, FacultyTheme> = {
   },
   'foreign-lang': {
     id: 'foreign-lang',
-    name: 'Ngoại ngữ',
-    shortName: 'Ngoại ngữ',
+    name: 'Foreign Languages',
+    shortName: 'Languages',
     icon: FiGlobe,
     emoji: '🌍',
     primary: '#7C3AED',

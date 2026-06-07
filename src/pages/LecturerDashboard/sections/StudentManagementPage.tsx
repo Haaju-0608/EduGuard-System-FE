@@ -21,9 +21,9 @@ import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
 /** Badge trạng thái sinh viên */
 function StudentStatusBadge({ status }: { status: StudentStatus }) {
   const config = {
-    active: { label: 'Đang học', className: 'text-green bg-green/10 border-green/25' },
-    inactive: { label: 'Tạm nghỉ', className: 'text-red bg-red/10 border-red/25' },
-    pending: { label: 'Chờ duyệt', className: 'text-gold bg-gold/10 border-gold/25' },
+    active: { label: 'Active', className: 'text-green bg-green/10 border-green/25' },
+    inactive: { label: 'On Leave', className: 'text-red bg-red/10 border-red/25' },
+    pending: { label: 'Pending', className: 'text-gold bg-gold/10 border-gold/25' },
   };
   const { label, className } = config[status];
   return (
@@ -46,7 +46,7 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
             <div>
               <p className="text-[10px] text-cyan font-bold uppercase tracking-widest mb-1">Student Profile</p>
               <h3 className="font-syne font-extrabold text-xl text-white-soft">{student.name}</h3>
-              <p className="text-sm text-muted font-mono mt-0.5">MSSV: {student.studentId}</p>
+              <p className="text-sm text-muted font-mono mt-0.5">Student ID: {student.studentId}</p>
               <div className="mt-2"><StudentStatusBadge status={student.status} /></div>
             </div>
           </div>
@@ -56,7 +56,7 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
               { icon: FiMail, label: 'Email', value: student.email },
-              { icon: FiPhone, label: 'Điện thoại', value: student.phone },
+              { icon: FiPhone, label: 'Phone', value: student.phone },
             ].map(({ icon: Icon, label, value }) => (
               <div key={label} className="bg-navy/50 rounded-xl p-3 border border-border/50">
                 <div className="flex items-center gap-2 text-[10px] text-muted uppercase tracking-wider mb-1">
@@ -70,19 +70,19 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
           <UniCard facultyId={student.facultyId} hover={false} className="!p-4">
             <div className="flex items-center gap-2 mb-3">
               <FiBookOpen className="text-blue-bright" />
-              <h4 className="font-syne font-bold text-sm text-white-soft">Thông tin lớp học</h4>
+              <h4 className="font-syne font-bold text-sm text-white-soft">Course Details</h4>
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Mã học phần</span>
+                <span className="text-xs text-muted">Course Code</span>
                 <CourseCodeBadge code={student.classCode} facultyId={student.facultyId} size="sm" />
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-muted">Khoa</span>
+                <span className="text-xs text-muted">Faculty</span>
                 <FacultyBadge facultyId={student.facultyId} size="sm" />
               </div>
               <div>
-                <span className="text-xs text-muted">Tên lớp</span>
+                <span className="text-xs text-muted">Class Name</span>
                 <p className="text-sm text-white-soft mt-0.5">{student.className}</p>
               </div>
               <AttendanceProgressBar rate={student.attendanceRate} facultyId={student.facultyId} />
@@ -129,14 +129,14 @@ export default function StudentManagementPage() {
     <PageShell>
       <PageHeader
         eyebrow="Student Registry"
-        title="Quản lý sinh viên"
-        subtitle="Danh sách sinh viên theo học phần và khoa. Nhấn vào dòng để xem hồ sơ."
+        title="Student Registry"
+        subtitle="List of students by course and faculty. Click on a row to view profile."
         facultyId={facultyId}
         stats={[
-          { label: 'Tổng SV', value: String(students.length), icon: '👥' },
-          { label: 'Đang học', value: String(activeCount), icon: '✅' },
-          { label: 'Học phần', value: String(classes.length), icon: '📚' },
-          { label: 'Học kỳ', value: 'HK1 25-26', icon: '🗓️' },
+          { label: 'Total Students', value: String(students.length), icon: '👥' },
+          { label: 'Active', value: String(activeCount), icon: '✅' },
+          { label: 'Courses', value: String(classes.length), icon: '📚' },
+          { label: 'Semester', value: 'Term 1 25-26', icon: '🗓️' },
         ]}
       />
 
@@ -145,14 +145,14 @@ export default function StudentManagementPage() {
           <FiSearch className="text-muted shrink-0" />
           <input
             type="text"
-            placeholder="Tìm theo tên, MSSV, email..."
+            placeholder="Search by name, student ID, email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
         <div className="uni-filter-input sm:max-w-[260px] relative">
           <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-            <option value="all">Tất cả học phần</option>
+            <option value="all">All Courses</option>
             {classes.map((c) => (
               <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
             ))}
@@ -161,12 +161,12 @@ export default function StudentManagementPage() {
         </div>
         <div className="uni-filter-input sm:max-w-[180px] relative">
           <select value={facultyFilter} onChange={(e) => setFacultyFilter(e.target.value as FacultyId | 'all')}>
-            <option value="all">Tất cả khoa</option>
-            <option value="it">CNTT</option>
-            <option value="economics">Kinh tế</option>
-            <option value="business">QTKD</option>
-            <option value="engineering">Kỹ thuật</option>
-            <option value="foreign-lang">Ngoại ngữ</option>
+            <option value="all">All Faculties</option>
+            <option value="it">IT</option>
+            <option value="economics">Economics</option>
+            <option value="business">Business</option>
+            <option value="engineering">Engineering</option>
+            <option value="foreign-lang">Languages</option>
           </select>
           <FiChevronDown className="absolute right-3 text-muted pointer-events-none" />
         </div>
@@ -176,7 +176,7 @@ export default function StudentManagementPage() {
         <EmptyState
           variant="error"
           icon="👥"
-          title="Không tải được danh sách sinh viên"
+          title="Failed to load student list"
           description={error}
           onRetry={reload}
         />
@@ -186,12 +186,12 @@ export default function StudentManagementPage() {
           <table className="uni-table w-full">
             <thead>
               <tr>
-                <th>Sinh viên</th>
-                <th>MSSV</th>
-                <th>Học phần</th>
-                <th>Khoa</th>
-                <th>Điểm danh</th>
-                <th>Trạng thái</th>
+                <th>Student</th>
+                <th>Student ID</th>
+                <th>Course</th>
+                <th>Faculty</th>
+                <th>Attendance</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -245,7 +245,7 @@ export default function StudentManagementPage() {
         </div>
 
         {!loading && filteredStudents.length === 0 && (
-          <EmptyState icon="👥" title="Không tìm thấy sinh viên" description="Thử thay đổi bộ lọc hoặc từ khóa tìm kiếm." />
+          <EmptyState icon="👥" title="No students found" description="Try changing the filters or search keyword." />
         )}
       </div>
       )}

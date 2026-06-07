@@ -24,9 +24,9 @@ import { getAllFaculties } from '../../../utils/facultyTheme';
 
 function StatusBadge({ status }: { status: ClassStatus }) {
   const config = {
-    active: { label: 'Đang giảng dạy', dot: 'bg-green', className: 'text-green bg-green/10 border-green/25' },
-    completed: { label: 'Đã kết thúc', dot: 'bg-muted', className: 'text-muted bg-white/5 border-border' },
-    upcoming: { label: 'Sắp khai giảng', dot: 'bg-gold', className: 'text-gold bg-gold/10 border-gold/25' },
+    active: { label: 'Active', dot: 'bg-green', className: 'text-green bg-green/10 border-green/25' },
+    completed: { label: 'Completed', dot: 'bg-muted', className: 'text-muted bg-white/5 border-border' },
+    upcoming: { label: 'Upcoming', dot: 'bg-gold', className: 'text-gold bg-gold/10 border-gold/25' },
   };
   const { label, dot, className } = config[status];
   return (
@@ -61,8 +61,8 @@ function ClassCard({ cls, index }: { cls: LecturerClass; index: number }) {
         <div className="space-y-3 flex-1">
           {[
             { icon: FiClock, text: cls.schedule },
-            { icon: FiMapPin, text: `Phòng ${cls.room}` },
-            { icon: FiUsers, text: `${cls.studentCount} sinh viên đăng ký` },
+            { icon: FiMapPin, text: `Room ${cls.room}` },
+            { icon: FiUsers, text: `${cls.studentCount} students registered` },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-3 text-sm text-muted bg-navy/40 rounded-xl px-3 py-2 border border-border/40">
               <Icon className="text-cyan shrink-0 text-base" />
@@ -113,14 +113,14 @@ export default function ClassManagementPage() {
     <PageShell>
       <PageHeader
         eyebrow="Course Management"
-        title="Quản lý lớp học"
-        subtitle="Danh sách học phần bạn đang phụ trách trong học kỳ hiện tại."
+        title="Course Management"
+        subtitle="List of courses you are in charge of in the current semester."
         facultyId={facultyId}
         stats={[
-          { label: 'Học phần', value: String(classes.length), icon: '📚' },
-          { label: 'Đang dạy', value: String(activeCount), icon: '✅' },
-          { label: 'Sinh viên', value: String(totalStudents), icon: '👥' },
-          { label: 'Khoa', value: String(faculties.length), icon: '🏛️' },
+          { label: 'Courses', value: String(classes.length), icon: '📚' },
+          { label: 'Active', value: String(activeCount), icon: '✅' },
+          { label: 'Students', value: String(totalStudents), icon: '👥' },
+          { label: 'Faculties', value: String(faculties.length), icon: '🏛️' },
         ]}
       />
 
@@ -139,7 +139,7 @@ export default function ClassManagementPage() {
             <FiSearch className="text-muted shrink-0" />
             <input
               type="text"
-              placeholder="Tìm theo mã học phần, tên lớp..."
+              placeholder="Search course code, class name..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -147,10 +147,10 @@ export default function ClassManagementPage() {
           <div className="uni-filter-input sm:max-w-[220px] relative">
             <FiBook className="text-muted shrink-0" />
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ClassStatus | 'all')}>
-              <option value="all">Tất cả trạng thái</option>
-              <option value="active">Đang giảng dạy</option>
-              <option value="upcoming">Sắp khai giảng</option>
-              <option value="completed">Đã kết thúc</option>
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="upcoming">Upcoming</option>
+              <option value="completed">Completed</option>
             </select>
             <FiChevronDown className="absolute right-3 text-muted pointer-events-none" />
           </div>
@@ -165,12 +165,12 @@ export default function ClassManagementPage() {
         <EmptyState
           variant="error"
           icon="📚"
-          title="Không tải được danh sách lớp"
+          title="Failed to load courses"
           description={error}
           onRetry={reload}
         />
       ) : filteredClasses.length === 0 ? (
-        <EmptyState icon="📚" title="Không tìm thấy lớp học" description="Thử thay đổi bộ lọc khoa hoặc từ khóa tìm kiếm." />
+        <EmptyState icon="📚" title="No classes found" description="Try changing the faculty filter or search keyword." />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredClasses.map((cls, i) => (
