@@ -1,13 +1,165 @@
 /**
- * Client API cơ bản — mock delay + fetch tới backend EduGuard.
+ * HTTP client — tự gắn Bearer token từ localStorage cho GET/POST/PUT/DELETE.
  */
+import { clearAuthTokens, getAccessToken } from './authStorage';
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'https://eduguard-api-gdhg.onrender.com';
 
 const DEFAULT_DELAY_MS = 400;
 
-/** Mô phỏng độ trễ gọi API */
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+/** Envelope response chuẩn từ backend EduGuard */
+export interface ApiEnvelope<T> {
+  success: boolean;
+  message?: string;
+  data: T;
+  errors?: unknown;
+}
+
+export class ApiError extends Error {
+  status: number;
+  errors?: unknown;
+
+  constructor(message: string, status: number, errors?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.errors = errors;
+  }
+}
+
+export interface ApiRequestOptions {
+  method?: HttpMethod;
+  body?: unknown;
+  headers?: Record<string, string>;
+  /** Không gắn Authorization — dùng cho login / API public */
+  skipAuth?: boolean;
+  /** Trả nguyên body JSON thay vì unwrap `data` */
+  raw?: boolean;
+}
+
+function buildAuthHeaders(skipAuth: boolean): Record<string, string> {
+  const headers: Record<string, string> = { accept: '*/*' };
+  if (!skipAuth) {
+    const token = getAccessToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return headers;
+}
+
+async function parseJsonSafe(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function extractErrorMessage(body: unknown, status: number): string {
+  if (body && typeof body === 'object') {
+    const record = body as Record<string, unknown>;
+    if (typeof record.message === 'string' && record.message) return record.message;
+    if (typeof record.errors === 'string') return record.errors;
+    if (Array.isArray(record.errors) && record.errors.length > 0) {
+      return String(record.errors[0]);
+    }
+  }
+  if (status === 401) return 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.';
+  if (status === 403) return 'Bạn không có quyền thực hiện thao tác này.';
+  if (status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.';
+  return 'Yêu cầu thất bại.';
+}
+
+function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    'success' in value &&
+    'data' in value
+  );
+}
+
+/**
+ * Request cơ bản — tự lấy accessToken từ localStorage và gắn header Authorization.
+ */
+export async function apiRequest<T>(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<T> {
+  const { method = 'GET', body, headers = {}, skipAuth = false, raw = false } = options;
+
+  const requestHeaders: Record<string, string> = {
+    ...buildAuthHeaders(skipAuth),
+    ...headers,
+  };
+
+  const hasJsonBody = body !== undefined && !(body instanceof FormData);
+  if (hasJsonBody) {
+    requestHeaders['Content-Type'] = 'application/json';
+  }
+
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method,
+    headers: requestHeaders,
+    body:
+      body === undefined
+        ? undefined
+        : body instanceof FormData
+          ? body
+          : JSON.stringify(body),
+  });
+
+  const parsed = await parseJsonSafe(res);
+
+  if (!res.ok) {
+    if (res.status === 401 && !skipAuth) {
+      clearAuthTokens();
+    }
+    throw new ApiError(extractErrorMessage(parsed, res.status), res.status, (parsed as ApiEnvelope<unknown>)?.errors);
+  }
+
+  if (raw) return parsed as T;
+
+  if (isApiEnvelope(parsed)) {
+    if (!parsed.success) {
+      throw new ApiError(extractErrorMessage(parsed, res.status), res.status, parsed.errors);
+    }
+    return parsed.data as T;
+  }
+
+  return parsed as T;
+}
+
+/** GET có Authorization */
+export function apiGet<T>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
+  return apiRequest<T>(path, { ...options, method: 'GET' });
+}
+
+/** POST có Authorization */
+export function apiPost<T>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
+  return apiRequest<T>(path, { ...options, method: 'POST', body });
+}
+
+/** PUT có Authorization */
+export function apiPut<T>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
+  return apiRequest<T>(path, { ...options, method: 'PUT', body });
+}
+
+/** PATCH có Authorization */
+export function apiPatch<T>(path: string, body?: unknown, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
+  return apiRequest<T>(path, { ...options, method: 'PATCH', body });
+}
+
+/** DELETE có Authorization */
+export function apiDelete<T>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
+  return apiRequest<T>(path, { ...options, method: 'DELETE' });
+}
+
+/** Mô phỏng độ trễ gọi API — dùng cho mock */
 export async function simulateNetworkDelay(ms = DEFAULT_DELAY_MS): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -16,11 +168,4 @@ export async function simulateNetworkDelay(ms = DEFAULT_DELAY_MS): Promise<void>
 export async function mockApiResponse<T>(data: T, delayMs = DEFAULT_DELAY_MS): Promise<T> {
   await simulateNetworkDelay(delayMs);
   return data;
-}
-
-/** Chuẩn hóa response API (dùng khi ráp backend thật) */
-export interface ApiResponse<T> {
-  success: boolean;
-  data: T;
-  message?: string;
 }

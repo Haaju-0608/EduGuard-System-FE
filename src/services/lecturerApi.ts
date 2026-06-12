@@ -1,6 +1,10 @@
 /**
  * API giả cho module Giảng viên (Lecturer).
- * Mỗi hàm mô phỏng gọi REST API — sau này thay body bằng fetch/axios tới backend.
+ * Khi ráp backend: thay mockApiResponse bằng apiGet/apiPost/... từ apiClient.
+ *
+ * @example
+ * return apiGet<LecturerClass[]>('/api/lecturer/classes');
+ * return apiPost<AttendanceSession>('/api/attendance/sessions', { classId });
  */
 import { mockApiResponse } from './apiClient';
 import {
