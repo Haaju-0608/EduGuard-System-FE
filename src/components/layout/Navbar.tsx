@@ -2,7 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { NAV_LINKS } from '../../utils/constants';
 import { useTheme } from '../../contexts/ThemeContext';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, getDashboardPath } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiLogOut, FiUser } from 'react-icons/fi';
 
 export default function Navbar() {
@@ -17,13 +17,7 @@ export default function Navbar() {
 
   const handleDashboard = () => {
     if (user) {
-      const path =
-        user.role === 'admin'
-          ? '/admin'
-          : user.role === 'lecture'
-            ? '/lecture'
-            : '/profile';
-      navigate(path);
+      navigate(getDashboardPath(user.role));
     }
   };
 

@@ -1,7 +1,9 @@
 /**
- * Client API cơ bản — mô phỏng độ trễ mạng.
- * Khi tích hợp backend thật, thay `fetch` bằng axios/fetch tới base URL.
+ * Client API cơ bản — mock delay + fetch tới backend EduGuard.
  */
+
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? 'https://eduguard-api-gdhg.onrender.com';
 
 const DEFAULT_DELAY_MS = 400;
 

@@ -1,6 +1,6 @@
 import { ReactNode } from 'react';
 import { Navigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, getDashboardPath } from '../../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: ReactNode;
@@ -8,9 +8,10 @@ interface ProtectedRouteProps {
 }
 
 /** Lấy đường dẫn dashboard mặc định theo role */
-function getDashboardPath(role: string): string {
-  if (role === 'admin') return '/admin';
-  if (role === 'lecture') return '/lecture';
+function redirectPath(role: string): string {
+  if (role === 'admin' || role === 'lecture' || role === 'user') {
+    return getDashboardPath(role);
+  }
   return '/profile';
 }
 
@@ -21,9 +22,8 @@ export default function ProtectedRoute({ children, allowedRole }: ProtectedRoute
     return <Navigate to="/login" replace />;
   }
 
-  // If user is trying to access a route not matching their role
   if (allowedRole && user && user.role !== allowedRole) {
-    return <Navigate to={getDashboardPath(user.role)} replace />;
+    return <Navigate to={redirectPath(user.role)} replace />;
   }
 
   return children;

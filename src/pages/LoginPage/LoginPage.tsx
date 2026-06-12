@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth, getDashboardPath } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useToast } from '../../contexts/ToastContext';
 import { FiSun, FiMoon, FiMail, FiLock, FiArrowRight, FiEye, FiEyeOff } from 'react-icons/fi';
@@ -39,23 +39,14 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    // Simulate network delay
-    await new Promise((r) => setTimeout(r, 600));
-
-    const result = login(email, password);
+    const result = await login(email, password);
     if (result.success && result.user) {
-      toast.success('Login successful', `Welcome back, ${result.user.name}!`);
-      const path =
-        result.user.role === 'admin'
-          ? '/admin'
-          : result.user.role === 'lecture'
-            ? '/lecture'
-            : '/profile';
-      navigate(path, { replace: true });
+      toast.success('Đăng nhập thành công', `Chào mừng trở lại, ${result.user.name}!`);
+      navigate(getDashboardPath(result.user.role), { replace: true });
     } else {
-      const msg = result.error || 'Incorrect email or password.';
+      const msg = result.error || 'Email hoặc mật khẩu không đúng.';
       setError(msg);
-      toast.error('Login failed', msg);
+      toast.error('Đăng nhập thất bại', msg);
     }
     setLoading(false);
   };
@@ -236,7 +227,7 @@ export default function LoginPage() {
           {/* Divider */}
           <div className="flex items-center gap-4 my-7">
             <div className="flex-1 h-px bg-border" />
-            <span className="text-muted text-xs font-medium">Demo Accounts</span>
+            <span className="text-muted text-xs font-medium">Tài khoản thử</span>
             <div className="flex-1 h-px bg-border" />
           </div>
 
@@ -244,35 +235,24 @@ export default function LoginPage() {
           <div className="flex flex-col gap-2.5">
             <button
               type="button"
-              onClick={() => { setEmail('user@eduguard.com'); setPassword('123456'); setError(''); }}
-              className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-gold/40 hover:bg-gold/5 group"
-            >
-              <div className="w-[34px] h-[34px] rounded-full bg-gold/15 grid place-items-center text-sm">🎓</div>
-              <div>
-                <p className="text-sm font-semibold text-white-soft group-hover:text-gold transition-colors">Student Account</p>
-                <p className="text-[11px] text-muted">user@eduguard.com / 123456</p>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEmail('admin@eduguard.com'); setPassword('admin123'); setError(''); }}
+              onClick={() => { setEmail('superadmin@gmail.com'); setPassword('string'); setError(''); }}
               className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-blue-bright/40 hover:bg-blue/5 group"
             >
               <div className="w-[34px] h-[34px] rounded-full bg-blue-bright/15 grid place-items-center text-sm">👑</div>
               <div>
-                <p className="text-sm font-semibold text-white-soft group-hover:text-blue-bright transition-colors">Admin Account</p>
-                <p className="text-[11px] text-muted">admin@eduguard.com / admin123</p>
+                <p className="text-sm font-semibold text-white-soft group-hover:text-blue-bright transition-colors">Super Admin</p>
+                <p className="text-[11px] text-muted">superadmin@gmail.com / string</p>
               </div>
             </button>
             <button
               type="button"
-              onClick={() => { setEmail('lecture@eduguard.com'); setPassword('lecture123'); setError(''); }}
+              onClick={() => { setEmail('schooladmin@gmail.com'); setPassword('string'); setError(''); }}
               className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-cyan/40 hover:bg-cyan/5 group"
             >
-              <div className="w-[34px] h-[34px] rounded-full bg-cyan/15 grid place-items-center text-sm">👨‍🏫</div>
+              <div className="w-[34px] h-[34px] rounded-full bg-cyan/15 grid place-items-center text-sm">🏫</div>
               <div>
-                <p className="text-sm font-semibold text-white-soft group-hover:text-cyan transition-colors">Lecturer Account</p>
-                <p className="text-[11px] text-muted">lecture@eduguard.com / lecture123</p>
+                <p className="text-sm font-semibold text-white-soft group-hover:text-cyan transition-colors">School Admin</p>
+                <p className="text-[11px] text-muted">schooladmin@gmail.com / string</p>
               </div>
             </button>
           </div>

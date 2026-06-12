@@ -1,67 +1,40 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import {
+  clearAuthTokens,
+  getInitialsFromName,
+  getUserIdFromToken,
+  loginApi,
+  mapApiRoleToAppRole,
+  saveAuthTokens,
+} from '../services/authApi';
 
 export interface User {
-  id: number;
+  id: string;
   email: string;
   role: 'user' | 'admin' | 'lecture';
+  apiRole: string;
   name: string;
   studentId: string | null;
   department: string;
   avatar: string | null;
   initials: string;
+  institutionId: string | null;
 }
 
 interface LoginResponse {
   success: boolean;
   error?: string;
-  user?: Omit<User, 'password'>;
+  user?: User;
 }
 
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => LoginResponse;
+  login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// ── Mock User Database ──
-const MOCK_USERS = [
-  {
-    id: 1,
-    email: 'user@eduguard.com',
-    password: '123456',
-    role: 'user' as const,
-    name: 'Nguyen Van An',
-    studentId: '21110001',
-    department: 'Information Technology',
-    avatar: null,
-    initials: 'NA',
-  },
-  {
-    id: 2,
-    email: 'admin@eduguard.com',
-    password: 'admin123',
-    role: 'admin' as const,
-    name: 'Le Quang Minh',
-    studentId: null,
-    department: 'System Administration',
-    avatar: null,
-    initials: 'LM',
-  },
-  {
-    id: 3,
-    email: 'lecture@eduguard.com',
-    password: 'lecture123',
-    role: 'lecture' as const,
-    name: 'Dr. Tran Van Hai',
-    studentId: null,
-    department: 'Information Technology',
-    avatar: null,
-    initials: 'TH',
-  },
-];
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -87,21 +60,37 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user]);
 
-  const login = (email: string, password: string): LoginResponse => {
-    const found = MOCK_USERS.find(
-      (u) => u.email === email && u.password === password
-    );
-    if (!found) {
-      return { success: false, error: 'Invalid email or password' };
+  const login = async (email: string, password: string): Promise<LoginResponse> => {
+    try {
+      const data = await loginApi(email, password);
+
+      saveAuthTokens(data.accessToken, data.refreshToken);
+
+      const userData: User = {
+        id: getUserIdFromToken(data.accessToken),
+        email: email.trim(),
+        role: mapApiRoleToAppRole(data.role),
+        apiRole: data.role,
+        name: data.fullName?.trim() || email.trim(),
+        studentId: null,
+        department: data.role,
+        avatar: null,
+        initials: getInitialsFromName(data.fullName || email),
+        institutionId: data.institutionId,
+      };
+
+      setUser(userData);
+      return { success: true, user: userData };
+    } catch (e) {
+      clearAuthTokens();
+      const message = e instanceof Error ? e.message : 'Đăng nhập thất bại';
+      return { success: false, error: message };
     }
-    // Don't store password in state
-    const { password: _, ...userData } = found;
-    setUser(userData);
-    return { success: true, user: userData };
   };
 
   const logout = () => {
     setUser(null);
+    clearAuthTokens();
   };
 
   return (
@@ -117,4 +106,11 @@ export function useAuth(): AuthContextType {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
+}
+
+/** Đường dẫn dashboard theo role app */
+export function getDashboardPath(role: User['role']): string {
+  if (role === 'admin') return '/admin';
+  if (role === 'lecture') return '/lecture';
+  return '/profile';
 }
