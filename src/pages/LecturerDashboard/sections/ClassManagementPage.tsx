@@ -18,7 +18,7 @@ import {
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchLecturerClasses } from '../../../services/lecturerApi';
+import { fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import type { ClassStatus, FacultyId, LecturerClass } from '../../../types/lecturer';
 import { getAllFaculties } from '../../../utils/facultyTheme';
 
@@ -87,7 +87,10 @@ export default function ClassManagementPage() {
   const [statusFilter, setStatusFilter] = useState<ClassStatus | 'all'>('all');
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
 
-  const { data, loading, error, reload } = useAsyncData(fetchLecturerClasses, []);
+  const { data, loading, error, reload } = useAsyncData(async () => {
+    const result = await fetchSchoolAdminClasses({ page: 1, pageSize: 50 });
+    return result.items;
+  }, []);
   const classes = data ?? [];
 
   const predicates = useMemo(

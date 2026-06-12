@@ -120,3 +120,18 @@ export interface LecturerKpi {
   change: string | null;
   changeColor?: string;
 }
+
+/** Ca thi từ GET /api/exam-slots */
+export type ExamSlotStatus = 'scheduled' | 'ongoing' | 'completed' | 'cancelled';
+
+export interface ExamSlot {
+  id: string;
+  classId: string;
+  classCode: string;
+  className: string;
+  examName: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  status: ExamSlotStatus;
+}

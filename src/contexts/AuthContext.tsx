@@ -1,12 +1,13 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import {
   clearAuthTokens,
-  getInitialsFromName,
-  getUserIdFromToken,
+  fetchCurrentUserProfile,
+  getAccessToken,
   loginApi,
-  mapApiRoleToAppRole,
+  mapApiUserToAuthUser,
   saveAuthTokens,
 } from '../services/authApi';
+import { ApiError } from '../services/apiClient';
 
 export interface User {
   id: string;
@@ -32,6 +33,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<LoginResponse>;
   logout: () => void;
+  refreshProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,7 +52,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   });
 
-  const isAuthenticated = !!user;
+  const isAuthenticated = !!user && !!getAccessToken();
+
+  const refreshProfile = useCallback(async () => {
+    if (!getAccessToken()) return;
+    const profile = await fetchCurrentUserProfile();
+    setUser(mapApiUserToAuthUser(profile));
+  }, []);
 
   useEffect(() => {
     if (user) {
@@ -60,29 +68,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [user]);
 
+  /** Tải lại profile khi mở app (F5) nếu còn token */
+  useEffect(() => {
+    if (!getAccessToken()) {
+      if (user) setUser(null);
+      return;
+    }
+    refreshProfile().catch((e) => {
+      if (e instanceof ApiError && e.status === 401) {
+        setUser(null);
+        clearAuthTokens();
+      }
+    });
+  }, [refreshProfile]);
+
   const login = async (email: string, password: string): Promise<LoginResponse> => {
     try {
       const data = await loginApi(email, password);
-
       saveAuthTokens(data.accessToken, data.refreshToken);
 
-      const userData: User = {
-        id: getUserIdFromToken(data.accessToken),
-        email: email.trim(),
-        role: mapApiRoleToAppRole(data.role),
-        apiRole: data.role,
-        name: data.fullName?.trim() || email.trim(),
-        studentId: null,
-        department: data.role,
-        avatar: null,
-        initials: getInitialsFromName(data.fullName || email),
-        institutionId: data.institutionId,
-      };
-
+      const profile = await fetchCurrentUserProfile();
+      const userData = mapApiUserToAuthUser(profile);
       setUser(userData);
       return { success: true, user: userData };
     } catch (e) {
       clearAuthTokens();
+      setUser(null);
       const message = e instanceof Error ? e.message : 'Đăng nhập thất bại';
       return { success: false, error: message };
     }
@@ -94,7 +105,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

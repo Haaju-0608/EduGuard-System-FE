@@ -1,5 +1,7 @@
 import React from 'react';
-import { FiAlertTriangle, FiMonitor, FiRefreshCw, FiVideo, FiWifi, FiWifiOff } from 'react-icons/fi';
+import { FiAlertTriangle, FiCalendar, FiMonitor, FiRefreshCw, FiVideo, FiWifi, FiWifiOff } from 'react-icons/fi';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
 import {
   AnimateIn,
   CameraScanBeam,
@@ -22,7 +24,8 @@ import {
   fetchLecturerKpis,
   fetchViolationAlerts,
 } from '../../../services/lecturerApi';
-import type { CameraFeed, LecturerKpi, ViolationAlert } from '../../../types/lecturer';
+import { fetchSchoolAdminOverviewStats } from '../../../services/schoolAdminApi';
+import type { CameraFeed, ExamSlot, LecturerKpi, ViolationAlert } from '../../../types/lecturer';
 import { getFacultyByCourseCode } from '../../../utils/facultyTheme';
 
 const KPI_ACCENTS = ['uni-kpi-blue', 'uni-kpi-cyan', 'uni-kpi-green', 'uni-kpi-red'];
@@ -133,23 +136,30 @@ function ViolationItem({ alert, index }: { alert: ViolationAlert; index: number 
 /** Dashboard giảng viên */
 export default function DashboardOverview() {
   const { facultyId, lastName } = useLecturerFaculty();
+  const { user } = useAuth();
   const toast = useToast();
+  const isSchoolAdmin = user?.apiRole?.toLowerCase().includes('schooladmin');
 
   const { data, loading, error, reload } = useAsyncData(
     async () => {
+      if (isSchoolAdmin) {
+        const stats = await fetchSchoolAdminOverviewStats();
+        return { mode: 'schoolAdmin' as const, stats };
+      }
       const [kpis, cameras, violations] = await Promise.all([
         fetchLecturerKpis(),
         fetchCameraFeeds(),
         fetchViolationAlerts(),
       ]);
-      return { kpis, cameras, violations };
+      return { mode: 'lecturer' as const, kpis, cameras, violations };
     },
-    []
+    [isSchoolAdmin]
   );
 
-  const kpis = data?.kpis ?? [];
-  const cameras = data?.cameras ?? [];
-  const violations = data?.violations ?? [];
+  const kpis = data?.mode === 'lecturer' ? data.kpis : [];
+  const cameras = data?.mode === 'lecturer' ? data.cameras : [];
+  const violations = data?.mode === 'lecturer' ? data.violations : [];
+  const schoolStats = data?.mode === 'schoolAdmin' ? data.stats : null;
   const onlineCount = cameras.filter((c) => c.isOnline).length;
   const violationCount = cameras.filter((c) => c.hasViolation).length;
 
@@ -167,12 +177,30 @@ export default function DashboardOverview() {
     );
   }
 
+  const headerStats = isSchoolAdmin && schoolStats
+    ? [
+        { label: 'Courses', value: String(schoolStats.classCount), icon: '📚' },
+        { label: 'Students', value: String(schoolStats.studentCount), icon: '👥' },
+        { label: 'Exam Slots', value: String(schoolStats.examCount), icon: '📝' },
+        { label: 'Enrollments', value: String(schoolStats.enrollmentCount), icon: '📋' },
+      ]
+    : [
+        { label: 'Cameras online', value: `${onlineCount}/${cameras.length}`, icon: '📹' },
+        { label: 'Violations', value: String(violationCount), icon: '⚠️' },
+        { label: 'New Alerts', value: String(violations.length), icon: '🔔' },
+        { label: 'Semester', value: 'Term 1 25-26', icon: '🎓' },
+      ];
+
   return (
     <PageShell>
       <PageHeader
-        eyebrow="Faculty Control Center"
+        eyebrow={isSchoolAdmin ? 'School Admin Portal' : 'Faculty Control Center'}
         title={<>Welcome back, <span className="text-gradient-blue-cyan">{lastName}</span></>}
-        subtitle="Cross-faculty online classroom proctoring — monitor student cameras and resolve violation alerts."
+        subtitle={
+          isSchoolAdmin
+            ? 'Manage courses, students, enrollments and exam schedules for your institution.'
+            : 'Cross-faculty online classroom proctoring — monitor student cameras and resolve violation alerts.'
+        }
         facultyId={facultyId}
         actions={
           <PrimaryButton variant="ghost" onClick={handleRefresh} disabled={loading}>
@@ -180,14 +208,83 @@ export default function DashboardOverview() {
             Refresh
           </PrimaryButton>
         }
-        stats={[
-          { label: 'Cameras online', value: `${onlineCount}/${cameras.length}`, icon: '📹' },
-          { label: 'Violations', value: String(violationCount), icon: '⚠️' },
-          { label: 'New Alerts', value: String(violations.length), icon: '🔔' },
-          { label: 'Semester', value: 'Term 1 25-26', icon: '🎓' },
-        ]}
+        stats={headerStats}
       />
 
+      {isSchoolAdmin ? (
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
+          <AnimateIn index={1}>
+            <UniCard accent="cyan" hover={false} className="!p-6">
+              <SectionTitle
+                icon={<FiCalendar className="text-cyan" />}
+                title="Upcoming Exams"
+                subtitle={`${schoolStats?.upcomingExamCount ?? 0} scheduled or ongoing sessions`}
+                badge={
+                  <Link to="/lecture/exams" className="text-xs font-bold text-cyan no-underline hover:underline">
+                    View all →
+                  </Link>
+                }
+              />
+              {loading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="uni-skeleton h-20 rounded-xl" />
+                  ))}
+                </div>
+              ) : (schoolStats?.upcomingExams.length ?? 0) === 0 ? (
+                <p className="text-muted text-sm py-8 text-center">No upcoming exam slots.</p>
+              ) : (
+                <div className="space-y-3">
+                  {schoolStats!.upcomingExams.map((exam: ExamSlot) => (
+                    <div key={exam.id} className="bg-navy/40 border border-border/50 rounded-xl p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-syne font-bold text-white-soft">{exam.examName}</p>
+                          <p className="text-sm text-muted mt-1">{exam.classCode} — {exam.className}</p>
+                        </div>
+                        <span className="text-[10px] font-bold text-blue-bright bg-blue/10 border border-blue/25 px-2 py-1 rounded-full uppercase">
+                          {exam.status}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted mt-3">
+                        {new Date(exam.startTime).toLocaleString('en-GB')} → {new Date(exam.endTime).toLocaleString('en-GB')}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </UniCard>
+          </AnimateIn>
+
+          <AnimateIn index={2}>
+            <UniCard accent="blue" hover={false} className="!p-6">
+              <SectionTitle
+                icon={<FiMonitor className="text-blue-bright" />}
+                title="Quick Links"
+                subtitle="Common management tasks"
+              />
+              <div className="grid grid-cols-1 gap-2 mt-2">
+                {[
+                  { label: 'Course Management', path: '/lecture/classes', icon: '📚' },
+                  { label: 'Student Registry', path: '/lecture/students', icon: '👥' },
+                  { label: 'Exam Slots', path: '/lecture/exams', icon: '📝' },
+                  { label: 'Attendance', path: '/lecture/attendance', icon: '📋' },
+                ].map((item) => (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    className="flex items-center gap-3 bg-navy/40 border border-border/50 rounded-xl px-4 py-3 no-underline hover:border-cyan/30 transition-colors"
+                  >
+                    <span>{item.icon}</span>
+                    <span className="text-sm font-semibold text-white-soft">{item.label}</span>
+                  </Link>
+                ))}
+              </div>
+            </UniCard>
+          </AnimateIn>
+        </div>
+      ) : (
+        <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {loading
           ? Array.from({ length: 4 }).map((_, i) => (
@@ -253,6 +350,8 @@ export default function DashboardOverview() {
           </UniCard>
         </AnimateIn>
       </div>
+        </>
+      )}
     </PageShell>
   );
 }

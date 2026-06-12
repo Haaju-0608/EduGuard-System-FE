@@ -12,7 +12,7 @@ import {
   StudentAvatar,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import { fetchLecturerClasses, fetchLecturerStudents } from '../../../services/lecturerApi';
+import { fetchSchoolAdminClasses, fetchSchoolAdminStudents } from '../../../services/schoolAdminApi';
 import type { FacultyId, LecturerStudent, StudentStatus } from '../../../types/lecturer';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
@@ -104,8 +104,11 @@ export default function StudentManagementPage() {
 
   const { data, loading, error, reload } = useAsyncData(
     async () => {
-      const [students, classes] = await Promise.all([fetchLecturerStudents(), fetchLecturerClasses()]);
-      return { students, classes };
+      const [studentResult, classResult] = await Promise.all([
+        fetchSchoolAdminStudents({ page: 1, pageSize: 50 }),
+        fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
+      ]);
+      return { students: studentResult.items, classes: classResult.items };
     },
     []
   );

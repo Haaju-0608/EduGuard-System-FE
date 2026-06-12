@@ -2,6 +2,7 @@
  * HTTP client — tự gắn Bearer token từ localStorage cho GET/POST/PUT/DELETE.
  */
 import { clearAuthTokens, getAccessToken } from './authStorage';
+import type { PaginatedApiResponse, PaginationMeta } from '../types/api';
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? 'https://eduguard-api-gdhg.onrender.com';
@@ -157,6 +158,44 @@ export function apiPatch<T>(path: string, body?: unknown, options?: Omit<ApiRequ
 /** DELETE có Authorization */
 export function apiDelete<T>(path: string, options?: Omit<ApiRequestOptions, 'method' | 'body'>) {
   return apiRequest<T>(path, { ...options, method: 'DELETE' });
+}
+
+/** Ghép query string cho GET */
+export function buildQueryParams(params: Record<string, string | number | undefined | null>): string {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      search.set(key, String(value));
+    }
+  });
+  const query = search.toString();
+  return query ? `?${query}` : '';
+}
+
+/** GET có pagination — trả cả data và pagination */
+export async function apiGetPaginated<T>(
+  path: string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body' | 'raw'>,
+): Promise<{ data: T; pagination: PaginationMeta }> {
+  const parsed = await apiRequest<PaginatedApiResponse<T>>(path, {
+    ...options,
+    method: 'GET',
+    raw: true,
+  });
+
+  if (!parsed || typeof parsed !== 'object' || !('success' in parsed)) {
+    throw new ApiError('Phản hồi API không hợp lệ.', 500);
+  }
+
+  const envelope = parsed as PaginatedApiResponse<T>;
+  if (!envelope.success) {
+    throw new ApiError(extractErrorMessage(parsed, 400), 400, envelope.errors);
+  }
+
+  return {
+    data: envelope.data,
+    pagination: envelope.pagination,
+  };
 }
 
 /** Mô phỏng độ trễ gọi API — dùng cho mock */

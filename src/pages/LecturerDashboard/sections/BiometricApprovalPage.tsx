@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { FiCheck, FiClock, FiShield, FiUser, FiX } from 'react-icons/fi';
 import {
   CourseCodeBadge,
@@ -9,7 +9,8 @@ import {
   SkeletonCard,
 } from '../../../components/lecturer/LecturerUI';
 import { useToast } from '../../../contexts/ToastContext';
-import { fetchBiometricRequests, reviewBiometricRequest } from '../../../services/lecturerApi';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import { fetchSchoolAdminBiometricRequests } from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
 /** Badge trạng thái duyệt sinh trắc học */
@@ -25,7 +26,7 @@ function BiometricStatusBadge({ status }: { status: BiometricStatus }) {
   );
 }
 
-/** Card duyệt ảnh sinh trắc học — kiểu thẻ ID sinh viên */
+/** Card duyệt ảnh sinh trắc học */
 function BiometricCard({
   request,
   onReview,
@@ -62,7 +63,7 @@ function BiometricCard({
         </div>
 
         {request.note && (
-          <p className="text-xs text-red/80 bg-red/5 border border-red/20 rounded-xl p-2.5 mb-3 leading-relaxed">
+          <p className="text-xs text-muted bg-navy/40 border border-border/50 rounded-xl p-2.5 mb-3 leading-relaxed">
             {request.note}
           </p>
         )}
@@ -90,46 +91,36 @@ function BiometricCard({
   );
 }
 
-/** Trang duyệt sinh trắc học sinh viên */
+/** Trang duyệt sinh trắc học — GET /api/biometric-requests */
 export default function BiometricApprovalPage() {
-  const [requests, setRequests] = useState<BiometricRequest[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('pending');
+  const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing] = useState<string | null>(null);
   const toast = useToast();
 
-  /** Tải danh sách yêu cầu duyệt */
-  const loadRequests = async () => {
-    setLoading(true);
-    try {
-      setRequests(await fetchBiometricRequests());
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data, loading, error, reload } = useAsyncData(async () => {
+    const result = await fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50 });
+    return result.items;
+  }, []);
 
-  useEffect(() => { loadRequests(); }, []);
+  const requests = data ?? [];
 
-  /** Duyệt hoặc từ chối yêu cầu */
   const handleReview = async (requestId: string, status: 'approved' | 'rejected') => {
     setReviewing(requestId);
     try {
-      const updated = await reviewBiometricRequest(requestId, status);
-      setRequests((prev) => prev.map((r) => (r.id === requestId ? updated : r)));
-      toast.success(
-        status === 'approved' ? 'Biometrics approved' : 'Request rejected',
-        `${updated.studentName} — ${updated.classCode}`,
+      // TODO: tích hợp PUT/PATCH review API khi backend có endpoint
+      toast.info(
+        'Review API pending',
+        `Approve/reject via API is not available yet. Request ID: ${requestId.slice(0, 8)}… (${status})`,
       );
-    } catch {
-      toast.error('Failed to update', 'Please try again in a few seconds.');
     } finally {
       setReviewing(null);
     }
   };
 
-  const filteredRequests = statusFilter === 'all'
-    ? requests
-    : requests.filter((r) => r.status === statusFilter);
+  const filteredRequests = useMemo(
+    () => (statusFilter === 'all' ? requests : requests.filter((r) => r.status === statusFilter)),
+    [requests, statusFilter],
+  );
 
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
 
@@ -168,6 +159,14 @@ export default function BiometricApprovalPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="aspect-[3/4]" />)}
         </div>
+      ) : error ? (
+        <EmptyState
+          variant="error"
+          icon="🔐"
+          title="Failed to load biometric requests"
+          description={error}
+          onRetry={reload}
+        />
       ) : filteredRequests.length === 0 ? (
         <EmptyState
           icon="🔐"
@@ -178,7 +177,7 @@ export default function BiometricApprovalPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {filteredRequests.map((req, i) => (
             <div key={req.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
-            <BiometricCard key={req.id} request={req} onReview={handleReview} reviewing={reviewing}             />
+              <BiometricCard request={req} onReview={handleReview} reviewing={reviewing} />
             </div>
           ))}
         </div>

@@ -19,10 +19,10 @@ import {
   StudentAvatar,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
+import { fetchSchoolAdminClassesSimple } from '../../../services/schoolAdminApi';
 import {
   endAttendanceSession,
   fetchActiveAttendanceSession,
-  fetchLecturerClasses,
   startAttendanceSession,
 } from '../../../services/lecturerApi';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerClass } from '../../../types/lecturer';
@@ -83,7 +83,10 @@ export default function AttendanceSessionPage() {
   const loadData = async () => {
     setLoading(true);
     try {
-      const [classData, sessionData] = await Promise.all([fetchLecturerClasses(), fetchActiveAttendanceSession()]);
+      const [classData, sessionData] = await Promise.all([
+        fetchSchoolAdminClassesSimple(),
+        fetchActiveAttendanceSession(),
+      ]);
       setClasses(classData.filter((c) => c.status === 'active'));
       setSession(sessionData);
       if (sessionData) setSelectedClassId(sessionData.classId);

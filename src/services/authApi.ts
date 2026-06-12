@@ -1,5 +1,42 @@
-import { API_BASE_URL, ApiError } from './apiClient';
+import { API_BASE_URL, ApiError, apiGet } from './apiClient';
+import type { ApiUser } from '../types/api';
 import type { LoginApiResponse, LoginData } from '../types/auth';
+
+/** Profile user dùng trong AuthContext */
+export interface AuthUserProfile {
+  id: string;
+  email: string;
+  role: 'user' | 'admin' | 'lecture';
+  apiRole: string;
+  name: string;
+  studentId: string | null;
+  department: string;
+  avatar: string | null;
+  initials: string;
+  institutionId: string | null;
+}
+
+/** Map profile API → user trong app */
+export function mapApiUserToAuthUser(profile: ApiUser): AuthUserProfile {
+  const name = profile.fullName?.trim() || profile.email;
+  return {
+    id: profile.id,
+    email: profile.email,
+    role: mapApiRoleToAppRole(profile.role),
+    apiRole: profile.role,
+    name,
+    studentId: profile.studentCode,
+    department: profile.role,
+    avatar: null,
+    initials: getInitialsFromName(name),
+    institutionId: profile.institutionId,
+  };
+}
+
+/** GET /api/users/me — lấy profile user đang đăng nhập */
+export async function fetchCurrentUserProfile(): Promise<ApiUser> {
+  return apiGet<ApiUser>('/api/users/me');
+}
 
 /** Map role từ API sang role routing trong app */
 export function mapApiRoleToAppRole(apiRole: string): 'user' | 'admin' | 'lecture' {
