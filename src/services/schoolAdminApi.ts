@@ -3,7 +3,7 @@
  * Enrollment là optional (SchoolAdmin có thể bị 403 — không làm fail các API khác).
  */
 import { getInitialsFromName } from './authApi';
-import { ApiError, apiGetPaginated, buildQueryParams } from './apiClient';
+import { ApiError, apiGetPaginated, apiPost, buildQueryParams } from './apiClient';
 import type {
   ApiBiometricRequest,
   ApiClass,
@@ -367,4 +367,14 @@ export async function fetchSchoolAdminBiometricRequests(
     items: bioRes.data.map((item) => mapApiBiometricRequest(item, userMap)),
     pagination: bioRes.pagination,
   };
+}
+
+/** POST /api/biometric-requests/{id}/approve */
+export async function approveBiometricRequest(requestId: string, reason: string): Promise<void> {
+  await apiPost<null>(`/api/biometric-requests/${requestId}/approve`, { reason: reason.trim() });
+}
+
+/** POST /api/biometric-requests/{id}/reject */
+export async function rejectBiometricRequest(requestId: string, reason: string): Promise<void> {
+  await apiPost<null>(`/api/biometric-requests/${requestId}/reject`, { reason: reason.trim() });
 }

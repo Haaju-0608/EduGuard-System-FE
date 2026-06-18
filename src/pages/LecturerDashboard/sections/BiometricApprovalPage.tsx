@@ -10,7 +10,11 @@ import {
 } from '../../../components/lecturer/LecturerUI';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchSchoolAdminBiometricRequests } from '../../../services/schoolAdminApi';
+import {
+  approveBiometricRequest,
+  fetchSchoolAdminBiometricRequests,
+  rejectBiometricRequest,
+} from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
 /** Badge trạng thái duyệt sinh trắc học */
@@ -33,9 +37,11 @@ function BiometricCard({
   reviewing,
 }: {
   request: BiometricRequest;
-  onReview: (id: string, status: 'approved' | 'rejected') => void;
+  onReview: (id: string, status: 'approved' | 'rejected', reason: string) => void;
   reviewing: string | null;
 }) {
+  const [reason, setReason] = useState('');
+
   return (
     <div className="bio-id-card">
       <div className="bio-id-photo">
@@ -62,36 +68,47 @@ function BiometricCard({
           </span>
         </div>
 
-        {request.note && (
+        {request.note && request.status !== 'pending' && (
           <p className="text-xs text-muted bg-navy/40 border border-border/50 rounded-xl p-2.5 mb-3 leading-relaxed">
             {request.note}
           </p>
         )}
 
         {request.status === 'pending' && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => onReview(request.id, 'approved')}
-              disabled={reviewing === request.id}
-              className="flex-1 flex items-center justify-center gap-1.5 bio-btn-approve text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
-            >
-              <FiCheck /> Approve
-            </button>
-            <button
-              onClick={() => onReview(request.id, 'rejected')}
-              disabled={reviewing === request.id}
-              className="flex-1 flex items-center justify-center gap-1.5 bio-btn-reject text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
-            >
-              <FiX /> Reject
-            </button>
-          </div>
+          <>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Review reason..."
+              rows={2}
+              className="w-full bg-navy/50 border border-border rounded-xl px-3 py-2 text-xs text-white-soft placeholder:text-muted resize-none mb-3 outline-none focus:border-blue-bright/40"
+            />
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => onReview(request.id, 'approved', reason)}
+                disabled={reviewing === request.id}
+                className="flex-1 flex items-center justify-center gap-1.5 bio-btn-approve text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
+              >
+                <FiCheck /> Approve
+              </button>
+              <button
+                type="button"
+                onClick={() => onReview(request.id, 'rejected', reason)}
+                disabled={reviewing === request.id}
+                className="flex-1 flex items-center justify-center gap-1.5 bio-btn-reject text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
+              >
+                <FiX /> Reject
+              </button>
+            </div>
+          </>
         )}
       </div>
     </div>
   );
 }
 
-/** Trang duyệt sinh trắc học — GET /api/biometric-requests */
+/** Trang duyệt sinh trắc học */
 export default function BiometricApprovalPage() {
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing] = useState<string | null>(null);
@@ -104,14 +121,31 @@ export default function BiometricApprovalPage() {
 
   const requests = data ?? [];
 
-  const handleReview = async (requestId: string, status: 'approved' | 'rejected') => {
+  const handleReview = async (
+    requestId: string,
+    status: 'approved' | 'rejected',
+    reason: string,
+  ) => {
+    if (!reason.trim()) {
+      toast.warning('Reason required', 'Please enter a reason before approving or rejecting.');
+      return;
+    }
+
+    const target = requests.find((r) => r.id === requestId);
     setReviewing(requestId);
+
     try {
-      // TODO: tích hợp PUT/PATCH review API khi backend có endpoint
-      toast.info(
-        'Review API pending',
-        `Approve/reject via API is not available yet. Request ID: ${requestId.slice(0, 8)}… (${status})`,
-      );
+      if (status === 'approved') {
+        await approveBiometricRequest(requestId, reason);
+        toast.success('Approved', target ? `${target.studentName} — biometric verified` : 'Request approved.');
+      } else {
+        await rejectBiometricRequest(requestId, reason);
+        toast.success('Rejected', target ? `${target.studentName} — request rejected` : 'Request rejected.');
+      }
+      await reload();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Unable to update request.';
+      toast.error('Failed to update', msg);
     } finally {
       setReviewing(null);
     }
