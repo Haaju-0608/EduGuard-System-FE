@@ -53,9 +53,10 @@ export default function ApprovalsPage() {
   };
 
   const handleApprove = async (req: BiometricRequest) => {
+    const reason = window.prompt('Reason for approval (optional):') ?? '';
     setActionId(req.id);
     try {
-      await approveBiometricRequest(req.id);
+      await approveBiometricRequest(req.id, reason);
       toast.success('Approved', 'Biometric request approved.');
       reload();
     } catch { toast.error('Error', 'Failed to approve request.'); }
@@ -63,7 +64,8 @@ export default function ApprovalsPage() {
   };
 
   const handleReject = async (req: BiometricRequest) => {
-    const reason = window.prompt('Reason for rejection (optional):') ?? '';
+    const reason = window.prompt('Reason for rejection:') ?? '';
+    if (!reason.trim()) { toast.warning('Required', 'Please enter a reason for rejection.'); return; }
     setActionId(req.id);
     try {
       await rejectBiometricRequest(req.id, reason);

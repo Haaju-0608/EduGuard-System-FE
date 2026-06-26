@@ -380,19 +380,13 @@ export async function fetchSchoolAdminBiometricRequests(
 // ─── Biometric approve / reject ───────────────────────────────────────────
 
 /** POST /api/biometric-requests/{id}/approve */
-export async function approveBiometricRequest(
-  id: string,
-  reason?: string,
-): Promise<void> {
-  await apiPost(`/api/biometric-requests/${id}/approve`, { reason: reason ?? null });
+export async function approveBiometricRequest(requestId: string, reason: string): Promise<void> {
+  await apiPost<null>(`/api/biometric-requests/${requestId}/approve`, { reason: reason.trim() });
 }
 
 /** POST /api/biometric-requests/{id}/reject */
-export async function rejectBiometricRequest(
-  id: string,
-  reason?: string,
-): Promise<void> {
-  await apiPost(`/api/biometric-requests/${id}/reject`, { reason: reason ?? null });
+export async function rejectBiometricRequest(requestId: string, reason: string): Promise<void> {
+  await apiPost<null>(`/api/biometric-requests/${requestId}/reject`, { reason: reason.trim() });
 }
 
 // ─── User CRUD ────────────────────────────────────────────────────────────
