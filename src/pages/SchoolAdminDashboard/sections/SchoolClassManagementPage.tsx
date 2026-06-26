@@ -4,6 +4,7 @@ import {
   FiBook, FiCalendar, FiEdit2, FiMapPin, FiPlus,
   FiSearch, FiTrash2, FiUsers, FiX,
 } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -16,6 +17,7 @@ import {
   fetchClassEnrollments,
   fetchLecturers,
   fetchSchoolAdminClasses,
+  fetchSchoolAdminStudents,
   updateClass,
 } from '../../../services/schoolAdminApi';
 import type { ApiEnrollment } from '../../../types/api';
@@ -45,26 +47,57 @@ function StatusBadge({ status }: { status: string }) {
 
 function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => void }) {
   const toast = useToast();
-  const [addId, setAddId] = useState('');
+  const [search, setSearch] = useState('');
+  const [selectedId, setSelectedId] = useState('');
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
 
-  const { data, loading, reload } = useAsyncData(
+  const { data: enrollData, loading, reload } = useAsyncData(
     () => fetchClassEnrollments(cls.id),
     [cls.id],
   );
-  const enrollments: ApiEnrollment[] = data ?? [];
+  const { data: studentData } = useAsyncData(
+    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200 }),
+    [],
+  );
+
+  const enrollments: ApiEnrollment[] = enrollData ?? [];
+  const allStudents: LecturerStudent[] = studentData?.items ?? [];
+
+  // Lọc students chưa enrolled và khớp search
+  const enrolledIds = new Set(enrollments.map((e) => e.studentId));
+  const suggestions = allStudents.filter((s) => {
+    if (enrolledIds.has(s.id)) return false;
+    if (!search.trim()) return false;
+    const q = search.toLowerCase();
+    return (
+      (s.name ?? '').toLowerCase().includes(q) ||
+      (s.studentId ?? '').toLowerCase().includes(q) ||
+      s.email.toLowerCase().includes(q)
+    );
+  }).slice(0, 8);
+
+  const selectedStudent = allStudents.find((s) => s.id === selectedId);
+
+  const handleSelect = (s: LecturerStudent) => {
+    setSelectedId(s.id);
+    setSearch(`${s.name} (${s.studentId || s.email})`);
+    setShowDropdown(false);
+  };
 
   const handleAdd = async () => {
-    if (!addId.trim()) return;
+    if (!selectedId) return;
     setAdding(true);
     try {
-      await createEnrollment(cls.id, addId.trim());
-      toast.success('Enrolled', 'Student added to class.');
-      setAddId('');
+      await createEnrollment(cls.id, selectedId);
+      toast.success('Enrolled', `${selectedStudent?.name ?? 'Student'} added to class.`);
+      setSelectedId('');
+      setSearch('');
       reload();
-    } catch {
-      toast.error('Error', 'Failed to add student. Check the Student ID.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to add student.';
+      toast.error('Error', msg);
     } finally {
       setAdding(false);
     }
@@ -92,29 +125,57 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
           <div>
             <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-1">{cls.code}</p>
             <h2 className="font-syne font-bold text-white-soft text-lg">{cls.name}</h2>
-            <p className="text-xs text-muted mt-1">Semester {cls.semester} · Room {cls.room}</p>
+            <p className="text-xs text-muted mt-1">Semester {cls.semester}</p>
           </div>
           <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors">
             <FiX />
           </button>
         </div>
 
-        {/* Add student */}
+        {/* Add student — search dropdown */}
         <div className="px-6 py-4 border-b border-border shrink-0">
-          <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Add Student by ID</p>
+          <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Add Student</p>
           <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Enter Student UUID..."
-              value={addId}
-              onChange={(e) => setAddId(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              className="flex-1 bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
-            />
+            <div className="relative flex-1">
+              <input
+                type="text"
+                placeholder="Search by name, student code, or email..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setSelectedId(''); setShowDropdown(true); }}
+                onFocus={() => setShowDropdown(true)}
+                onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
+                className="w-full bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
+              />
+              {showDropdown && suggestions.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl overflow-hidden z-50 shadow-xl">
+                  {suggestions.map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onMouseDown={() => handleSelect(s)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-navy/60 transition-colors text-left bg-transparent border-none cursor-pointer"
+                    >
+                      <div className="w-7 h-7 rounded-lg bg-blue/10 border border-blue/20 grid place-items-center text-xs font-bold text-blue-bright shrink-0">
+                        {(s.name ?? '?').slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-white-soft font-medium truncate">{s.name}</p>
+                        <p className="text-[11px] text-muted truncate">{s.studentId && `${s.studentId} · `}{s.email}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {showDropdown && search.trim() && suggestions.length === 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl px-4 py-3 text-sm text-muted z-50">
+                  No students found matching "{search}"
+                </div>
+              )}
+            </div>
             <button
               onClick={handleAdd}
-              disabled={!addId.trim() || adding}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-40 transition-colors border-none"
+              disabled={!selectedId || adding}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-40 transition-colors border-none shrink-0"
             >
               <FiPlus /> {adding ? 'Adding…' : 'Add'}
             </button>
@@ -135,18 +196,20 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
           ) : (
             <div className="divide-y divide-border">
               {enrollments.map((e) => {
-                const name = e.student?.fullName ?? e.studentId.slice(0, 12);
-                const code = e.student?.studentCode ?? '';
-                const email = e.student?.email ?? '';
+                // Backend trả student: null → cross-reference với allStudents đã fetch
+                const info = allStudents.find((s) => s.id === e.studentId);
+                const name = e.student?.fullName ?? info?.name ?? e.studentId.slice(0, 8) + '…';
+                const code = e.student?.studentCode ?? info?.studentId ?? '';
+                const email = e.student?.email ?? info?.email ?? '';
                 const isRemoving = removingId === e.studentId;
                 return (
                   <div key={e.studentId} className="flex items-center gap-4 px-6 py-3 hover:bg-navy/40 transition-colors">
                     <div className="w-9 h-9 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center text-sm font-bold text-blue-bright shrink-0">
-                      {name.slice(0, 2).toUpperCase()}
+                      {name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
-                      <p className="text-[11px] text-muted truncate">{code && `${code} · `}{email}</p>
+                      <p className="text-[11px] text-muted truncate">{code && <span className="font-mono mr-1">{code}</span>}{code && email && '· '}{email}</p>
                     </div>
                     <span className={`text-[10px] font-bold px-2 py-1 rounded-full border shrink-0 ${
                       e.status === 'active' ? 'text-green bg-green/10 border-green/25' : 'text-muted bg-white/5 border-border'
@@ -248,7 +311,7 @@ function ClassFormModal({
         toast.success('Updated', 'Class updated successfully.');
       } else {
         const payload: CreateClassPayload = {
-          institutionId,
+          ...(institutionId ? { institutionId } : {}),
           lecturerId: form.lecturerId,
           courseName: form.courseName.trim(),
           courseCode: form.courseCode.trim() || null,
@@ -262,8 +325,9 @@ function ClassFormModal({
       }
       onSaved();
       onClose();
-    } catch {
-      toast.error('Error', `Failed to ${isEdit ? 'update' : 'create'} class.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to ${isEdit ? 'update' : 'create'} class`, msg);
     } finally {
       setSaving(false);
     }
@@ -298,12 +362,15 @@ function ClassFormModal({
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
                 Lecturer {!isEdit && '*'}
               </label>
-              <select value={form.lecturerId} onChange={set('lecturerId')} className={inputCls}>
-                <option value="">— {isEdit ? 'Keep current' : 'Select lecturer'} —</option>
-                {lecturers.map((l) => (
-                  <option key={l.id} value={l.id}>{l.name} ({l.email})</option>
-                ))}
-              </select>
+              <CustomSelect
+                value={form.lecturerId}
+                onChange={(v) => setForm((f) => ({ ...f, lecturerId: v }))}
+                options={[
+                  {value:'', label: isEdit ? '— Keep current —' : '— Select lecturer —'},
+                  ...lecturers.map((l) => ({value:l.id, label:`${l.name} (${l.email})`})),
+                ]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester</label>
@@ -441,8 +508,9 @@ export default function SchoolClassManagementPage() {
       await deleteClass(cls.id);
       toast.success('Deleted', `Class "${cls.name}" removed.`);
       reload();
-    } catch {
-      toast.error('Error', 'Failed to delete class.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error.';
+      toast.error('Failed to delete class', msg);
     }
   };
 

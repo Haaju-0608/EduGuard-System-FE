@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { FiBookOpen, FiChevronDown, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
+import { FiBookOpen, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { ModalOverlay } from '../../../components/lecturer/LecturerAnimations';
 import {
   AttendanceProgressBar,
@@ -153,26 +154,23 @@ export default function StudentManagementPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="uni-filter-input sm:max-w-[260px] relative">
-          <select value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
-            <option value="all">All Courses</option>
-            {classes.map((c) => (
-              <option key={c.id} value={c.id}>{c.code} — {c.name}</option>
-            ))}
-          </select>
-          <FiChevronDown className="absolute right-3 text-muted pointer-events-none" />
-        </div>
-        <div className="uni-filter-input sm:max-w-[180px] relative">
-          <select value={facultyFilter} onChange={(e) => setFacultyFilter(e.target.value as FacultyId | 'all')}>
-            <option value="all">All Faculties</option>
-            <option value="it">IT</option>
-            <option value="economics">Economics</option>
-            <option value="business">Business</option>
-            <option value="engineering">Engineering</option>
-            <option value="foreign-lang">Languages</option>
-          </select>
-          <FiChevronDown className="absolute right-3 text-muted pointer-events-none" />
-        </div>
+        <CustomSelect
+          value={classFilter}
+          onChange={setClassFilter}
+          options={[{value:'all',label:'All Courses'}, ...classes.map((c) => ({value:c.id,label:`${c.code} — ${c.name}`}))]}
+        />
+        <CustomSelect
+          value={facultyFilter}
+          onChange={(v) => setFacultyFilter(v as FacultyId | 'all')}
+          options={[
+            {value:'all',label:'All Faculties'},
+            {value:'it',label:'IT'},
+            {value:'economics',label:'Economics'},
+            {value:'business',label:'Business'},
+            {value:'engineering',label:'Engineering'},
+            {value:'foreign-lang',label:'Languages'},
+          ]}
+        />
       </FilterBar>
 
       {error ? (

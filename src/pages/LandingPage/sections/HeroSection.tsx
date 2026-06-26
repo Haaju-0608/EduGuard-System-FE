@@ -68,9 +68,6 @@ export default function HeroSection(): React.ReactElement {
           <button className="bg-linear-to-br from-blue to-cyan border-none text-white py-[0.8rem] px-8 rounded-[10px] text-[1rem] cursor-pointer font-dm font-semibold shadow-[0_0_28px_rgba(37,99,235,0.55)] transition-all duration-200 hover:shadow-[0_0_44px_rgba(6,182,212,0.6)] hover:-translate-y-[2px]">
             📩 Contact Us
           </button>
-          <button className="bg-transparent border border-border text-white-soft py-[0.8rem] px-8 rounded-[10px] text-[1rem] cursor-pointer font-dm font-medium transition-all duration-200 flex items-center gap-[0.6rem] hover:border-cyan hover:bg-cyan-glow">
-            ▶ Watch Demo
-          </button>
         </div>
 
         {/* Stats Row */}
@@ -156,23 +153,6 @@ export default function HeroSection(): React.ReactElement {
             </div>
           </div>
 
-          {/* Floating Badge 1 — top right */}
-          <div className="animate-float-badge absolute -top-5 -right-[30px] bg-navy-card border border-border rounded-[12px] py-2 px-[0.9rem] flex items-center gap-2 text-[0.78rem] font-medium backdrop-blur-[8px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-            <span className="text-[1.1rem]">👁️</span>
-            <div>
-              <div className="font-semibold text-[0.8rem]">AI Recognition</div>
-              <div className="text-cyan text-[0.72rem]">99.3% Accuracy</div>
-            </div>
-          </div>
-
-          {/* Floating Badge 2 — bottom left */}
-          <div className="animate-float-badge-delay absolute bottom-[30px] -left-10 bg-navy-card border border-border rounded-[12px] py-2 px-[0.9rem] flex items-center gap-2 text-[0.78rem] font-medium backdrop-blur-[8px] shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-            <span className="text-[1.1rem]">✅</span>
-            <div>
-              <div className="font-semibold text-[0.8rem]">Attendance</div>
-              <div className="text-green text-[0.72rem]">Done in 3 seconds</div>
-            </div>
-          </div>
         </div>
       </div>
     </section>

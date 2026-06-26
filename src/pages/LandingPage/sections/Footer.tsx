@@ -91,10 +91,7 @@ export default function Footer(): React.ReactElement {
         {/* Bottom bar */}
         <div className="border-t border-border pt-6 flex flex-col md:flex-row items-center justify-between gap-3">
           <p className="text-muted text-sm">
-            © 2024 EduGuard. All rights reserved.
-          </p>
-          <p className="text-cyan text-sm">
-            Powered by AI · Built for Education
+            © 2026 EduGuard. All rights reserved.
           </p>
         </div>
       </div>

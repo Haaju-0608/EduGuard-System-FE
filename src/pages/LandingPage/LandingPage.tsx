@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { setupScrollReveal } from '../../utils/helpers';
 import Navbar from '../../components/layout/Navbar';
 import HeroSection from './sections/HeroSection';
-import StatsBanner from './sections/StatsBanner';
 import FeaturesSection from './sections/FeaturesSection';
 import StudentFeatureSection from './sections/StudentFeatureSection';
 import AdminFeatureSection from './sections/AdminFeatureSection';
@@ -23,7 +22,6 @@ export default function LandingPage() {
     <>
       <Navbar />
       <HeroSection />
-      <StatsBanner />
       <FeaturesSection />
       <StudentFeatureSection />
       <AdminFeatureSection />

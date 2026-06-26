@@ -43,14 +43,6 @@ export default function CTABanner(): React.ReactElement {
           >
             📩 Contact Us
           </a>
-          <a
-            href="#"
-            className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-syne font-bold text-sm
-              text-white-soft border border-border bg-transparent
-              hover:border-blue-bright/5 hover:bg-blue-bright/5 hover:scale-105 transition-all duration-300"
-          >
-            📅 Schedule a Demo
-          </a>
         </div>
       </div>
     </section>

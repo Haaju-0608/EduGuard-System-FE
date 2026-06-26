@@ -32,7 +32,7 @@ export interface CreateInstitutionPayload {
   name: string;
   subDomain?: string;
   contactEmail?: string;
-  billingModel: 'PerUse' | 'Subscription' | 'Free';
+  billingModel: 'PerUse' | 'Subscription';
   status?: 'Active' | 'Suspended' | 'Inactive';
 }
 

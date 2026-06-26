@@ -177,9 +177,15 @@ function applyEnrollmentsToStudents(
 async function fetchApiClassesRaw(params: ListQueryParams = {}) {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
-  return apiGetPaginated<ApiClass[]>(
-    `/api/classes${buildQueryParams({ page, pageSize })}`,
-  );
+  try {
+    return await apiGetPaginated<ApiClass[]>(
+      `/api/classes${buildQueryParams({ page, pageSize })}`,
+    );
+  } catch (e) {
+    // Backend trả về lỗi (403 no-institution, 400 success:false, v.v.) → trả rỗng
+    console.warn('[fetchApiClassesRaw]', e instanceof Error ? e.message : e);
+    return { data: [] as ApiClass[], pagination: EMPTY_PAGINATION };
+  }
 }
 
 /** GET /api/users — raw */
@@ -204,29 +210,32 @@ async function tryFetchEnrollments(
     );
     return { items: data, pagination };
   } catch (e) {
-    if (e instanceof ApiError && e.status === 403) {
-      return { items: [], pagination: EMPTY_PAGINATION };
-    }
-    throw e;
+    // Enrollments là dữ liệu phụ — bất kỳ lỗi nào cũng trả rỗng, không crash page
+    console.warn('[tryFetchEnrollments]', e instanceof Error ? e.message : e);
+    return { items: [], pagination: EMPTY_PAGINATION };
   }
 }
 
-/** GET /api/classes — kèm số SV từ enrollment nếu có quyền */
+/** GET /api/classes — kèm số SV từ per-class enrollment count */
 export async function fetchSchoolAdminClasses(
   params: ListQueryParams = {},
 ): Promise<PagedResult<LecturerClass>> {
-  const [classRes, enrollmentRes] = await Promise.all([
-    fetchApiClassesRaw(params),
-    tryFetchEnrollments({ page: 1, pageSize: DEFAULT_PAGE_SIZE }),
-  ]);
+  const classRes = await fetchApiClassesRaw(params);
+  const classItems = classRes.data.map(mapApiClassToLecturerClass);
 
-  return {
-    items: applyEnrollmentCounts(
-      classRes.data.map(mapApiClassToLecturerClass),
-      enrollmentRes.items,
+  // Fetch enrollment counts per-class (parallel, silent on error)
+  const counts = await Promise.allSettled(
+    classItems.map((cls) =>
+      apiGet<ApiEnrollment[]>(`/api/classes/${cls.id}/enrollments`).catch(() => [] as ApiEnrollment[]),
     ),
-    pagination: classRes.pagination,
-  };
+  );
+  counts.forEach((result, i) => {
+    if (result.status === 'fulfilled') {
+      classItems[i].studentCount = result.value.length;
+    }
+  });
+
+  return { items: classItems, pagination: classRes.pagination };
 }
 
 /** GET /api/users (Student) — kèm lớp từ enrollment nếu có quyền */
@@ -284,6 +293,30 @@ export async function fetchExamSlots(
     items: slotRes.data.map((slot) => mapApiExamSlot(slot, classMap)),
     pagination: slotRes.pagination,
   };
+}
+
+export interface CreateExamSlotPayload {
+  classId: string;
+  examName: string;
+  startTime: string;
+  endTime: string;
+  expectedDurationMinutes?: number;
+  status?: 'Scheduled' | 'InProgress' | 'Completed' | 'Cancelled';
+}
+
+/** POST /api/exam-slots */
+export async function createExamSlot(payload: CreateExamSlotPayload): Promise<ApiExamSlot> {
+  return apiPost<ApiExamSlot>('/api/exam-slots', payload);
+}
+
+/** PUT /api/exam-slots/{id} */
+export async function updateExamSlot(id: string, payload: Partial<CreateExamSlotPayload>): Promise<ApiExamSlot> {
+  return apiPut<ApiExamSlot>(`/api/exam-slots/${id}`, payload);
+}
+
+/** DELETE /api/exam-slots/{id} */
+export async function deleteExamSlot(id: string): Promise<void> {
+  await apiDelete(`/api/exam-slots/${id}`);
 }
 
 /** Tổng hợp dashboard */
@@ -407,7 +440,7 @@ export interface CreateUserPayload {
   email: string;
   password: string;
   fullName: string;
-  role: 'student' | 'lecturer';
+  role: 'student' | 'lecturer' | 'schooladmin';
   studentCode?: string | null;
   institutionId?: string | null;
   phone?: string | null;
@@ -421,7 +454,7 @@ export async function createUser(payload: CreateUserPayload): Promise<ApiUser> {
 /** PUT /api/users/{id} — cập nhật thông tin / trạng thái */
 export async function updateUser(
   id: string,
-  payload: Partial<{ fullName: string; phone: string; status: string; role: string; studentCode: string }>,
+  payload: Partial<{ fullName: string; phone: string; status: string; role: string; studentCode: string; institutionId: string }>,
 ): Promise<ApiUser> {
   return apiPut<ApiUser>(`/api/users/${id}`, payload);
 }
@@ -449,7 +482,7 @@ export async function fetchLecturers(
 // ─── Class CRUD ───────────────────────────────────────────────────────────
 
 export interface CreateClassPayload {
-  institutionId: string;
+  institutionId?: string | null;
   lecturerId: string;
   courseName: string;
   courseCode?: string | null;

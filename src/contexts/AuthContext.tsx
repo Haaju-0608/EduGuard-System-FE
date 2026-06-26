@@ -21,6 +21,7 @@ export interface User {
   avatar: string | null;
   initials: string;
   institutionId: string | null;
+  institutionName: string | null;
 }
 
 interface LoginResponse {
@@ -125,5 +126,5 @@ export function getDashboardPath(role: User['role']): string {
   if (role === 'admin') return '/admin';
   if (role === 'schooladmin') return '/school';
   if (role === 'lecture') return '/lecture';
-  return '/profile';
+  return '/student';
 }

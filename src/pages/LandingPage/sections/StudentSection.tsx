@@ -190,13 +190,6 @@ export default function StudentSection(): React.ReactElement {
               </div>
             </div>
 
-            {/* Floating badges */}
-            <div className="absolute -left-4 top-[25%] bg-navy-card border border-green/30 rounded-xl px-3 py-2 text-[10px] text-green font-semibold shadow-lg animate-float-badge whitespace-nowrap">
-              ✅ Attendance Success
-            </div>
-            <div className="absolute -right-4 bottom-[25%] bg-navy-card border border-cyan/30 rounded-xl px-3 py-2 text-[10px] text-cyan font-semibold shadow-lg animate-float-badge-delay whitespace-nowrap">
-              📅 Exams Updated
-            </div>
           </div>
 
           {/* RIGHT — Content */}

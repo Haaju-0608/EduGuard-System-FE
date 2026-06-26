@@ -39,6 +39,7 @@ export interface ApiClass {
 export interface ApiUser {
   id: string;
   institutionId: string | null;
+  institution?: { id: string; name: string } | null;
   studentCode: string | null;
   email: string;
   fullName: string;

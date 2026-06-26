@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { FiBook, FiChevronDown, FiClock, FiMapPin, FiSearch, FiUsers } from 'react-icons/fi';
+import { FiBook, FiClock, FiMapPin, FiSearch, FiUsers } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import {
   AttendanceProgressBar,
@@ -147,16 +148,16 @@ export default function ClassManagementPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <div className="uni-filter-input sm:max-w-[220px] relative">
-            <FiBook className="text-muted shrink-0" />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ClassStatus | 'all')}>
-              <option value="all">All Statuses</option>
-              <option value="active">Active</option>
-              <option value="upcoming">Upcoming</option>
-              <option value="completed">Completed</option>
-            </select>
-            <FiChevronDown className="absolute right-3 text-muted pointer-events-none" />
-          </div>
+          <CustomSelect
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as ClassStatus | 'all')}
+            options={[
+              {value:'all',label:'All Statuses'},
+              {value:'active',label:'Active'},
+              {value:'upcoming',label:'Upcoming'},
+              {value:'completed',label:'Completed'},
+            ]}
+          />
         </FilterBar>
       </AnimateIn>
 

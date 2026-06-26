@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { FiSearch, FiChevronDown, FiActivity, FiCheckCircle, FiXCircle, FiClock, FiFileText, FiAward } from 'react-icons/fi';
+import { FiSearch, FiActivity, FiCheckCircle, FiXCircle, FiClock, FiFileText, FiAward } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 
 interface AttendanceRecord {
   id: string;
@@ -148,20 +149,17 @@ export default function AttendanceHistoryPage() {
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <div className="uni-filter-input relative !py-2 !px-3 flex-1 sm:flex-initial sm:min-w-[130px]">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="text-xs bg-transparent border-0 outline-none pr-6 cursor-pointer w-full text-white-soft"
-                >
-                  <option value="all">All Status</option>
-                  <option value="present">Present</option>
-                  <option value="absent">Absent</option>
-                  <option value="late">Late</option>
-                  <option value="excused">Excused</option>
-                </select>
-                <FiChevronDown className="absolute right-2 text-muted pointer-events-none" />
-              </div>
+              <CustomSelect
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={[
+                  {value:'all',label:'All Status'},
+                  {value:'present',label:'Present'},
+                  {value:'absent',label:'Absent'},
+                  {value:'late',label:'Late'},
+                  {value:'excused',label:'Excused'},
+                ]}
+              />
             </div>
           </div>
 

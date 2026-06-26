@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FiCheckCircle, FiDollarSign, FiPlus, FiX } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -79,11 +80,16 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Service Type</label>
-            <select value={form.serviceType} onChange={set('serviceType')} className={inp}>
-              <option value="Attendance">Attendance</option>
-              <option value="Proctoring">Proctoring</option>
-              <option value="BiometricRegistration">Biometric Registration</option>
-            </select>
+            <CustomSelect
+              value={form.serviceType}
+              onChange={(v) => setForm((f) => ({ ...f, serviceType: v as typeof f.serviceType }))}
+              options={[
+                {value:'Attendance',label:'Attendance'},
+                {value:'Proctoring',label:'Proctoring'},
+                {value:'BiometricRegistration',label:'Biometric Registration'},
+              ]}
+              className="w-full"
+            />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>

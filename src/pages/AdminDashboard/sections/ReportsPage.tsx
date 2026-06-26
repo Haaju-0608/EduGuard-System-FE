@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FiDownload, FiBarChart2, FiCalendar, FiPieChart, FiInfo, FiTrendingUp, FiFolder } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 
 export default function ReportsPage() {
   const [reportType, setReportType] = useState('Attendance Log');
@@ -205,46 +206,34 @@ export default function ReportsPage() {
               {/* Type */}
               <div>
                 <label className="block text-muted font-medium mb-1.5">Report Type</label>
-                <select
+                <CustomSelect
                   value={reportType}
-                  onChange={(e) => setReportType(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft outline-none focus:border-blue-bright/40 cursor-pointer"
-                >
-                  <option>Attendance Log</option>
-                  <option>Proctoring Violations</option>
-                  <option>Credit Utilization</option>
-                </select>
+                  onChange={setReportType}
+                  options={['Attendance Log','Proctoring Violations','Credit Utilization'].map((v) => ({value:v,label:v}))}
+                  className="w-full"
+                />
               </div>
 
               {/* Department */}
               <div>
                 <label className="block text-muted font-medium mb-1.5">Department</label>
-                <select
+                <CustomSelect
                   value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft outline-none focus:border-blue-bright/40 cursor-pointer"
-                >
-                  <option>All Departments</option>
-                  <option>IT</option>
-                  <option>CS</option>
-                  <option>Math</option>
-                  <option>English</option>
-                </select>
+                  onChange={setDepartment}
+                  options={['All Departments','IT','CS','Math','English'].map((v) => ({value:v,label:v}))}
+                  className="w-full"
+                />
               </div>
 
               {/* Date range */}
               <div>
                 <label className="block text-muted font-medium mb-1.5">Date Range</label>
-                <select
+                <CustomSelect
                   value={dateRange}
-                  onChange={(e) => setDateRange(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft outline-none focus:border-blue-bright/40 cursor-pointer"
-                >
-                  <option>Last 7 Days</option>
-                  <option>Last 30 Days</option>
-                  <option>Last 90 Days</option>
-                  <option>Custom Range</option>
-                </select>
+                  onChange={setDateRange}
+                  options={['Last 7 Days','Last 30 Days','Last 90 Days','Custom Range'].map((v) => ({value:v,label:v}))}
+                  className="w-full"
+                />
               </div>
             </div>
 

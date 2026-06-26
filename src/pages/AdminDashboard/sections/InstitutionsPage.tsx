@@ -4,6 +4,7 @@ import {
   FiBriefcase, FiEdit2, FiMail, FiPause, FiPlay,
   FiPlus, FiSearch, FiTrash2, FiX,
 } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -36,7 +37,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
-type BillingModel = 'PerUse' | 'Subscription' | 'Free';
+type BillingModel = 'PerUse' | 'Subscription';
 
 interface FormData {
   name: string;
@@ -91,8 +92,10 @@ function InstitutionFormModal({
         toast.success('Created', 'Institution created.');
       }
       onSaved(); onClose();
-    } catch {
-      toast.error('Error', `Failed to ${isEdit ? 'update' : 'create'} institution.`);
+    } catch (err) {
+      console.error('[InstitutionsPage] create/update error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Failed to ${isEdit ? 'update' : 'create'} institution`, msg);
     } finally { setSaving(false); }
   };
 
@@ -124,11 +127,12 @@ function InstitutionFormModal({
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Billing Model</label>
-            <select value={form.billingModel} onChange={set('billingModel')} className={inp}>
-              <option value="PerUse">Per Use</option>
-              <option value="Subscription">Subscription</option>
-              <option value="Free">Free</option>
-            </select>
+            <CustomSelect
+              value={form.billingModel}
+              onChange={(v) => setForm((f) => ({ ...f, billingModel: v as typeof f.billingModel }))}
+              options={[{value:'PerUse',label:'Per Use'},{value:'Subscription',label:'Subscription'}]}
+              className="w-full"
+            />
           </div>
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">Cancel</button>

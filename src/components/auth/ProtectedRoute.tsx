@@ -12,7 +12,7 @@ function redirectPath(role: string): string {
   if (role === 'admin' || role === 'schooladmin' || role === 'lecture' || role === 'user') {
     return getDashboardPath(role as 'admin' | 'schooladmin' | 'lecture' | 'user');
   }
-  return '/profile';
+  return '/student';
 }
 
 export default function ProtectedRoute({ children, allowedRole }: ProtectedRouteProps) {

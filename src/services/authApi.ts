@@ -15,6 +15,7 @@ export interface AuthUserProfile {
   avatar: string | null;
   initials: string;
   institutionId: string | null;
+  institutionName: string | null;
 }
 
 /** Map profile API → user trong app */
@@ -32,6 +33,7 @@ export function mapApiUserToAuthUser(profile: ApiUser): AuthUserProfile {
     avatar: null,
     initials: getInitialsFromName(name),
     institutionId: profile.institutionId,
+    institutionName: profile.institution?.name ?? null,
   };
 }
 

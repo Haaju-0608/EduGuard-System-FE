@@ -11,7 +11,6 @@ export default function ProfileDetailPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ fullName: '', phone: '' });
-
   useEffect(() => {
     setForm({
       fullName: user?.name ?? '',
@@ -204,12 +203,15 @@ export default function ProfileDetailPage() {
                 <FiCheckCircle className="text-[10px]" /> Active
               </span>
             </div>
-            {user?.institutionId && (
-              <div className="flex justify-between items-center border-t border-border/30 pt-3">
-                <span className="text-muted">Institution:</span>
-                <span className="text-white-soft font-mono text-[10px]">{user.institutionId.slice(0, 8)}…</span>
-              </div>
-            )}
+            <div className="flex justify-between items-center border-t border-border/30 pt-3">
+              <span className="text-muted">Institution:</span>
+              {user?.institutionId
+                ? <span className="text-white-soft font-medium text-right max-w-[60%] truncate">
+                    {user.institutionName ?? `${user.institutionId.slice(0, 8)}…`}
+                  </span>
+                : <span className="text-muted italic">Not assigned</span>
+              }
+            </div>
             {user?.studentId && (
               <div className="flex justify-between items-center border-t border-border/30 pt-3">
                 <span className="text-muted">Staff / Student Code:</span>

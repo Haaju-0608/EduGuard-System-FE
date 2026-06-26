@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FiCheckCircle,
+  FiEdit2,
   FiPlus,
   FiRefreshCw,
   FiSearch,
@@ -10,8 +11,10 @@ import {
   FiX,
   FiXCircle,
 } from 'react-icons/fi';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { fetchInstitutionById } from '../../../services/adminApi';
 import {
   createUser,
   deleteUser,
@@ -35,8 +38,112 @@ function lecturerStatus(user: LecturerStudent): LecturerStatus {
   return 'Active';
 }
 
-export default function LecturerManagementPage() {
+// ─── Edit Modal ───────────────────────────────────────────────────────────────
+
+interface EditForm { fullName: string; phone: string; staffCode: string; }
+
+function EditLecturerModal({
+  target, onClose, onSaved, institutionName,
+}: { target: LecturerStudent; onClose: () => void; onSaved: () => void; institutionName: string }) {
   const toast = useToast();
+  const [form, setForm] = useState<EditForm>({ fullName: '', phone: '', staffCode: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setForm({
+      fullName: target.name ?? '',
+      phone: target.phone && target.phone !== '—' ? target.phone : '',
+      staffCode: target.studentId && target.studentId !== '—' ? target.studentId : '',
+    });
+  }, [target]);
+
+  const set = (k: keyof EditForm) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.fullName.trim()) { toast.warning('Required', 'Full name is required.'); return; }
+    setSaving(true);
+    try {
+      await updateUser(target.id, {
+        fullName: form.fullName.trim(),
+        phone: form.phone.trim() || undefined,
+        studentCode: form.staffCode.trim() || undefined,
+      });
+      toast.success('Updated', 'Lecturer updated successfully.');
+      onSaved();
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update lecturer.';
+      toast.error('Error', msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 className="font-syne font-bold text-white-soft text-lg">Edit Lecturer</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors">
+            <FiX />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Full Name *</label>
+            <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Dr. Nguyen Van A" className={inp} required />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Email</label>
+            <input type="email" value={target.email} disabled className={`${inp} opacity-50 cursor-not-allowed`} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Staff Code</label>
+              <input type="text" value={form.staffCode} onChange={set('staffCode')} placeholder="GV301026" className={inp} />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
+              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="0912345678" className={inp} />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Institution</label>
+            <input type="text" value={institutionName} disabled className={`${inp} opacity-60 cursor-not-allowed`} />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">
+              Cancel
+            </button>
+            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none">
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
+
+export default function LecturerManagementPage() {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [institutionName, setInstitutionName] = useState('');
+
+  React.useEffect(() => {
+    if (!user?.institutionId) return;
+    fetchInstitutionById(user.institutionId)
+      .then((inst) => setInstitutionName(inst.name ?? ''))
+      .catch(() => setInstitutionName(user.institutionId ?? ''));
+  }, [user?.institutionId]);
+
   const { data, loading, reload } = useAsyncData(
     () => fetchLecturers({ page: 1, pageSize: 100 }),
     [],
@@ -45,6 +152,7 @@ export default function LecturerManagementPage() {
 
   const [search, setSearch] = useState('');
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -75,13 +183,15 @@ export default function LecturerManagementPage() {
         password: form.password,
         role: 'lecturer',
         studentCode: form.studentCode || undefined,
+        institutionId: user?.institutionId ?? null,
       });
       toast.success('Created', `Lecturer ${form.fullName} has been created.`);
       setForm({ fullName: '', email: '', password: '', studentCode: '' });
       setIsAddOpen(false);
       reload();
-    } catch {
-      toast.error('Error', 'Failed to create lecturer account.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to create lecturer account.';
+      toast.error('Error', msg);
     } finally {
       setSubmitting(false);
     }
@@ -159,7 +269,7 @@ export default function LecturerManagementPage() {
 
       {/* Table */}
       <div className="bg-navy-card border border-border rounded-2xl overflow-hidden">
-        <div className="hidden md:grid grid-cols-[1fr_1.6fr_100px_80px] gap-3 px-5 py-3 border-b border-border text-[11px] font-bold text-muted uppercase tracking-wider">
+        <div className="hidden md:grid grid-cols-[1fr_1.6fr_100px_100px] gap-3 px-5 py-3 border-b border-border text-[11px] font-bold text-muted uppercase tracking-wider">
           <span>ID / Code</span>
           <span>Name / Email</span>
           <span>Status</span>
@@ -169,7 +279,7 @@ export default function LecturerManagementPage() {
         {loading ? (
           <div className="divide-y divide-border">
             {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="grid grid-cols-[1fr_1.6fr_1fr_120px_80px] gap-3 items-center px-5 py-4">
+              <div key={i} className="grid grid-cols-[1fr_1.6fr_1fr_120px_100px] gap-3 items-center px-5 py-4">
                 {Array.from({ length: 5 }).map((__, j) => (
                   <div key={j} className="h-4 bg-white/5 rounded animate-pulse" />
                 ))}
@@ -190,9 +300,9 @@ export default function LecturerManagementPage() {
                 return (
                   <div
                     key={l.id}
-                    className="grid grid-cols-1 md:grid-cols-[1fr_1.6fr_100px_80px] gap-3 items-center px-5 py-3.5 hover:bg-navy/40 transition-colors"
+                    className="grid grid-cols-1 md:grid-cols-[1fr_1.6fr_100px_100px] gap-3 items-center px-5 py-3.5 hover:bg-navy/40 transition-colors"
                   >
-                    <span className="text-xs font-mono text-muted">{l.studentId || l.id.slice(0, 10)}</span>
+                    <span className="text-xs font-mono text-muted">{l.studentId || '—'}</span>
                     <div>
                       <p className="text-sm font-semibold text-white-soft">{l.name}</p>
                       <p className="text-[11px] text-muted">{l.email}</p>
@@ -203,6 +313,13 @@ export default function LecturerManagementPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setEditTarget(l)}
+                        title="Edit"
+                        className="w-7 h-7 rounded-lg bg-transparent border border-border text-muted flex items-center justify-center cursor-pointer hover:text-blue-bright hover:border-blue/40 transition-all"
+                      >
+                        <FiEdit2 className="text-xs" />
+                      </button>
                       <button
                         onClick={() => handleToggleStatus(l)}
                         disabled={isActing}
@@ -228,7 +345,17 @@ export default function LecturerManagementPage() {
         )}
       </div>
 
-      {/* Add Modal — portal để tránh bị ảnh hưởng bởi CSS transform của parent */}
+      {/* Edit Modal */}
+      {editTarget && (
+        <EditLecturerModal
+          target={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSaved={reload}
+          institutionName={institutionName}
+        />
+      )}
+
+      {/* Add Modal */}
       {isAddOpen && createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
           <div className="bg-navy-card border border-border rounded-[20px] p-6 w-full max-w-md">
@@ -260,6 +387,12 @@ export default function LecturerManagementPage() {
                 </div>
               ))}
             </div>
+            {institutionName && (
+              <div className="mt-4">
+                <label className="text-xs font-semibold text-muted uppercase tracking-wider block mb-1.5">Institution</label>
+                <input type="text" value={institutionName} disabled className="w-full bg-navy border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft opacity-60 cursor-not-allowed" />
+              </div>
+            )}
             <div className="flex gap-3 mt-6">
               <button
                 onClick={() => setIsAddOpen(false)}

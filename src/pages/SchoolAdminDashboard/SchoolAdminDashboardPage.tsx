@@ -2,12 +2,13 @@ import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 import SchoolDashboardOverview from './sections/SchoolDashboardOverview';
-import StudentManagementPage from '../LecturerDashboard/sections/StudentManagementPage';
+import SchoolStudentManagementPage from './sections/SchoolStudentManagementPage';
 import LecturerManagementPage from './sections/LecturerManagementPage';
 import SchoolClassManagementPage from './sections/SchoolClassManagementPage';
 import BiometricApprovalPage from '../LecturerDashboard/sections/BiometricApprovalPage';
 import WalletPage from './sections/WalletPage';
 import MonitoringPage from './sections/MonitoringPage';
+import ExamManagementPage from './sections/ExamManagementPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
 const menuItems: MenuItem[] = [
@@ -15,6 +16,7 @@ const menuItems: MenuItem[] = [
   { icon: '👨‍🎓', label: 'Students', path: '/school/students' },
   { icon: '👨‍🏫', label: 'Lecturers', path: '/school/lecturers' },
   { icon: '📚', label: 'Classes', path: '/school/classes' },
+  { icon: '📝', label: 'Exams', path: '/school/exams' },
   { icon: '💳', label: 'Wallet', path: '/school/wallet' },
   { icon: '🔐', label: 'Face Approval', path: '/school/biometric' },
   { icon: '📡', label: 'Monitoring', path: '/school/monitoring' },
@@ -27,9 +29,10 @@ export default function SchoolAdminDashboardPage() {
       <div className="max-w-350 mx-auto animate-fade-slide-in">
         <Routes>
           <Route index element={<SchoolDashboardOverview />} />
-          <Route path="students" element={<StudentManagementPage />} />
+          <Route path="students" element={<SchoolStudentManagementPage />} />
           <Route path="lecturers" element={<LecturerManagementPage />} />
           <Route path="classes" element={<SchoolClassManagementPage />} />
+          <Route path="exams" element={<ExamManagementPage />} />
           <Route path="wallet" element={<WalletPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />
           <Route path="monitoring" element={<MonitoringPage />} />

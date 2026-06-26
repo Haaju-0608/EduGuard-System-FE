@@ -8,6 +8,7 @@ import {
   FiUsers,
   FiXCircle,
 } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import {
   EmptyState,
@@ -194,21 +195,15 @@ export default function AttendanceSessionPage() {
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
             <div className="flex-1 w-full">
               <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Course</label>
-              <div className="uni-filter-input">
-                <select
-                  value={selectedClassId}
-                  onChange={(e) => setSelectedClassId(e.target.value)}
-                  disabled={!!session || classes.length === 0}
-                >
-                  {classes.length === 0 ? (
-                    <option value="">— No classes available —</option>
-                  ) : (
-                    classes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.code} — {c.name} · Room {c.room}</option>
-                    ))
-                  )}
-                </select>
-              </div>
+              <CustomSelect
+                value={selectedClassId}
+                onChange={setSelectedClassId}
+                disabled={!!session || classes.length === 0}
+                options={classes.length === 0
+                  ? [{value:'', label:'— No classes available —'}]
+                  : classes.map((c) => ({value:c.id, label:`${c.code} — ${c.name} · Room ${c.room}`}))
+                }
+              />
             </div>
 
             {!session ? (

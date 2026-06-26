@@ -112,18 +112,6 @@ export default function StudentFeatureSection() {
             ))}
           </div>
 
-          {/* CTA */}
-          <div className="flex items-center gap-4 flex-wrap">
-            <a
-              href="#"
-              className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-syne font-bold text-sm text-navy
-                bg-gradient-to-r from-gold to-green shadow-[0_0_24px_rgba(245,158,11,0.25)]
-                hover:shadow-[0_0_32px_rgba(245,158,11,0.4)] hover:scale-105 transition-all duration-300"
-            >
-              🤖 Download Android App
-            </a>
-            <span className="text-gold text-sm font-dm">iOS · Q3 2025</span>
-          </div>
         </div>
 
         {/* RIGHT — Phone mockup */}
@@ -230,13 +218,6 @@ export default function StudentFeatureSection() {
             </div>
           </div>
 
-          {/* Floating badges */}
-          <div className="absolute -left-4 top-[30%] bg-navy-card border border-green/30 rounded-xl px-3 py-2 text-[10px] text-green font-semibold shadow-lg animate-float-badge whitespace-nowrap">
-            ✅ Attendance Success · 99.1% Confidence
-          </div>
-          <div className="absolute -right-4 bottom-[25%] bg-navy-card border border-gold/30 rounded-xl px-3 py-2 text-[10px] text-gold font-semibold shadow-lg animate-float-badge-delay whitespace-nowrap">
-            🔔 Exam Reminder · 2h Left
-          </div>
         </div>
       </div>
     </section>

@@ -99,13 +99,6 @@ export default function LoginPage() {
             ))}
           </div>
 
-          {/* Floating badges */}
-          <div className="absolute -left-2 top-[30%] bg-navy-card border border-green/30 rounded-xl px-3 py-2 text-[11px] text-green font-semibold shadow-lg animate-float-badge whitespace-nowrap">
-            ✅ 99.3% Accuracy
-          </div>
-          <div className="absolute -right-2 bottom-[20%] bg-navy-card border border-cyan/30 rounded-xl px-3 py-2 text-[11px] text-cyan font-semibold shadow-lg animate-float-badge-delay whitespace-nowrap">
-            ⚡ 3s Recognition
-          </div>
         </div>
       </div>
 

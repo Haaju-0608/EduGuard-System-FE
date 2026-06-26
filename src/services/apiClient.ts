@@ -63,16 +63,27 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
 function extractErrorMessage(body: unknown, status: number): string {
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
-    if (typeof record.message === 'string' && record.message) return record.message;
+    // Try common field names
+    for (const key of ['message', 'error', 'title', 'detail', 'errorMessage', 'Error']) {
+      if (typeof record[key] === 'string' && record[key]) return record[key] as string;
+    }
     if (typeof record.errors === 'string') return record.errors;
     if (Array.isArray(record.errors) && record.errors.length > 0) {
-      return String(record.errors[0]);
+      const first = record.errors[0];
+      if (typeof first === 'string') return first;
+      if (first && typeof first === 'object') {
+        const fe = first as Record<string, unknown>;
+        return String(fe.message ?? fe.description ?? fe.msg ?? JSON.stringify(first));
+      }
     }
+    // Last resort: show full body so we can debug
+    const str = JSON.stringify(body);
+    if (str && str !== '{}') return str;
   }
   if (status === 401) return 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.';
   if (status === 403) return 'Bạn không có quyền thực hiện thao tác này.';
   if (status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.';
-  return 'Yêu cầu thất bại.';
+  return `Yêu cầu thất bại (HTTP ${status}).`;
 }
 
 function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {

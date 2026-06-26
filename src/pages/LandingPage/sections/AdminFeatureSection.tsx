@@ -194,13 +194,6 @@ export default function AdminFeatureSection() {
             </div>
           </div>
 
-          {/* Floating badges */}
-          <div className="absolute -left-4 top-[20%] bg-navy-card border border-green/30 rounded-xl px-3 py-2 text-[10px] text-green font-semibold shadow-lg animate-float-badge whitespace-nowrap">
-            📊 Report exported successfully
-          </div>
-          <div className="absolute -right-4 bottom-[20%] bg-navy-card border border-red/30 rounded-xl px-3 py-2 text-[10px] text-red font-semibold shadow-lg animate-float-badge-delay whitespace-nowrap">
-            🚨 3 new violations
-          </div>
         </div>
 
         {/* RIGHT — Content */}
@@ -248,15 +241,6 @@ export default function AdminFeatureSection() {
             ))}
           </div>
 
-          {/* CTA */}
-          <a
-            href="#"
-            className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-syne font-bold text-sm text-white-soft
-              bg-gradient-to-r from-blue to-blue-bright shadow-[0_0_24px_rgba(37,99,235,0.3)]
-              hover:shadow-[0_0_32px_rgba(37,99,235,0.5)] hover:scale-105 transition-all duration-300"
-          >
-            🚀 View Admin Dashboard Demo
-          </a>
         </div>
       </div>
     </section>

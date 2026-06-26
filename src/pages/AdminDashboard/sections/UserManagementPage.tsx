@@ -3,15 +3,17 @@ import { createPortal } from 'react-dom';
 import {
   FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiX,
 } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { fetchInstitutions } from '../../../services/adminApi';
 import {
   createUser,
   deleteUser,
   fetchUsers,
   updateUser,
 } from '../../../services/schoolAdminApi';
-import type { ApiUser } from '../../../types/api';
+import type { ApiInstitution, ApiUser } from '../../../types/api';
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -39,12 +41,12 @@ function StatusDot({ status }: { status: string }) {
 
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
-interface UserFormData { fullName: string; email: string; password: string; role: string; studentCode: string; phone: string; }
-const EMPTY_USER: UserFormData = { fullName: '', email: '', password: '', role: 'Student', studentCode: '', phone: '' };
+interface UserFormData { fullName: string; email: string; password: string; role: string; studentCode: string; phone: string; institutionId: string; }
+const EMPTY_USER: UserFormData = { fullName: '', email: '', password: '', role: 'Student', studentCode: '', phone: '', institutionId: '' };
 
 function UserFormModal({
-  target, onClose, onSaved,
-}: { target: ApiUser | null; onClose: () => void; onSaved: () => void }) {
+  target, onClose, onSaved, institutions,
+}: { target: ApiUser | null; onClose: () => void; onSaved: () => void; institutions: ApiInstitution[] }) {
   const toast = useToast();
   const [form, setForm] = useState<UserFormData>(EMPTY_USER);
   const [saving, setSaving] = useState(false);
@@ -58,6 +60,7 @@ function UserFormModal({
       role: target.role ?? 'Student',
       studentCode: target.studentCode ?? '',
       phone: target.phone ?? '',
+      institutionId: target.institutionId ?? '',
     } : EMPTY_USER);
   }, [target]);
 
@@ -76,6 +79,7 @@ function UserFormModal({
           role: form.role,
           phone: form.phone.trim() || undefined,
           studentCode: form.studentCode.trim() || undefined,
+          ...(form.institutionId ? { institutionId: form.institutionId } : {}),
         });
         toast.success('Updated', 'User updated successfully.');
       } else {
@@ -83,9 +87,10 @@ function UserFormModal({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          role: form.role.toLowerCase() as 'student' | 'lecturer',
+          role: form.role.toLowerCase() as 'student' | 'lecturer' | 'schooladmin',
           studentCode: form.studentCode.trim() || null,
           phone: form.phone.trim() || null,
+          institutionId: form.institutionId || null,
         });
         toast.success('Created', 'User created successfully.');
       }
@@ -122,11 +127,16 @@ function UserFormModal({
             )}
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Role</label>
-              <select value={form.role} onChange={set('role')} className={inp}>
-                <option value="Student">Student</option>
-                <option value="Lecturer">Lecturer</option>
-                <option value="SchoolAdmin">School Admin</option>
-              </select>
+              <CustomSelect
+                value={form.role}
+                onChange={(v) => setForm((f) => ({ ...f, role: v }))}
+                options={[
+                  {value:'Student',label:'Student'},
+                  {value:'Lecturer',label:'Lecturer'},
+                  {value:'SchoolAdmin',label:'School Admin'},
+                ]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student / Staff Code</label>
@@ -136,6 +146,23 @@ function UserFormModal({
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
               <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+84 9xx xxx xxx" className={inp} />
             </div>
+            {['schooladmin', 'lecturer', 'student'].includes(form.role?.toLowerCase() ?? '') && (
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+                  Institution
+                  {form.role?.toLowerCase().includes('schooladmin') && <span className="text-gold ml-1">*</span>}
+                </label>
+                <CustomSelect
+                  value={form.institutionId}
+                  onChange={(v) => setForm((f) => ({ ...f, institutionId: v }))}
+                  options={[{value:'',label:'— Select institution —'}, ...institutions.map((inst) => ({value:inst.id,label:inst.name ?? inst.id}))]}
+                  className="w-full"
+                />
+                {form.role?.toLowerCase().includes('schooladmin') && !form.institutionId && (
+                  <p className="text-[10px] text-gold mt-1">School Admin must be linked to an institution to manage classes and students.</p>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">Cancel</button>
@@ -164,7 +191,12 @@ export default function UserManagementPage() {
     () => fetchUsers({ page: 1, pageSize: 200 }),
     [],
   );
+  const { data: instData } = useAsyncData(
+    () => fetchInstitutions({ page: 1, pageSize: 100 }),
+    [],
+  );
   const users: ApiUser[] = data?.items ?? [];
+  const institutions: ApiInstitution[] = instData?.items ?? [];
 
   const roles = ['all', ...Array.from(new Set(users.map((u) => u.role))).sort()];
 
@@ -220,9 +252,11 @@ export default function UserManagementPage() {
           <FiSearch className="text-muted shrink-0" />
           <input type="text" placeholder="Search name, email, student code..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted" />
         </div>
-        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="bg-navy-card border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/40 transition-colors cursor-pointer">
-          {roles.map((r) => <option key={r} value={r}>{r === 'all' ? 'All Roles' : r}</option>)}
-        </select>
+        <CustomSelect
+          value={roleFilter}
+          onChange={setRoleFilter}
+          options={roles.map((r) => ({value:r, label: r === 'all' ? 'All Roles' : r}))}
+        />
         <button onClick={reload} disabled={loading} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent disabled:opacity-50">
           <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -273,7 +307,7 @@ export default function UserManagementPage() {
         )}
       </div>
 
-      {showForm && <UserFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} />}
+      {showForm && <UserFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} institutions={institutions} />}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCalendar, FiClock, FiPlus, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
+import { FiCalendar, FiClock, FiFileText, FiPlus, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import {
   CourseCodeBadge,
@@ -15,11 +17,11 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchExamSlots } from '../../../services/schoolAdminApi';
 import {
   createExamParticipation,
   deleteExamParticipation,
   fetchExamParticipations,
+  fetchExamSlots,
   updateParticipationStatus,
 } from '../../../services/schoolAdminApi';
 import type { ApiExamParticipation, ParticipationStatus } from '../../../types/api';
@@ -51,15 +53,9 @@ const PARTICIPATION_COLORS: Record<ParticipationStatus, string> = {
   Left: 'text-gold bg-gold/10 border-gold/25',
 };
 
-// ─── Participants Panel (Portal) ──────────────────────────────────────────
+// ─── Participants Panel ───────────────────────────────────────────────────
 
-function ParticipantsPanel({
-  slot,
-  onClose,
-}: {
-  slot: ExamSlot;
-  onClose: () => void;
-}) {
+function ParticipantsPanel({ slot, onClose }: { slot: ExamSlot; onClose: () => void }) {
   const toast = useToast();
   const [addStudentId, setAddStudentId] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -81,9 +77,7 @@ function ParticipantsPanel({
       reload();
     } catch {
       toast.error('Error', 'Failed to add student. Check the Student ID.');
-    } finally {
-      setSubmitting(false);
-    }
+    } finally { setSubmitting(false); }
   };
 
   const handleStatusChange = async (p: ApiExamParticipation, status: ParticipationStatus) => {
@@ -94,9 +88,7 @@ function ParticipantsPanel({
       reload();
     } catch {
       toast.error('Error', 'Failed to update status.');
-    } finally {
-      setActionId(null);
-    }
+    } finally { setActionId(null); }
   };
 
   const handleDelete = async (p: ApiExamParticipation) => {
@@ -108,15 +100,12 @@ function ParticipantsPanel({
       reload();
     } catch {
       toast.error('Error', 'Failed to remove student.');
-    } finally {
-      setActionId(null);
-    }
+    } finally { setActionId(null); }
   };
 
   return createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
       <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-2xl max-h-[85vh] flex flex-col">
-        {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-border shrink-0">
           <div>
             <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-1">{slot.classCode}</p>
@@ -125,15 +114,11 @@ function ParticipantsPanel({
               {formatDateTime(slot.startTime)} → {formatDateTime(slot.endTime)}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors"
-          >
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors">
             <FiX />
           </button>
         </div>
 
-        {/* Add student row */}
         <div className="px-6 py-4 border-b border-border shrink-0">
           <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Add Student by ID</p>
           <div className="flex gap-2">
@@ -155,7 +140,6 @@ function ParticipantsPanel({
           </div>
         </div>
 
-        {/* Participants list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
             <div className="p-6 space-y-3">
@@ -184,16 +168,14 @@ function ParticipantsPanel({
                       <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
                       <p className="text-[11px] text-muted truncate">{code && `${code} · `}{email}</p>
                     </div>
-                    <select
+                    <CustomSelect
+                      variant="inline"
                       value={p.status}
-                      onChange={(e) => handleStatusChange(p, e.target.value as ParticipationStatus)}
+                      onChange={(v) => handleStatusChange(p, v as ParticipationStatus)}
                       disabled={isActing}
-                      className={`text-[10px] font-bold px-2 py-1 rounded-full border cursor-pointer bg-transparent outline-none disabled:opacity-40 ${PARTICIPATION_COLORS[p.status] ?? 'text-muted border-border'}`}
-                    >
-                      {(['Joined', 'Submitted', 'Disqualified', 'Absent', 'Left'] as ParticipationStatus[]).map((s) => (
-                        <option key={s} value={s} className="bg-navy text-white-soft">{s}</option>
-                      ))}
-                    </select>
+                      colorClass={PARTICIPATION_COLORS[p.status] ?? 'text-muted border-border'}
+                      options={(['Joined','Submitted','Disqualified','Absent','Left'] as ParticipationStatus[]).map((s) => ({value:s,label:s}))}
+                    />
                     <button
                       onClick={() => handleDelete(p)}
                       disabled={isActing}
@@ -208,7 +190,6 @@ function ParticipantsPanel({
           )}
         </div>
 
-        {/* Footer stats */}
         {participants.length > 0 && (
           <div className="px-6 py-3 border-t border-border shrink-0 flex gap-4 text-xs text-muted">
             <span><strong className="text-white-soft">{participants.length}</strong> total</span>
@@ -224,12 +205,22 @@ function ParticipantsPanel({
 
 // ─── Exam Slot Card ───────────────────────────────────────────────────────
 
-function ExamSlotCard({ slot, index, onViewParticipants }: { slot: ExamSlot; index: number; onViewParticipants: (slot: ExamSlot) => void }) {
+function ExamSlotCard({ slot, index, onViewParticipants }: {
+  slot: ExamSlot; index: number;
+  onViewParticipants: (slot: ExamSlot) => void;
+}) {
+  const navigate = useNavigate();
+
+  const goToQuestions = () => {
+    localStorage.setItem(`examName_${slot.id}`, slot.examName);
+    navigate(`/lecture/exams/${slot.id}/questions`);
+  };
+
   return (
     <AnimateIn index={index}>
       <UniCard className="flex flex-col h-full">
         <div className="flex items-start justify-between gap-3 mb-4">
-          <div>
+          <div className="min-w-0 flex-1">
             <CourseCodeBadge code={slot.classCode} size="sm" />
             <h3 className="font-syne font-bold text-white-soft mt-2 text-[1.05rem]">{slot.examName}</h3>
             <p className="text-sm text-muted mt-1">{slot.className}</p>
@@ -252,12 +243,20 @@ function ExamSlotCard({ slot, index, onViewParticipants }: { slot: ExamSlot; ind
           </div>
         </div>
 
-        <button
-          onClick={() => onViewParticipants(slot)}
-          className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-blue/30 text-blue-bright text-sm font-semibold cursor-pointer hover:bg-blue/10 transition-colors bg-transparent"
-        >
-          <FiUsers className="text-sm" /> View Participants
-        </button>
+        <div className="mt-4 flex gap-2">
+          <button
+            onClick={goToQuestions}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/10 transition-colors bg-transparent"
+          >
+            <FiFileText className="text-sm" /> Questions
+          </button>
+          <button
+            onClick={() => onViewParticipants(slot)}
+            className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-blue/30 text-blue-bright text-sm font-semibold cursor-pointer hover:bg-blue/10 transition-colors bg-transparent"
+          >
+            <FiUsers className="text-sm" /> Participants
+          </button>
+        </div>
       </UniCard>
     </AnimateIn>
   );
@@ -272,7 +271,7 @@ export default function ExamSlotsPage() {
   const [selectedSlot, setSelectedSlot] = useState<ExamSlot | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(async () => {
-    const result = await fetchExamSlots({ page: 1, pageSize: 50 });
+    const result = await fetchExamSlots({ page: 1, pageSize: 100 });
     return result.items;
   }, []);
 
@@ -290,7 +289,7 @@ export default function ExamSlotsPage() {
       <PageHeader
         eyebrow="Exam Schedule"
         title="Exam Slots"
-        subtitle="List of exam sessions — click a card to manage participants."
+        subtitle="View exam sessions and manage participants."
         facultyId={facultyId}
         stats={[
           { label: 'Total Slots', value: String(slots.length), icon: '📝' },
@@ -310,18 +309,17 @@ export default function ExamSlotsPage() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="uni-filter-input sm:max-w-[200px]">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as ExamSlotStatus | 'all')}
-          >
-            <option value="all">All Statuses</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="ongoing">Ongoing</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-        </div>
+        <CustomSelect
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as ExamSlotStatus | 'all')}
+          options={[
+            {value:'all',label:'All Statuses'},
+            {value:'scheduled',label:'Scheduled'},
+            {value:'ongoing',label:'Ongoing'},
+            {value:'completed',label:'Completed'},
+            {value:'cancelled',label:'Cancelled'},
+          ]}
+        />
       </FilterBar>
 
       {loading ? (
@@ -331,7 +329,7 @@ export default function ExamSlotsPage() {
       ) : error ? (
         <EmptyState variant="error" icon="📝" title="Failed to load exam slots" description={error} onRetry={reload} />
       ) : filteredSlots.length === 0 ? (
-        <EmptyState icon="📝" title="No exam slots" description="Try changing the filter or search keyword." />
+        <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to your classes yet." />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filteredSlots.map((slot, i) => (

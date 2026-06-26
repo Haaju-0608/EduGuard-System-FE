@@ -601,6 +601,13 @@ body::before {
   color: var(--color-white-soft);
   width: 100%;
   font-family: var(--font-dm);
+  color-scheme: dark;
+  cursor: pointer;
+}
+
+.uni-filter-input select option {
+  background: #0f172a;
+  color: var(--color-white-soft);
 }
 
 .uni-filter-pill {
@@ -1621,9 +1628,37 @@ body::before {
   background: rgba(15, 23, 42, 0.06) !important;
 }
 
+/* Dark mode: all select dropdowns use dark background */
+select {
+  color-scheme: dark;
+}
+
+/* datetime-local picker icon color */
+input[type="datetime-local"],
+input[type="date"],
+input[type="time"] {
+  color-scheme: dark;
+}
+
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+}
+
+select option {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
 :root.light .uni-filter-input input::placeholder {
   color: #6B7280;
   opacity: 0.8;
+}
+
+:root.light select {
+  color-scheme: light;
 }
 
 :root.light select option {
