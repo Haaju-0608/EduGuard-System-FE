@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
@@ -8,12 +8,27 @@ import SchoolAdminDashboardPage from './pages/SchoolAdminDashboard';
 import LecturerDashboardPage from './pages/LecturerDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
+const AiProctoringPrototypePage = lazy(() => import('./pages/UserProfile/sections/AiProctoringPrototypePage'));
+
+function AiPrototypeRoute() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-navy text-white-soft grid place-items-center">Loading AI prototype...</div>}>
+      <div className="min-h-screen bg-navy p-4 md:p-6">
+        <div className="max-w-350 mx-auto">
+          <AiProctoringPrototypePage />
+        </div>
+      </div>
+    </Suspense>
+  );
+}
+
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/ai-proctoring-prototype" element={<AiPrototypeRoute />} />
         <Route
           path="/profile/*"
           element={

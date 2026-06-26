@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { FiFileText, FiClock, FiMapPin, FiShield, FiAlertTriangle, FiCheckCircle } from 'react-icons/fi';
 
 interface ExamItem {
@@ -140,6 +141,15 @@ export default function ExamsPage() {
                 <span>🛡️ AI Proctoring Mode:</span>
                 <span className="text-cyan font-bold bg-cyan/5 border border-cyan/15 px-2 py-0.5 rounded">{exam.proctorMethod}</span>
               </div>
+
+              {exam.status === 'upcoming' && exam.proctorMethod.includes('Gaze') && (
+                <div className="flex justify-end">
+                  <Link to="/profile/ai-proctoring" className="uni-btn-primary no-underline !text-xs !py-2 !px-4">
+                    <FiCheckCircle />
+                    Start Local Prototype
+                  </Link>
+                </div>
+              )}
             </div>
           ))}
         </div>
