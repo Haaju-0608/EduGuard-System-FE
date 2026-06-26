@@ -93,3 +93,126 @@ export interface ApiBiometricRequest {
   student: ApiUser | null;
   approver: ApiUser | null;
 }
+
+/** Wallet từ GET /api/wallets/institution/{institutionId} */
+export interface ApiWallet {
+  id: string;
+  institutionId: string;
+  balance: number;
+  totalDeducted: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Transaction từ GET /api/transactions/wallet/{walletId} */
+export interface ApiTransaction {
+  id: string;
+  walletId: string;
+  amount: number;
+  type: string;
+  description: string | null;
+  createdAt: string;
+  status: string;
+}
+
+/** Attendance session từ GET /api/attendance-sessions */
+export interface ApiAttendanceSession {
+  id: string;
+  classId: string;
+  startTime: string;
+  endTime: string | null;
+  videoPath: string | null;
+  status: string;
+  createdAt: string;
+  class: ApiClass | null;
+}
+
+/** Attendance record từ GET /api/attendance-records */
+export interface ApiAttendanceRecord {
+  id: string;
+  sessionId: string;
+  studentId: string;
+  status: string;
+  checkInTime: string | null;
+  student: ApiUser | null;
+}
+
+/** Violation log từ GET /api/violation-logs */
+export interface ApiViolationLog {
+  id: string;
+  participationId: string;
+  severity: string;
+  violationType: string;
+  evidencePath: string | null;
+  aiConfidence: number | null;
+  reviewedBy: string | null;
+  recordedAt: string;
+  createdAt: string;
+}
+
+/** Notification từ GET /api/notifications/user/{userId} */
+export interface ApiNotification {
+  id: string;
+  userId: string;
+  title: string;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+  type: string | null;
+}
+
+/** Institution từ GET /api/institutions */
+export interface ApiInstitution {
+  id: string;
+  name: string | null;
+  subDomain: string | null;
+  contactEmail: string | null;
+  billingModel: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Pricing config từ GET /api/pricing-configs */
+export interface ApiPricingConfig {
+  id: string;
+  serviceType: string;
+  unitPrice: number;
+  effectiveDate: string;
+  createdAt: string;
+}
+
+export type ParticipationStatus = 'Joined' | 'Submitted' | 'Disqualified' | 'Absent' | 'Left';
+
+/** Exam participation từ GET /api/exam-participations */
+export interface ApiExamParticipation {
+  id: string;
+  examSlotId: string;
+  studentId: string;
+  status: ParticipationStatus;
+  actualStart: string | null;
+  actualEnd: string | null;
+  disqualifiedReason: string | null;
+  joinedAt: string | null;
+  student: ApiUser | null;
+}
+
+/** Deduct attendance request */
+export interface DeductAttendancePayload {
+  walletId: string;
+  attendanceSessionId: string;
+  studentCount: number;
+}
+
+/** Deduct proctoring request */
+export interface DeductProctoringPayload {
+  walletId: string;
+  examParticipationId: string;
+  hours: number;
+}
+
+/** Update own profile */
+export interface UpdateUserMePayload {
+  fullName?: string | null;
+  phone?: string | null;
+}

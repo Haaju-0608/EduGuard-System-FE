@@ -12,11 +12,12 @@ import { ApiError } from '../services/apiClient';
 export interface User {
   id: string;
   email: string;
-  role: 'user' | 'admin' | 'lecture';
+  role: 'user' | 'admin' | 'schooladmin' | 'lecture';
   apiRole: string;
   name: string;
   studentId: string | null;
   department: string;
+  phone: string | null;
   avatar: string | null;
   initials: string;
   institutionId: string | null;
@@ -122,6 +123,7 @@ export function useAuth(): AuthContextType {
 /** Đường dẫn dashboard theo role app */
 export function getDashboardPath(role: User['role']): string {
   if (role === 'admin') return '/admin';
+  if (role === 'schooladmin') return '/school';
   if (role === 'lecture') return '/lecture';
   return '/profile';
 }

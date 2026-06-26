@@ -4,13 +4,13 @@ import { useAuth, getDashboardPath } from '../../contexts/AuthContext';
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  allowedRole?: 'user' | 'admin' | 'lecture';
+  allowedRole?: 'user' | 'admin' | 'schooladmin' | 'lecture';
 }
 
 /** Lấy đường dẫn dashboard mặc định theo role */
 function redirectPath(role: string): string {
-  if (role === 'admin' || role === 'lecture' || role === 'user') {
-    return getDashboardPath(role);
+  if (role === 'admin' || role === 'schooladmin' || role === 'lecture' || role === 'user') {
+    return getDashboardPath(role as 'admin' | 'schooladmin' | 'lecture' | 'user');
   }
   return '/profile';
 }

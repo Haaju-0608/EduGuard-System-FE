@@ -6,11 +6,12 @@ import type { LoginApiResponse, LoginData } from '../types/auth';
 export interface AuthUserProfile {
   id: string;
   email: string;
-  role: 'user' | 'admin' | 'lecture';
+  role: 'user' | 'admin' | 'schooladmin' | 'lecture';
   apiRole: string;
   name: string;
   studentId: string | null;
   department: string;
+  phone: string | null;
   avatar: string | null;
   initials: string;
   institutionId: string | null;
@@ -27,6 +28,7 @@ export function mapApiUserToAuthUser(profile: ApiUser): AuthUserProfile {
     name,
     studentId: profile.studentCode,
     department: profile.role,
+    phone: profile.phone ?? null,
     avatar: null,
     initials: getInitialsFromName(name),
     institutionId: profile.institutionId,
@@ -39,11 +41,11 @@ export async function fetchCurrentUserProfile(): Promise<ApiUser> {
 }
 
 /** Map role từ API sang role routing trong app */
-export function mapApiRoleToAppRole(apiRole: string): 'user' | 'admin' | 'lecture' {
+export function mapApiRoleToAppRole(apiRole: string): 'user' | 'admin' | 'schooladmin' | 'lecture' {
   const role = apiRole.trim().toLowerCase().replace(/\s+/g, '');
 
   if (role === 'superadmin' || role.includes('superadmin')) return 'admin';
-  if (role === 'schooladmin' || role.includes('schooladmin')) return 'lecture';
+  if (role === 'schooladmin' || role.includes('schooladmin')) return 'schooladmin';
   if (role === 'admin') return 'admin';
   if (['lecturer', 'lecture', 'instructor', 'teacher'].some((r) => role.includes(r))) {
     return 'lecture';

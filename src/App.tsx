@@ -4,6 +4,7 @@ import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
 import UserProfilePage from './pages/UserProfile';
 import AdminDashboardPage from './pages/AdminDashboard';
+import SchoolAdminDashboardPage from './pages/SchoolAdminDashboard';
 import LecturerDashboardPage from './pages/LecturerDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 
@@ -26,6 +27,14 @@ export default function App() {
           element={
             <ProtectedRoute allowedRole="admin">
               <AdminDashboardPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/school/*"
+          element={
+            <ProtectedRoute allowedRole="schooladmin">
+              <SchoolAdminDashboardPage />
             </ProtectedRoute>
           }
         />

@@ -1,470 +1,279 @@
-import React, { useState } from 'react';
-import { FiSearch, FiChevronDown, FiUserPlus, FiTrash2, FiEdit2, FiRefreshCw, FiCheckCircle, FiXCircle, FiX } from 'react-icons/fi';
+import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiX,
+} from 'react-icons/fi';
+import { useToast } from '../../../contexts/ToastContext';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import {
+  createUser,
+  deleteUser,
+  fetchUsers,
+  updateUser,
+} from '../../../services/schoolAdminApi';
+import type { ApiUser } from '../../../types/api';
 
-type UserRole = 'Student' | 'Instructor';
-type UserStatus = 'Active' | 'Warning' | 'Suspended';
-
-interface UserRecord {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  dept: string;
-  status: UserStatus;
-  biometrics: 'Registered' | 'Not Registered' | 'Pending';
-  lastSeen?: string;
+function fmt(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const initialUsers: UserRecord[] = [
-  { id: 'SV820491', name: 'Nguyen Van An', email: 'user@eduguard.com', role: 'Student', dept: 'IT', status: 'Active', biometrics: 'Registered', lastSeen: '2 min ago' },
-  { id: 'SV820492', name: 'Tran Thi Bao', email: 'bao.tran@edu.vn', role: 'Student', dept: 'CS', status: 'Active', biometrics: 'Registered', lastSeen: '10 min ago' },
-  { id: 'GV301021', name: 'Dr. Le Minh', email: 'leminh@edu.vn', role: 'Instructor', dept: 'Math', status: 'Active', biometrics: 'Registered', lastSeen: '1h ago' },
-  { id: 'SV820493', name: 'Pham Duc', email: 'phamduc@edu.vn', role: 'Student', dept: 'IT', status: 'Warning', biometrics: 'Pending', lastSeen: '2h ago' },
-  { id: 'GV301022', name: 'Vo Thi Lan', email: 'volan@edu.vn', role: 'Instructor', dept: 'English', status: 'Active', biometrics: 'Registered', lastSeen: '5 min ago' },
-  { id: 'SV820494', name: 'Bui Kim', email: 'buikim@edu.vn', role: 'Student', dept: 'CS', status: 'Suspended', biometrics: 'Not Registered', lastSeen: '3 days ago' },
-  { id: 'SV820495', name: 'Le Quang Minh', email: 'minh.lq@edu.vn', role: 'Student', dept: 'Business', status: 'Active', biometrics: 'Registered', lastSeen: '15 min ago' },
-  { id: 'GV301023', name: 'Prof. Sarah Connor', email: 'sconnor@edu.vn', role: 'Instructor', dept: 'CS', status: 'Active', biometrics: 'Registered', lastSeen: 'Just now' },
-];
+function RoleBadge({ role }: { role: string }) {
+  const r = role?.toLowerCase();
+  const cls =
+    r.includes('admin') ? 'text-red bg-red/10 border-red/25' :
+    r.includes('lecturer') || r.includes('instructor') ? 'text-gold bg-gold/10 border-gold/25' :
+    r.includes('school') ? 'text-cyan bg-cyan/10 border-cyan/25' :
+    'text-blue-bright bg-blue/10 border-blue/25';
+  return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${cls}`}>{role}</span>;
+}
 
-const statusConfig: Record<UserStatus, { bg: string; text: string; border: string }> = {
-  Active: { bg: 'bg-green/10', text: 'text-green', border: 'border-green/20' },
-  Warning: { bg: 'bg-gold/10', text: 'text-gold', border: 'border-gold/20' },
-  Suspended: { bg: 'bg-red/10', text: 'text-red', border: 'border-red/20' },
-};
+function StatusDot({ status }: { status: string }) {
+  const s = status?.toLowerCase();
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold ${s === 'active' ? 'text-green' : 'text-red'}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s === 'active' ? 'bg-green' : 'bg-red'}`} />
+      {status}
+    </span>
+  );
+}
 
-const bioConfig = {
-  Registered: { bg: 'bg-blue-bright/10 text-blue-bright border-blue-bright/20', icon: '🟢' },
-  'Not Registered': { bg: 'bg-muted/10 text-muted border-border/40', icon: '⚪' },
-  Pending: { bg: 'bg-gold/10 text-gold border-gold/20', icon: '🟡' },
-};
+// ─── Form Modal ───────────────────────────────────────────────────────────
+
+interface UserFormData { fullName: string; email: string; password: string; role: string; studentCode: string; phone: string; }
+const EMPTY_USER: UserFormData = { fullName: '', email: '', password: '', role: 'Student', studentCode: '', phone: '' };
+
+function UserFormModal({
+  target, onClose, onSaved,
+}: { target: ApiUser | null; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<UserFormData>(EMPTY_USER);
+  const [saving, setSaving] = useState(false);
+  const isEdit = !!target;
+
+  useEffect(() => {
+    setForm(target ? {
+      fullName: target.fullName ?? '',
+      email: target.email ?? '',
+      password: '',
+      role: target.role ?? 'Student',
+      studentCode: target.studentCode ?? '',
+      phone: target.phone ?? '',
+    } : EMPTY_USER);
+  }, [target]);
+
+  const set = (k: keyof UserFormData) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.fullName.trim() || !form.email.trim()) { toast.warning('Required', 'Name and email are required.'); return; }
+    if (!isEdit && !form.password.trim()) { toast.warning('Required', 'Password is required for new users.'); return; }
+    setSaving(true);
+    try {
+      if (isEdit) {
+        await updateUser(target.id, {
+          fullName: form.fullName.trim(),
+          role: form.role,
+          phone: form.phone.trim() || undefined,
+          studentCode: form.studentCode.trim() || undefined,
+        });
+        toast.success('Updated', 'User updated successfully.');
+      } else {
+        await createUser({
+          fullName: form.fullName.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          role: form.role.toLowerCase() as 'student' | 'lecturer',
+          studentCode: form.studentCode.trim() || null,
+          phone: form.phone.trim() || null,
+        });
+        toast.success('Created', 'User created successfully.');
+      }
+      onSaved(); onClose();
+    } catch {
+      toast.error('Error', `Failed to ${isEdit ? 'update' : 'create'} user.`);
+    } finally { setSaving(false); }
+  };
+
+  const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 className="font-syne font-bold text-white-soft text-lg">{isEdit ? 'Edit User' : 'Create User'}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors"><FiX /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Full Name *</label>
+              <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Nguyen Van A" className={inp} required />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Email *</label>
+              <input type="email" value={form.email} onChange={set('email')} placeholder="user@edu.vn" className={inp} disabled={isEdit} required />
+            </div>
+            {!isEdit && (
+              <div className="col-span-2">
+                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Password *</label>
+                <input type="password" value={form.password} onChange={set('password')} placeholder="••••••••" className={inp} required />
+              </div>
+            )}
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Role</label>
+              <select value={form.role} onChange={set('role')} className={inp}>
+                <option value="Student">Student</option>
+                <option value="Lecturer">Lecturer</option>
+                <option value="SchoolAdmin">School Admin</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student / Staff Code</label>
+              <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
+              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+84 9xx xxx xxx" className={inp} />
+            </div>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none">
+              {saving ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save' : 'Create')}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function UserManagementPage() {
-  const [usersList, setUsersList] = useState<UserRecord[]>(initialUsers);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState('All Roles');
-  const [deptFilter, setDeptFilter] = useState('All Departments');
-  
-  // Add User Modal State
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [newUserId, setNewUserId] = useState('');
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [newUserRole, setNewUserRole] = useState<UserRole>('Student');
-  const [newUserDept, setNewUserDept] = useState('IT');
-  const [newUserStatus, setNewUserStatus] = useState<UserStatus>('Active');
-  const [newUserBio, setNewUserBio] = useState<'Registered' | 'Not Registered' | 'Pending'>('Not Registered');
-  
-  // Custom Toast State
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [showForm, setShowForm] = useState(false);
+  const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => {
-      setToastMessage(null);
-    }, 3000);
-  };
+  const { data, loading, reload } = useAsyncData(
+    () => fetchUsers({ page: 1, pageSize: 200 }),
+    [],
+  );
+  const users: ApiUser[] = data?.items ?? [];
 
-  const handleAddUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUserId || !newUserName || !newUserEmail) {
-      alert('Please fill in all required fields.');
-      return;
-    }
+  const roles = ['all', ...Array.from(new Set(users.map((u) => u.role))).sort()];
 
-    const newUser: UserRecord = {
-      id: newUserId,
-      name: newUserName,
-      email: newUserEmail,
-      role: newUserRole,
-      dept: newUserDept,
-      status: newUserStatus,
-      biometrics: newUserBio,
-      lastSeen: 'Never',
-    };
-
-    setUsersList([newUser, ...usersList]);
-    setIsAddModalOpen(false);
-    showToast(`Successfully created user: ${newUserName} (${newUserRole})`);
-
-    // Reset Form
-    setNewUserId('');
-    setNewUserName('');
-    setNewUserEmail('');
-    setNewUserRole('Student');
-    setNewUserDept('IT');
-    setNewUserStatus('Active');
-    setNewUserBio('Not Registered');
-  };
-
-  const handleDeleteUser = (id: string, name: string) => {
-    if (window.confirm(`Are you sure you want to delete user ${name}?`)) {
-      setUsersList(usersList.filter((u) => u.id !== id));
-      showToast(`Deleted user: ${name}`);
-    }
-  };
-
-  const handleResetBiometrics = (id: string, name: string) => {
-    setUsersList(
-      usersList.map((u) => {
-        if (u.id === id) {
-          return { ...u, biometrics: 'Not Registered' };
-        }
-        return u;
-      })
-    );
-    showToast(`Biometric template reset for ${name}`);
-  };
-
-  const handleToggleStatus = (id: string) => {
-    setUsersList(
-      usersList.map((u) => {
-        if (u.id === id) {
-          const statuses: UserStatus[] = ['Active', 'Warning', 'Suspended'];
-          const nextIndex = (statuses.indexOf(u.status) + 1) % statuses.length;
-          const newStatus = statuses[nextIndex];
-          return { ...u, status: newStatus };
-        }
-        return u;
-      })
-    );
-  };
-
-  const filteredUsers = usersList.filter((u) => {
-    const matchSearch =
-      u.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      u.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchRole = roleFilter === 'All Roles' || u.role === roleFilter;
-    const matchDept = deptFilter === 'All Departments' || u.dept === deptFilter;
-    return matchSearch && matchRole && matchDept;
+  const filtered = users.filter((u) => {
+    const matchRole = roleFilter === 'all' || u.role === roleFilter;
+    const q = search.toLowerCase();
+    const matchSearch = !q || (u.fullName ?? '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.studentCode ?? '').toLowerCase().includes(q);
+    return matchRole && matchSearch;
   });
+
+  const handleDelete = async (u: ApiUser) => {
+    if (!window.confirm(`Delete user "${u.fullName ?? u.email}"?`)) return;
+    setDeletingId(u.id);
+    try {
+      await deleteUser(u.id);
+      toast.success('Deleted', `User removed.`);
+      reload();
+    } catch { toast.error('Error', 'Failed to delete user.'); }
+    finally { setDeletingId(null); }
+  };
 
   return (
     <div className="space-y-6">
-      {/* Toast Alert */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-navy-mid border border-cyan/50 text-white-soft px-4 py-3 rounded-xl shadow-[0_8px_32px_rgba(6,182,212,0.15)] animate-fade-slide-in font-dm text-sm">
-          <FiCheckCircle className="text-cyan text-lg flex-shrink-0" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="bg-navy-card border border-border rounded-[20px] p-6 flex items-center justify-between gap-4">
         <div>
-          <h1 className="font-syne font-extrabold text-2xl text-white-soft">User Management</h1>
-          <p className="text-muted font-dm text-sm mt-1">
-            Create, manage accounts, and audit biometric status for Students and Lecturers.
-          </p>
+          <h1 className="font-syne text-2xl font-extrabold text-white-soft">User Management</h1>
+          <p className="text-muted text-sm mt-1">All users across the platform — students, lecturers, and admins.</p>
         </div>
-        <button
-          onClick={() => setIsAddModalOpen(true)}
-          className="flex items-center justify-center gap-2 bg-linear-to-r from-blue to-blue-bright text-white font-dm font-semibold text-sm px-4 py-2.5 rounded-xl cursor-pointer shadow-[0_4px_16px_rgba(37,99,235,0.25)] hover:shadow-[0_6px_20px_rgba(37,99,235,0.4)] transition-all hover:-translate-y-0.5 border-0 w-full sm:w-auto"
-        >
-          <FiUserPlus className="text-base" />
-          <span>Add New Account</span>
+        <button onClick={() => { setEditTarget(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none shrink-0">
+          <FiUserPlus /> New User
         </button>
       </div>
 
-      {/* Filters & Search Row */}
-      <div className="bg-navy-card border border-border rounded-[16px] p-4 flex flex-col md:flex-row gap-3 items-center justify-between">
-        {/* Search */}
-        <div className="flex items-center gap-2 bg-navy border border-border rounded-xl py-2 px-3 w-full md:max-w-md focus-within:border-blue-bright/40 transition-colors">
-          <FiSearch className="text-muted text-base flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search by name, email, or ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted w-full font-dm"
-          />
-        </div>
-
-        {/* Dropdowns */}
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto justify-end">
-          {/* Role Filter */}
-          <div className="relative w-full sm:w-[160px]">
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="appearance-none w-full bg-navy border border-border rounded-xl py-2 pl-3 pr-8 text-sm text-white-soft font-dm cursor-pointer focus:border-blue-bright/40 outline-none transition-colors"
-            >
-              <option>All Roles</option>
-              <option>Student</option>
-              <option>Instructor</option>
-            </select>
-            <FiChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none" />
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Users', value: users.length, color: 'text-blue-bright' },
+          { label: 'Students', value: users.filter((u) => u.role?.toLowerCase() === 'student').length, color: 'text-cyan' },
+          { label: 'Lecturers', value: users.filter((u) => ['lecturer','instructor'].includes(u.role?.toLowerCase())).length, color: 'text-gold' },
+          { label: 'Active', value: users.filter((u) => u.status?.toLowerCase() === 'active').length, color: 'text-green' },
+        ].map((k) => (
+          <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4 text-center">
+            <p className={`font-syne font-extrabold text-2xl ${k.color}`}>{loading ? '…' : k.value}</p>
+            <p className="text-xs text-muted mt-1">{k.label}</p>
           </div>
-
-          {/* Department Filter */}
-          <div className="relative w-full sm:w-[180px]">
-            <select
-              value={deptFilter}
-              onChange={(e) => setDeptFilter(e.target.value)}
-              className="appearance-none w-full bg-navy border border-border rounded-xl py-2 pl-3 pr-8 text-sm text-white-soft font-dm cursor-pointer focus:border-blue-bright/40 outline-none transition-colors"
-            >
-              <option>All Departments</option>
-              <option>IT</option>
-              <option>CS</option>
-              <option>Math</option>
-              <option>English</option>
-              <option>Business</option>
-            </select>
-            <FiChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none" />
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Main Table */}
-      <div className="bg-navy-card border border-border rounded-[16px] p-5">
-        <div className="overflow-x-auto rounded-xl border border-border/50">
-          <table className="w-full text-sm font-dm">
-            <thead>
-              <tr className="bg-navy/80">
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">User Info</th>
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">ID</th>
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">Role</th>
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">Department</th>
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">Biometrics</th>
-                <th className="text-left py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">Status</th>
-                <th className="text-right py-3.5 px-4 text-muted font-medium text-xs uppercase tracking-wider border-b border-border">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredUsers.length > 0 ? (
-                filteredUsers.map((u, i) => {
-                  const sc = statusConfig[u.status];
-                  const bc = bioConfig[u.biometrics];
-                  return (
-                    <tr
-                      key={u.id}
-                      className={`${i % 2 === 0 ? 'bg-navy/40' : 'bg-navy-card/60'} hover:bg-cyan/5 transition-colors group`}
-                    >
-                      {/* User Avatar + Email */}
-                      <td className="py-3.5 px-4 border-b border-border/30">
-                        <div className="flex items-center gap-3">
-                          <div className="w-[36px] h-[36px] min-w-[36px] rounded-full bg-linear-to-br from-blue to-cyan grid place-items-center text-white text-xs font-syne font-bold">
-                            {u.name.split(' ').map(n => n[0]).slice(-2).join('')}
-                          </div>
-                          <div>
-                            <p className="text-white-soft font-semibold group-hover:text-cyan transition-colors line-clamp-1">{u.name}</p>
-                            <p className="text-[11px] text-muted font-dm line-clamp-1">{u.email}</p>
-                          </div>
-                        </div>
-                      </td>
-
-                      {/* ID */}
-                      <td className="py-3.5 px-4 text-white-soft font-mono font-medium border-b border-border/30">{u.id}</td>
-
-                      {/* Role */}
-                      <td className="py-3.5 px-4 border-b border-border/30">
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-sm ${u.role === 'Instructor' ? 'text-green bg-green/10' : 'text-blue-bright bg-blue-bright/10'}`}>
-                          {u.role}
-                        </span>
-                      </td>
-
-                      {/* Department */}
-                      <td className="py-3.5 px-4 text-muted border-b border-border/30">{u.dept}</td>
-
-                      {/* Biometrics */}
-                      <td className="py-3.5 px-4 border-b border-border/30">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-medium border ${bc}`}>
-                          <span>{bc.icon}</span>
-                          <span>{u.biometrics}</span>
-                        </span>
-                      </td>
-
-                      {/* Status */}
-                      <td className="py-3.5 px-4 border-b border-border/30">
-                        <button
-                          onClick={() => handleToggleStatus(u.id)}
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${sc.bg} ${sc.text} ${sc.border} cursor-pointer hover:bg-white/5`}
-                          title="Click to toggle status"
-                        >
-                          {u.status}
-                        </button>
-                      </td>
-
-                      {/* Actions */}
-                      <td className="py-3.5 px-4 border-b border-border/30 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleResetBiometrics(u.id, u.name)}
-                            className="p-1.5 rounded-lg border border-border/40 text-muted hover:text-cyan hover:border-cyan/30 bg-navy/40 hover:bg-navy-mid transition-colors cursor-pointer"
-                            title="Reset Face ID biometrics"
-                          >
-                            <FiRefreshCw className="text-xs" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteUser(u.id, u.name)}
-                            className="p-1.5 rounded-lg border border-border/40 text-muted hover:text-red hover:border-red/30 bg-navy/40 hover:bg-navy-mid transition-colors cursor-pointer"
-                            title="Delete User"
-                          >
-                            <FiTrash2 className="text-xs" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td colSpan={7} className="py-10 text-center text-muted font-dm">
-                    No matching users found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex items-center gap-3 flex-1 bg-navy-card border border-border rounded-xl px-4 py-2.5 focus-within:border-blue-bright/40 transition-colors">
+          <FiSearch className="text-muted shrink-0" />
+          <input type="text" placeholder="Search name, email, student code..." value={search} onChange={(e) => setSearch(e.target.value)} className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted" />
         </div>
+        <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="bg-navy-card border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/40 transition-colors cursor-pointer">
+          {roles.map((r) => <option key={r} value={r}>{r === 'all' ? 'All Roles' : r}</option>)}
+        </select>
+        <button onClick={reload} disabled={loading} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent disabled:opacity-50">
+          <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
       </div>
 
-      {/* Floating Add User Modal */}
-      {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            onClick={() => setIsAddModalOpen(false)}
-            className="absolute inset-0 bg-navy/80 backdrop-blur-xs cursor-pointer"
-          />
-
-          {/* Form container */}
-          <div className="relative bg-navy-card border border-border rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-slide-in overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between mb-5 border-b border-border/30 pb-3">
-              <h3 className="font-syne font-bold text-white-soft text-lg flex items-center gap-2">
-                <FiUserPlus className="text-blue-bright" />
-                Add User Account
-              </h3>
-              <button
-                onClick={() => setIsAddModalOpen(false)}
-                className="text-muted hover:text-white-soft cursor-pointer bg-transparent border-0"
-              >
-                <FiX className="text-lg" />
-              </button>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleAddUser} className="space-y-4 font-dm text-sm">
-              <div>
-                <label className="block text-muted font-medium mb-1.5">User Role</label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewUserRole('Student');
-                      if (!newUserId.startsWith('SV')) setNewUserId('SV' + Math.floor(100000 + Math.random() * 900000));
-                    }}
-                    className={`flex-1 py-2 rounded-xl font-semibold border text-center cursor-pointer transition-all ${
-                      newUserRole === 'Student'
-                        ? 'border-blue-bright bg-blue-bright/10 text-blue-bright'
-                        : 'border-border/50 bg-navy/40 text-muted hover:text-white-soft'
-                    }`}
-                  >
-                    Student
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewUserRole('Instructor');
-                      if (!newUserId.startsWith('GV')) setNewUserId('GV' + Math.floor(100000 + Math.random() * 900000));
-                    }}
-                    className={`flex-1 py-2 rounded-xl font-semibold border text-center cursor-pointer transition-all ${
-                      newUserRole === 'Instructor'
-                        ? 'border-green bg-green/10 text-green'
-                        : 'border-border/50 bg-navy/40 text-muted hover:text-white-soft'
-                    }`}
-                  >
-                    Instructor
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-muted font-medium mb-1.5">User ID (e.g. SV820496)</label>
-                <input
-                  type="text"
-                  required
-                  placeholder={newUserRole === 'Student' ? 'SV820496' : 'GV301024'}
-                  value={newUserId}
-                  onChange={(e) => setNewUserId(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft placeholder:text-muted focus:border-blue-bright/40 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-muted font-medium mb-1.5">Full Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. John Doe"
-                  value={newUserName}
-                  onChange={(e) => setNewUserName(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft placeholder:text-muted focus:border-blue-bright/40 outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-muted font-medium mb-1.5">Email Address</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. john.doe@eduguard.com"
-                  value={newUserEmail}
-                  onChange={(e) => setNewUserEmail(e.target.value)}
-                  className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft placeholder:text-muted focus:border-blue-bright/40 outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-muted font-medium mb-1.5">Department</label>
-                  <select
-                    value={newUserDept}
-                    onChange={(e) => setNewUserDept(e.target.value)}
-                    className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft focus:border-blue-bright/40 outline-none cursor-pointer"
-                  >
-                    <option>IT</option>
-                    <option>CS</option>
-                    <option>Math</option>
-                    <option>English</option>
-                    <option>Business</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-muted font-medium mb-1.5">Biometrics</label>
-                  <select
-                    value={newUserBio}
-                    onChange={(e) => setNewUserBio(e.target.value as any)}
-                    className="w-full bg-navy border border-border rounded-xl py-2 px-3 text-white-soft focus:border-blue-bright/40 outline-none cursor-pointer"
-                  >
-                    <option value="Not Registered">Not Registered</option>
-                    <option value="Registered">Registered</option>
-                    <option value="Pending">Pending Approval</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="flex gap-3 justify-end pt-3 border-t border-border/30 mt-5">
-                <button
-                  type="button"
-                  onClick={() => setIsAddModalOpen(false)}
-                  className="px-4 py-2 border border-border rounded-xl text-white-soft font-medium bg-transparent hover:bg-navy cursor-pointer transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 bg-linear-to-r from-blue to-blue-bright text-white rounded-xl font-semibold cursor-pointer shadow-lg hover:brightness-110 transition-all border-0"
-                >
-                  Save Account
-                </button>
-              </div>
-            </form>
-          </div>
+      {/* Table */}
+      <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <p className="text-sm font-bold text-white-soft">Users</p>
+          <span className="text-xs text-muted">{filtered.length} of {users.length}</span>
         </div>
-      )}
+        {loading ? (
+          <div className="divide-y divide-border">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-4">
+                <div className="w-9 h-9 rounded-xl bg-white/5 animate-pulse shrink-0" />
+                <div className="flex-1 space-y-2"><div className="h-3 bg-white/5 rounded animate-pulse w-1/3" /><div className="h-2.5 bg-white/5 rounded animate-pulse w-1/4" /></div>
+              </div>
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-12 text-center text-muted text-sm">No users match your search.</div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map((u) => {
+              const initials = (u.fullName ?? u.email).split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
+              const isDeleting = deletingId === u.id;
+              return (
+                <div key={u.id} className="flex items-center gap-4 px-5 py-3 hover:bg-navy/40 transition-colors">
+                  <div className="w-9 h-9 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center text-sm font-bold text-blue-bright shrink-0">{initials}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-white-soft truncate">{u.fullName ?? '—'}</p>
+                      <RoleBadge role={u.role} />
+                    </div>
+                    <p className="text-[11px] text-muted truncate">{u.email}{u.studentCode && ` · ${u.studentCode}`}</p>
+                  </div>
+                  <div className="hidden sm:block shrink-0"><StatusDot status={u.status ?? 'Active'} /></div>
+                  <p className="hidden md:block text-[11px] text-muted shrink-0">{fmt(u.createdAt)}</p>
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => { setEditTarget(u); setShowForm(true); }} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"><FiEdit2 className="text-xs" /></button>
+                    <button onClick={() => handleDelete(u)} disabled={isDeleting} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"><FiTrash2 className="text-xs" /></button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showForm && <UserFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} />}
     </div>
   );
 }

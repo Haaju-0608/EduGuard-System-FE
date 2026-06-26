@@ -82,7 +82,7 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
         <nav className="flex-1 py-4 px-3 overflow-y-auto custom-scrollbar">
           <div className="flex flex-col gap-1">
             {menuItems.map((item) => {
-              const rootPaths = ['/lecture', '/admin', '/profile'];
+              const rootPaths = ['/lecture', '/admin', '/school', '/profile'];
               const isActive =
                 location.pathname === item.path ||
                 (!rootPaths.includes(item.path) && location.pathname.startsWith(item.path));

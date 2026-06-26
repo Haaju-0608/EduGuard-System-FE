@@ -7,9 +7,11 @@ import SchedulePage from './sections/SchedulePage';
 import ExamsPage from './sections/ExamsPage';
 import ProfileDetailPage from './sections/ProfileDetailPage';
 import SettingsPage from './sections/SettingsPage';
+import MyClassesPage from './sections/MyClassesPage';
 
 const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/profile' },
+  { icon: '📚', label: 'My Classes', path: '/profile/classes' },
   { icon: '📊', label: 'Attendance', path: '/profile/attendance' },
   { icon: '📅', label: 'Schedule', path: '/profile/schedule' },
   { icon: '📝', label: 'Exams', path: '/profile/exams' },
@@ -22,9 +24,10 @@ export default function UserProfilePage() {
 
   return (
     <DashboardLayout menuItems={menuItems}>
-      <div className="max-w-[1400px] mx-auto animate-fade-slide-in">
+      <div className="max-w-350 mx-auto animate-fade-slide-in">
         <Routes>
           <Route index element={<DashboardOverview onNavigate={navigate} />} />
+          <Route path="classes" element={<MyClassesPage />} />
           <Route path="attendance" element={<AttendanceHistoryPage />} />
           <Route path="schedule" element={<SchedulePage />} />
           <Route path="exams" element={<ExamsPage />} />

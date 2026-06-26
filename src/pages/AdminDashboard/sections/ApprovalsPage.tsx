@@ -1,271 +1,203 @@
 import React, { useState } from 'react';
-import { FiCheckCircle, FiXCircle, FiUserCheck, FiClipboard, FiInbox, FiTrendingUp, FiMessageSquare } from 'react-icons/fi';
+import { FiCheckCircle, FiClock, FiRefreshCw, FiXCircle } from 'react-icons/fi';
+import { useToast } from '../../../contexts/ToastContext';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import {
+  approveBiometricRequest,
+  fetchSchoolAdminBiometricRequests,
+  rejectBiometricRequest,
+} from '../../../services/schoolAdminApi';
+import type { BiometricRequest } from '../../../types/lecturer';
 
-interface ApprovalRequest {
-  id: string;
-  studentId: string;
-  name: string;
-  dept: string;
-  reason: string;
-  date: string;
-  aiScore: number;
-  originalAvatar: string;
-  newAvatar: string;
+function fmt(iso: string | null | undefined) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-const initialRequests: ApprovalRequest[] = [
-  {
-    id: 'REQ-881',
-    studentId: 'SV820493',
-    name: 'Pham Duc',
-    dept: 'IT',
-    reason: 'Webcam lighting error during exam check-in. Template rebuild request.',
-    date: 'June 07, 2026 14:10',
-    aiScore: 71.4,
-    originalAvatar: 'PD',
-    newAvatar: 'PD',
-  },
-  {
-    id: 'REQ-882',
-    studentId: 'SV820494',
-    name: 'Bui Kim',
-    dept: 'CS',
-    reason: 'Registered a low resolution webcam photo. Requesting clear biometric reload.',
-    date: 'June 06, 2026 11:32',
-    aiScore: 62.1,
-    originalAvatar: 'BK',
-    newAvatar: 'BK',
-  },
-  {
-    id: 'REQ-883',
-    studentId: 'SV820499',
-    name: 'Nguyen Lan',
-    dept: 'Business',
-    reason: 'Changed eyeglasses frame. Facial landmarks failing authentication.',
-    date: 'June 05, 2026 09:15',
-    aiScore: 81.6,
-    originalAvatar: 'NL',
-    newAvatar: 'NL',
-  },
-];
+function StatusBadge({ status }: { status: string }) {
+  const s = status?.toLowerCase();
+  const cls =
+    s === 'approved' ? 'text-green bg-green/10 border-green/25' :
+    s === 'rejected' ? 'text-red bg-red/10 border-red/25' :
+    'text-gold bg-gold/10 border-gold/25';
+  const icon = s === 'approved' ? <FiCheckCircle className="text-[10px]" /> : s === 'rejected' ? <FiXCircle className="text-[10px]" /> : <FiClock className="text-[10px]" />;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-1 rounded-full border ${cls}`}>
+      {icon} {status}
+    </span>
+  );
+}
+
+type TabKey = 'Pending' | 'Approved' | 'Rejected' | 'All';
 
 export default function ApprovalsPage() {
-  const [requests, setRequests] = useState<ApprovalRequest[]>(initialRequests);
-  const [selectedId, setSelectedId] = useState<string | null>(initialRequests[0]?.id || null);
-  const [rejectFeedback, setRejectFeedback] = useState('');
-  const [showRejectForm, setShowRejectForm] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toast = useToast();
+  const [tab, setTab] = useState<TabKey>('Pending');
+  const [actionId, setActionId] = useState<string | null>(null);
 
-  const activeReq = requests.find((r) => r.id === selectedId) || requests[0] || null;
+  const { data, loading, error, reload } = useAsyncData(
+    () => fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 100 }),
+    [],
+  );
+  const requests: BiometricRequest[] = data?.items ?? [];
 
-  const showToast = (msg: string) => {
-    setToastMessage(msg);
-    setTimeout(() => setToastMessage(null), 3000);
+  const filtered = tab === 'All'
+    ? requests
+    : requests.filter((r) => r.status?.toLowerCase() === tab.toLowerCase());
+
+  const counts = {
+    Pending: requests.filter((r) => r.status?.toLowerCase() === 'pending').length,
+    Approved: requests.filter((r) => r.status?.toLowerCase() === 'approved').length,
+    Rejected: requests.filter((r) => r.status?.toLowerCase() === 'rejected').length,
+    All: requests.length,
   };
 
-  const handleApprove = (id: string, name: string) => {
-    setRequests(requests.filter((r) => r.id !== id));
-    showToast(`Approved face biometric registration for ${name}`);
-    setShowRejectForm(false);
-    setRejectFeedback('');
-    // auto select next
-    const remaining = requests.filter((r) => r.id !== id);
-    if (remaining.length > 0) {
-      setSelectedId(remaining[0].id);
-    } else {
-      setSelectedId(null);
-    }
+  const handleApprove = async (req: BiometricRequest) => {
+    setActionId(req.id);
+    try {
+      await approveBiometricRequest(req.id);
+      toast.success('Approved', 'Biometric request approved.');
+      reload();
+    } catch { toast.error('Error', 'Failed to approve request.'); }
+    finally { setActionId(null); }
   };
 
-  const handleReject = (id: string, name: string) => {
-    if (!rejectFeedback.trim()) {
-      alert('Please enter a rejection reason.');
-      return;
-    }
-    setRequests(requests.filter((r) => r.id !== id));
-    showToast(`Rejected biometric request for ${name}. Feedback sent.`);
-    setShowRejectForm(false);
-    setRejectFeedback('');
-    // auto select next
-    const remaining = requests.filter((r) => r.id !== id);
-    if (remaining.length > 0) {
-      setSelectedId(remaining[0].id);
-    } else {
-      setSelectedId(null);
-    }
+  const handleReject = async (req: BiometricRequest) => {
+    const reason = window.prompt('Reason for rejection (optional):') ?? '';
+    setActionId(req.id);
+    try {
+      await rejectBiometricRequest(req.id, reason);
+      toast.warning('Rejected', 'Biometric request rejected.');
+      reload();
+    } catch { toast.error('Error', 'Failed to reject request.'); }
+    finally { setActionId(null); }
   };
+
+  const tabs: TabKey[] = ['Pending', 'Approved', 'Rejected', 'All'];
 
   return (
     <div className="space-y-6">
-      {/* Toast Alert */}
-      {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2 bg-navy-mid border border-cyan/50 text-white-soft px-4 py-3 rounded-xl shadow-[0_8px_32px_rgba(6,182,212,0.15)] animate-fade-slide-in font-dm text-sm">
-          <FiCheckCircle className="text-cyan text-lg flex-shrink-0" />
-          <span>{toastMessage}</span>
-        </div>
-      )}
-
       {/* Header */}
-      <div>
-        <h1 className="font-syne font-extrabold text-2xl text-white-soft flex items-center gap-2">
-          <FiUserCheck className="text-cyan" />
-          Administrative Approvals
-        </h1>
-        <p className="text-muted font-dm text-sm mt-1">
-          Review, approve, or reject student requests to rebuild or override biometric face templates.
-        </p>
+      <div className="bg-navy-card border border-border rounded-[20px] p-6 flex items-center justify-between gap-4">
+        <div>
+          <h1 className="font-syne text-2xl font-extrabold text-white-soft">Biometric Approvals</h1>
+          <p className="text-muted text-sm mt-1">Review and approve student face registration requests.</p>
+        </div>
+        <button onClick={reload} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent disabled:opacity-50">
+          <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
       </div>
 
-      {requests.length > 0 && activeReq ? (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Left panel: list of requests (2/5) */}
-          <div className="lg:col-span-2 space-y-4">
-            <h3 className="font-syne font-bold text-white-soft text-base">
-              Pending Requests ({requests.length})
-            </h3>
-            
-            <div className="flex flex-col gap-2.5 max-h-[500px] overflow-y-auto pr-1">
-              {requests.map((req) => {
-                const isActive = req.id === selectedId;
-                return (
-                  <div
-                    key={req.id}
-                    onClick={() => {
-                      setSelectedId(req.id);
-                      setShowRejectForm(false);
-                    }}
-                    className={`p-4 rounded-xl border text-sm font-dm cursor-pointer transition-all ${
-                      isActive
-                        ? 'border-cyan bg-cyan/5 text-white-soft shadow-md'
-                        : 'border-border/60 bg-navy-card/60 hover:bg-navy-mid text-muted'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-mono text-[10px] text-muted">{req.id}</span>
-                      <span className="text-[10px] text-cyan bg-cyan/10 border border-cyan/25 px-1.5 py-0.2 rounded-full">
-                        AI Match: {req.aiScore}%
-                      </span>
-                    </div>
-                    <p className={`font-semibold ${isActive ? 'text-cyan' : 'text-white-soft'}`}>{req.name}</p>
-                    <p className="text-xs mt-1 text-muted line-clamp-1">{req.reason}</p>
-                    <p className="text-[10px] mt-2 text-muted/80">{req.date}</p>
-                  </div>
-                );
-              })}
-            </div>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Pending', value: counts.Pending, color: 'text-gold', pulse: counts.Pending > 0 },
+          { label: 'Approved', value: counts.Approved, color: 'text-green' },
+          { label: 'Rejected', value: counts.Rejected, color: 'text-red' },
+          { label: 'Total', value: counts.All, color: 'text-blue-bright' },
+        ].map((k) => (
+          <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4 text-center relative">
+            {k.pulse && <span className="absolute top-3 right-3 w-2 h-2 bg-gold rounded-full animate-pulse" />}
+            <p className={`font-syne font-extrabold text-2xl ${k.color}`}>{loading ? '…' : k.value}</p>
+            <p className="text-xs text-muted mt-1">{k.label}</p>
           </div>
+        ))}
+      </div>
 
-          {/* Right panel: Side-by-side details (3/5) */}
-          <div className="lg:col-span-3 bg-navy-card border border-border rounded-2xl p-5 space-y-6">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="font-mono text-xs text-muted">Ticket: {activeReq.id}</span>
-                <span className="text-xs text-muted">{activeReq.date}</span>
-              </div>
-              <h3 className="font-syne font-extrabold text-white-soft text-lg">{activeReq.name}</h3>
-              <p className="text-xs text-muted font-dm">
-                Student ID: <span className="font-mono text-white-soft">{activeReq.studentId}</span> • Dept: {activeReq.dept}
-              </p>
-            </div>
-
-            {/* Reason details */}
-            <div className="bg-navy/55 border border-border/50 rounded-xl p-4 font-dm text-sm text-muted">
-              <p className="font-semibold text-white-soft mb-1 flex items-center gap-1.5">
-                <FiClipboard className="text-cyan" />
-                Reason for template update request:
-              </p>
-              <p className="italic leading-relaxed">{activeReq.reason}</p>
-            </div>
-
-            {/* Side-by-side Biometric Comparison */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* Original Template */}
-              <div className="bg-navy/40 border border-border/80 rounded-xl p-4 flex flex-col items-center">
-                <span className="text-[10px] text-muted uppercase font-dm tracking-wider mb-3">Original Template</span>
-                <div className="w-20 h-20 rounded-full bg-linear-to-br from-blue/20 to-indigo/20 border-2 border-dashed border-border grid place-items-center text-muted text-lg font-syne font-bold select-none mb-3">
-                  {activeReq.originalAvatar}
-                </div>
-                <span className="text-xs text-muted font-dm">Face ID Verified</span>
-              </div>
-
-              {/* Newly Uploaded verification scan */}
-              <div className="bg-navy/40 border border-cyan/20 rounded-xl p-4 flex flex-col items-center">
-                <span className="text-[10px] text-cyan uppercase font-dm tracking-wider mb-3">Requested Update</span>
-                <div className="w-20 h-20 rounded-full bg-linear-to-br from-blue to-cyan border-2 border-cyan grid place-items-center text-white text-lg font-syne font-bold shadow-lg shadow-cyan/15 select-none mb-3">
-                  {activeReq.newAvatar}
-                </div>
-                <span className="text-xs text-cyan font-dm font-semibold">New Scan Uploaded</span>
-              </div>
-            </div>
-
-            {/* AI match review details */}
-            <div className="flex items-start gap-2.5 bg-navy/60 border border-border rounded-xl p-3 text-xs text-muted font-dm">
-              <FiTrendingUp className="text-cyan text-base flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-semibold text-white-soft mb-0.5">Biometric Confidence Level</p>
-                <p>
-                  AI Match Confidence is <strong className="text-cyan">{activeReq.aiScore}%</strong>.{' '}
-                  {activeReq.aiScore < 70 ? (
-                    <span className="text-gold font-medium">Low correlation detected. Verify facial features manually.</span>
-                  ) : (
-                    <span>Satisfactory biometric comparison. Face landmarks closely resemble original template.</span>
-                  )}
-                </p>
-              </div>
-            </div>
-
-            {/* Rejection comment form */}
-            {showRejectForm && (
-              <div className="space-y-3 border-t border-border/30 pt-4 animate-fade-slide-in font-dm text-sm">
-                <label className="block text-xs font-semibold text-red uppercase">Reason for Rejection</label>
-                <div className="flex gap-2">
-                  <textarea
-                    required
-                    placeholder="Provide details for student (e.g. webcam scan too dark, face partially covered)..."
-                    value={rejectFeedback}
-                    onChange={(e) => setRejectFeedback(e.target.value)}
-                    className="flex-1 bg-navy border border-border rounded-xl py-2 px-3 text-white-soft placeholder:text-muted focus:border-red/40 outline-none h-16 text-xs resize-none"
-                  />
-                  <button
-                    onClick={() => handleReject(activeReq.id, activeReq.name)}
-                    className="flex items-center justify-center bg-red text-white px-4 rounded-xl font-semibold cursor-pointer text-xs hover:bg-red/90 transition-colors border-0 h-16"
-                  >
-                    Send
-                  </button>
-                </div>
-              </div>
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-navy-card border border-border rounded-xl w-fit">
+        {tabs.map((t) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold cursor-pointer transition-all border-none flex items-center gap-1.5
+              ${tab === t ? 'bg-blue text-white' : 'bg-transparent text-muted hover:text-white-soft'}`}
+          >
+            {t}
+            {counts[t] > 0 && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${tab === t ? 'bg-white/20' : 'bg-white/10'}`}>
+                {counts[t]}
+              </span>
             )}
+          </button>
+        ))}
+      </div>
 
-            {/* Approve / Reject buttons */}
-            <div className="flex gap-3 pt-3 border-t border-border/30">
-              {!showRejectForm && (
-                <button
-                  onClick={() => setShowRejectForm(true)}
-                  className="flex-1 flex items-center justify-center gap-1.5 border border-red/40 hover:border-red hover:bg-red/10 text-red font-dm font-semibold text-sm py-2.5 rounded-xl cursor-pointer transition-colors"
-                >
-                  <FiXCircle className="text-base" />
-                  <span>Reject Request</span>
-                </button>
-              )}
-              <button
-                onClick={() => handleApprove(activeReq.id, activeReq.name)}
-                className="flex-1 flex items-center justify-center gap-1.5 bg-linear-to-r from-blue to-blue-bright text-white font-dm font-semibold text-sm py-2.5 rounded-xl cursor-pointer shadow-lg hover:brightness-110 transition-colors border-0"
-              >
-                <FiCheckCircle className="text-base" />
-                <span>Approve Template</span>
-              </button>
-            </div>
+      {/* List */}
+      <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+          <p className="text-sm font-bold text-white-soft">{tab} Requests</p>
+          <span className="text-xs text-muted">{filtered.length} records</span>
+        </div>
+
+        {loading ? (
+          <div className="divide-y divide-border">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-5 py-4">
+                <div className="w-12 h-12 rounded-xl bg-white/5 animate-pulse shrink-0" />
+                <div className="flex-1 space-y-2"><div className="h-3 bg-white/5 rounded animate-pulse w-1/3" /><div className="h-2.5 bg-white/5 rounded animate-pulse w-1/4" /></div>
+              </div>
+            ))}
           </div>
-        </div>
-      ) : (
-        <div className="bg-navy-card border border-border rounded-2xl p-12 text-center flex flex-col items-center justify-center font-dm">
-          <FiInbox className="text-muted text-4xl mb-3" />
-          <h3 className="font-syne font-bold text-white-soft text-base">All caught up!</h3>
-          <p className="text-muted text-sm mt-1">
-            No biometric approval requests are pending administrative review.
-          </p>
-        </div>
-      )}
+        ) : error ? (
+          <div className="py-12 text-center text-muted text-sm">
+            <p className="text-red mb-2">Failed to load requests.</p>
+            <button onClick={reload} className="text-blue-bright underline bg-transparent border-none cursor-pointer">Retry</button>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="py-16 text-center text-muted">
+            <FiCheckCircle className="text-4xl mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No {tab.toLowerCase()} requests.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {filtered.map((req) => {
+              const name = req.studentName ?? req.studentId?.slice(0, 12) ?? '—';
+              const initials = name.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase();
+              const isPending = req.status?.toLowerCase() === 'pending';
+              const isBusy = actionId === req.id;
+
+              return (
+                <div key={req.id} className="flex items-center gap-4 px-5 py-4 hover:bg-navy/40 transition-colors">
+                  {/* Avatar */}
+                  <div className="w-11 h-11 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center text-sm font-bold text-blue-bright shrink-0">
+                    {initials}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
+                    <p className="text-[11px] text-muted truncate">{req.classCode && `${req.classCode} · `}{req.studentId}</p>
+                    <p className="text-[11px] text-muted mt-0.5">Submitted: {fmt(req.submittedAt)}</p>
+                  </div>
+
+                  <StatusBadge status={req.status ?? 'Pending'} />
+
+                  {/* Actions */}
+                  {isPending && (
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        onClick={() => handleApprove(req)}
+                        disabled={isBusy}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-green/10 border border-green/30 text-green text-xs font-semibold cursor-pointer hover:bg-green/20 transition-colors disabled:opacity-40"
+                      >
+                        <FiCheckCircle className="text-xs" /> Approve
+                      </button>
+                      <button
+                        onClick={() => handleReject(req)}
+                        disabled={isBusy}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red/10 border border-red/30 text-red text-xs font-semibold cursor-pointer hover:bg-red/20 transition-colors disabled:opacity-40"
+                      >
+                        <FiXCircle className="text-xs" /> Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

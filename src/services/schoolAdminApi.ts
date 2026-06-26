@@ -3,16 +3,24 @@
  * Enrollment là optional (SchoolAdmin có thể bị 403 — không làm fail các API khác).
  */
 import { getInitialsFromName } from './authApi';
-import { ApiError, apiGetPaginated, buildQueryParams } from './apiClient';
+import { ApiError, apiDelete, apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import type {
   ApiBiometricRequest,
+  ApiAttendanceSession,
   ApiClass,
   ApiEnrollment,
+  ApiExamParticipation,
   ApiExamSlot,
+  ApiTransaction,
   ApiUser,
+  ApiWallet,
+  DeductAttendancePayload,
+  DeductProctoringPayload,
   ListQueryParams,
   PagedResult,
+  ParticipationStatus,
   PaginationMeta,
+  UpdateUserMePayload,
 } from '../types/api';
 import type {
   ClassStatus,
@@ -367,4 +375,234 @@ export async function fetchSchoolAdminBiometricRequests(
     items: bioRes.data.map((item) => mapApiBiometricRequest(item, userMap)),
     pagination: bioRes.pagination,
   };
+}
+
+// ─── Biometric approve / reject ───────────────────────────────────────────
+
+/** POST /api/biometric-requests/{id}/approve */
+export async function approveBiometricRequest(
+  id: string,
+  reason?: string,
+): Promise<void> {
+  await apiPost(`/api/biometric-requests/${id}/approve`, { reason: reason ?? null });
+}
+
+/** POST /api/biometric-requests/{id}/reject */
+export async function rejectBiometricRequest(
+  id: string,
+  reason?: string,
+): Promise<void> {
+  await apiPost(`/api/biometric-requests/${id}/reject`, { reason: reason ?? null });
+}
+
+// ─── User CRUD ────────────────────────────────────────────────────────────
+
+/** GET /api/users — tất cả users (admin scope) */
+export async function fetchUsers(
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiUser>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const { data, pagination } = await apiGetPaginated<ApiUser[]>(
+    `/api/users${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
+export interface CreateUserPayload {
+  email: string;
+  password: string;
+  fullName: string;
+  role: 'student' | 'lecturer';
+  studentCode?: string | null;
+  institutionId?: string | null;
+  phone?: string | null;
+}
+
+/** POST /api/users — tạo student hoặc lecturer */
+export async function createUser(payload: CreateUserPayload): Promise<ApiUser> {
+  return apiPost<ApiUser>('/api/users', payload);
+}
+
+/** PUT /api/users/{id} — cập nhật thông tin / trạng thái */
+export async function updateUser(
+  id: string,
+  payload: Partial<{ fullName: string; phone: string; status: string; role: string; studentCode: string }>,
+): Promise<ApiUser> {
+  return apiPut<ApiUser>(`/api/users/${id}`, payload);
+}
+
+/** DELETE /api/users/{id} */
+export async function deleteUser(id: string): Promise<void> {
+  await apiDelete(`/api/users/${id}`);
+}
+
+/** GET /api/users?role=lecturer — danh sách giảng viên */
+export async function fetchLecturers(
+  params: ListQueryParams = {},
+): Promise<PagedResult<LecturerStudent>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const { data, pagination } = await apiGetPaginated<ApiUser[]>(
+    `/api/users${buildQueryParams({ page, pageSize })}`,
+  );
+  const lecturers = data
+    .filter((u) => ['lecturer', 'instructor', 'teacher'].includes(u.role.trim().toLowerCase()))
+    .map(mapApiUserToLecturerStudent);
+  return { items: lecturers, pagination: { ...pagination, totalItems: lecturers.length } };
+}
+
+// ─── Class CRUD ───────────────────────────────────────────────────────────
+
+export interface CreateClassPayload {
+  institutionId: string;
+  lecturerId: string;
+  courseName: string;
+  courseCode?: string | null;
+  semester: string;
+  academicYear: string;
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+/** POST /api/classes */
+export async function createClass(payload: CreateClassPayload): Promise<ApiClass> {
+  return apiPost<ApiClass>('/api/classes', payload);
+}
+
+/** PUT /api/classes/{id} */
+export async function updateClass(
+  id: string,
+  payload: Partial<CreateClassPayload>,
+): Promise<ApiClass> {
+  return apiPut<ApiClass>(`/api/classes/${id}`, payload);
+}
+
+/** DELETE /api/classes/{id} */
+export async function deleteClass(id: string): Promise<void> {
+  await apiDelete(`/api/classes/${id}`);
+}
+
+// ─── Enrollment ───────────────────────────────────────────────────────────
+
+/** POST /api/enrollments — ghi danh sinh viên vào lớp */
+export async function createEnrollment(
+  classId: string,
+  studentId: string,
+): Promise<void> {
+  await apiPost('/api/enrollments', { classId, studentId });
+}
+
+/** DELETE /api/enrollments/{classId}/{studentId} */
+export async function deleteEnrollment(
+  classId: string,
+  studentId: string,
+): Promise<void> {
+  await apiDelete(`/api/enrollments/${classId}/${studentId}`);
+}
+
+/** GET /api/classes/{classId}/enrollments */
+export async function fetchClassEnrollments(classId: string): Promise<ApiEnrollment[]> {
+  return apiGet<ApiEnrollment[]>(`/api/classes/${classId}/enrollments`);
+}
+
+// ─── Wallet ───────────────────────────────────────────────────────────────
+
+/** GET /api/wallets/institution/{institutionId} */
+export async function fetchWallet(institutionId: string): Promise<ApiWallet> {
+  return apiGet<ApiWallet>(`/api/wallets/institution/${institutionId}`);
+}
+
+/** GET /api/transactions/wallet/{walletId} */
+export async function fetchWalletTransactions(
+  walletId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiTransaction>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 20;
+  const { data, pagination } = await apiGetPaginated<ApiTransaction[]>(
+    `/api/transactions/wallet/${walletId}${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
+/** POST /api/wallets/top-up */
+export async function topUpWallet(payload: {
+  institutionId: string;
+  amount: number;
+  description?: string;
+}): Promise<{ paymentUrl?: string }> {
+  return apiPost<{ paymentUrl?: string }>('/api/wallets/top-up', payload);
+}
+
+// ─── Exam Participations ─────────────────────────────────────────────────
+
+/** GET /api/exam-participations?examSlotId=... */
+export async function fetchExamParticipations(
+  examSlotId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiExamParticipation>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiExamParticipation[]>(
+    `/api/exam-participations${buildQueryParams({ examSlotId, page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
+/** POST /api/exam-participations — thêm sinh viên vào kỳ thi */
+export async function createExamParticipation(payload: {
+  examSlotId: string;
+  studentId: string;
+}): Promise<ApiExamParticipation> {
+  return apiPost<ApiExamParticipation>('/api/exam-participations', {
+    ...payload,
+    status: 'Absent',
+  });
+}
+
+/** PUT /api/exam-participations/{examSlotId}/status — cập nhật trạng thái */
+export async function updateParticipationStatus(
+  examSlotId: string,
+  status: ParticipationStatus,
+): Promise<void> {
+  await apiPut(`/api/exam-participations/${examSlotId}/status`, { status });
+}
+
+/** DELETE /api/exam-participations/{examSlotId} — xóa tham gia */
+export async function deleteExamParticipation(examSlotId: string): Promise<void> {
+  await apiDelete(`/api/exam-participations/${examSlotId}`);
+}
+
+// ─── Transactions Deduct ─────────────────────────────────────────────────
+
+/** POST /api/transactions/deduct-attendance */
+export async function deductAttendance(payload: DeductAttendancePayload): Promise<ApiTransaction> {
+  return apiPost<ApiTransaction>('/api/transactions/deduct-attendance', payload);
+}
+
+/** POST /api/transactions/deduct-proctoring */
+export async function deductProctoring(payload: DeductProctoringPayload): Promise<ApiTransaction> {
+  return apiPost<ApiTransaction>('/api/transactions/deduct-proctoring', payload);
+}
+
+// ─── Update own profile ──────────────────────────────────────────────────
+
+/** PUT /api/users/me */
+export async function updateMyProfile(payload: UpdateUserMePayload): Promise<ApiUser> {
+  return apiPut<ApiUser>('/api/users/me', payload);
+}
+
+// ─── Monitoring ───────────────────────────────────────────────────────────
+
+/** GET /api/attendance-sessions — cho School Admin xem tất cả sessions */
+export async function fetchAttendanceSessions(
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiAttendanceSession>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
+    `/api/attendance-sessions${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
 }

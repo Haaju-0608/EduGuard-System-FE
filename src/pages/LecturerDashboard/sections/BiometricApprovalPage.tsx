@@ -10,7 +10,11 @@ import {
 } from '../../../components/lecturer/LecturerUI';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchSchoolAdminBiometricRequests } from '../../../services/schoolAdminApi';
+import {
+  approveBiometricRequest,
+  fetchSchoolAdminBiometricRequests,
+  rejectBiometricRequest,
+} from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
 /** Badge trạng thái duyệt sinh trắc học */
@@ -107,11 +111,16 @@ export default function BiometricApprovalPage() {
   const handleReview = async (requestId: string, status: 'approved' | 'rejected') => {
     setReviewing(requestId);
     try {
-      // TODO: tích hợp PUT/PATCH review API khi backend có endpoint
-      toast.info(
-        'Review API pending',
-        `Approve/reject via API is not available yet. Request ID: ${requestId.slice(0, 8)}… (${status})`,
-      );
+      if (status === 'approved') {
+        await approveBiometricRequest(requestId);
+        toast.success('Approved', 'Biometric request has been approved.');
+      } else {
+        await rejectBiometricRequest(requestId);
+        toast.success('Rejected', 'Biometric request has been rejected.');
+      }
+      await reload();
+    } catch {
+      toast.error('Error', 'Failed to process request. Please try again.');
     } finally {
       setReviewing(null);
     }
@@ -157,7 +166,7 @@ export default function BiometricApprovalPage() {
 
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="aspect-[3/4]" />)}
+          {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} className="aspect-3/4" />)}
         </div>
       ) : error ? (
         <EmptyState

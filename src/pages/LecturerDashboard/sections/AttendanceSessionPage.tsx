@@ -19,12 +19,13 @@ import {
   StudentAvatar,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import { fetchSchoolAdminClassesSimple } from '../../../services/schoolAdminApi';
+import { deductAttendance, fetchSchoolAdminClassesSimple, fetchWallet } from '../../../services/schoolAdminApi';
 import {
   endAttendanceSession,
   fetchActiveAttendanceSession,
   startAttendanceSession,
 } from '../../../services/lecturerApi';
+import { useAuth } from '../../../contexts/AuthContext';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerClass } from '../../../types/lecturer';
 
 /** Badge trạng thái điểm danh */
@@ -71,6 +72,7 @@ function SessionStats({ session }: { session: AttendanceSession }) {
 
 /** Màn hình phiên điểm danh */
 export default function AttendanceSessionPage() {
+  const { user } = useAuth();
   const [classes, setClasses] = useState<LecturerClass[]>([]);
   const [session, setSession] = useState<AttendanceSession | null>(null);
   const [selectedClassId, setSelectedClassId] = useState('');
@@ -98,7 +100,7 @@ export default function AttendanceSessionPage() {
 
   useEffect(() => { loadData(); }, []);
 
-  /** Mở phiên điểm danh mới */
+  /** Mở phiên điểm danh mới + deduct wallet nếu có institutionId */
   const handleStartSession = async () => {
     if (!selectedClassId) {
       toast.warning('No class selected', 'Please select a course before starting attendance.');
@@ -110,6 +112,21 @@ export default function AttendanceSessionPage() {
       setSession(newSession);
       const cls = classes.find((c) => c.id === selectedClassId);
       toast.success('Attendance started', cls ? `${cls.code} — ${cls.name}` : 'Attendance session opened.');
+
+      // Deduct wallet credits nếu institution có wallet
+      if (user?.institutionId) {
+        try {
+          const wallet = await fetchWallet(user.institutionId);
+          await deductAttendance({
+            walletId: wallet.id,
+            attendanceSessionId: newSession.id,
+            studentCount: newSession.totalStudents || cls?.studentCount || 0,
+          });
+        } catch {
+          // Không block UI nếu deduct thất bại
+          toast.warning('Wallet', 'Could not deduct attendance credits from wallet.');
+        }
+      }
     } catch {
       toast.error('Failed to open session', 'Please try again in a few seconds.');
     } finally {
@@ -168,32 +185,43 @@ export default function AttendanceSessionPage() {
           subtitle="Select course and start attendance"
         />
 
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
-          <div className="flex-1 w-full">
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Course</label>
-            <div className="uni-filter-input">
-              <select
-                value={selectedClassId}
-                onChange={(e) => setSelectedClassId(e.target.value)}
-                disabled={!!session}
-              >
-                {classes.map((c) => (
-                  <option key={c.id} value={c.id}>{c.code} — {c.name} · Room {c.room}</option>
-                ))}
-              </select>
-            </div>
+        {classes.length === 0 && !loading ? (
+          <div className="flex items-center gap-3 bg-gold/5 border border-gold/20 rounded-xl px-4 py-3 text-sm text-gold">
+            <span className="text-lg">⚠️</span>
+            <span>No classes are assigned to your account. Please contact your administrator to link your lecturer profile to an institution.</span>
           </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
+            <div className="flex-1 w-full">
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Course</label>
+              <div className="uni-filter-input">
+                <select
+                  value={selectedClassId}
+                  onChange={(e) => setSelectedClassId(e.target.value)}
+                  disabled={!!session || classes.length === 0}
+                >
+                  {classes.length === 0 ? (
+                    <option value="">— No classes available —</option>
+                  ) : (
+                    classes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.code} — {c.name} · Room {c.room}</option>
+                    ))
+                  )}
+                </select>
+              </div>
+            </div>
 
-          {!session ? (
-            <PrimaryButton variant="success" onClick={handleStartSession} disabled={actionLoading || !selectedClassId}>
-              <FiPlay /> {actionLoading ? 'Starting...' : 'Start Attendance Session'}
-            </PrimaryButton>
-          ) : (
-            <PrimaryButton variant="danger" onClick={handleEndSession} disabled={actionLoading}>
-              <FiStopCircle /> {actionLoading ? 'Ending...' : 'End Session'}
-            </PrimaryButton>
-          )}
-        </div>
+            {!session ? (
+              <PrimaryButton variant="success" onClick={handleStartSession} disabled={actionLoading || !selectedClassId || classes.length === 0}>
+                <FiPlay /> {actionLoading ? 'Starting...' : 'Start Attendance Session'}
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton variant="danger" onClick={handleEndSession} disabled={actionLoading}>
+                <FiStopCircle /> {actionLoading ? 'Ending...' : 'End Session'}
+              </PrimaryButton>
+            )}
+          </div>
+        )}
 
         {session && (
           <div className="mt-6 pt-6 border-t border-border/60">
