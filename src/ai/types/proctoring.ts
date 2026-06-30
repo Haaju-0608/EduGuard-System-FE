@@ -97,8 +97,25 @@ export interface EvidenceItem {
   id: string;
   violationId: string;
   violationType: ViolationType;
+  violations: EvidenceViolationMetadata[];
   capturedAt: number;
-  imageDataUrl: string;
+  durationMs: number;
+  videoSizeBytes: number;
+  filename: string;
+  videoObjectUrl?: string;
+  uploadStatus: 'local' | 'pending' | 'uploaded' | 'failed';
+  uploadError?: string;
+}
+
+export interface EvidenceViolationMetadata {
+  violationId: string;
+  violationType: ViolationType;
+  timestamp: number;
+  direction?: GazeDirection;
+  confidence?: number;
+  durationMs: number;
+  faceCount?: number;
+  calibrationReady?: boolean;
 }
 
 export interface ProctoringFrameAnalysis {

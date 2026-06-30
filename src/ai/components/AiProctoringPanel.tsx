@@ -1,9 +1,13 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   FiAlertTriangle,
   FiCamera,
   FiCheckCircle,
+  FiClock,
+  FiDownload,
   FiEye,
+  FiExternalLink,
+  FiMaximize2,
   FiPauseCircle,
   FiPlayCircle,
   FiRefreshCw,
@@ -13,7 +17,7 @@ import {
   FiUsers,
 } from 'react-icons/fi';
 import { useAiProctoring } from '../hooks/useAiProctoring';
-import type { ProctoringFrameAnalysis, ViolationType } from '../types/proctoring';
+import type { EvidenceItem, ProctoringFrameAnalysis, ViolationType } from '../types/proctoring';
 
 function formatAngle(value?: number) {
   if (typeof value !== 'number' || Number.isNaN(value)) return '--';
@@ -36,8 +40,16 @@ function formatRatio(value?: number) {
   return value.toFixed(3);
 }
 
+function evidenceStatusLabel(status: string) {
+  if (status === 'local') return 'Buffered locally';
+  if (status === 'uploaded') return 'Uploaded';
+  if (status === 'failed') return 'Upload failed';
+  return 'Upload pending';
+}
+
 export default function AiProctoringPanel() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [selectedEvidence, setSelectedEvidence] = useState<EvidenceItem | null>(null);
   const {
     analysis,
     cameraStatus,
@@ -71,7 +83,7 @@ export default function AiProctoringPanel() {
             <div>
               <h1 className="font-syne text-2xl font-extrabold text-white-soft">AI Proctoring Prototype</h1>
               <p className="text-muted text-sm mt-0.5">
-                Browser-only face tracking, head pose, gaze analysis, violation timers, and local evidence capture.
+                Browser-only detection with rolling video evidence clips.
               </p>
             </div>
           </div>
@@ -171,7 +183,7 @@ export default function AiProctoringPanel() {
 
           <div className="bg-navy-card border border-border rounded-[24px] p-5 space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-syne font-bold text-lg text-white-soft">Local Evidence</h2>
+              <h2 className="font-syne font-bold text-lg text-white-soft">Rolling Video Evidence</h2>
               <button type="button" className="uni-btn-ghost !text-xs !py-2 !px-3" onClick={clearLocalEvidence}>
                 Clear
               </button>
@@ -179,13 +191,66 @@ export default function AiProctoringPanel() {
             <div className="grid grid-cols-2 gap-3">
               {evidence.length === 0 ? (
                 <div className="col-span-2 py-8 text-center text-sm text-muted border border-dashed border-border rounded-2xl">
-                  No local captures yet.
+                  No evidence clips yet.
                 </div>
               ) : (
                 evidence.slice(0, 4).map((item) => (
                   <div key={item.id} className="overflow-hidden rounded-xl border border-border bg-navy/40">
-                    <img src={item.imageDataUrl} alt={item.violationType} className="w-full aspect-video object-cover" />
-                    <div className="p-2 text-[10px] font-bold text-muted">{item.violationType}</div>
+                    {item.videoObjectUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedEvidence(item)}
+                        className="relative w-full aspect-video bg-black border-0 p-0 cursor-pointer group"
+                        aria-label={`Open evidence clip ${item.violationType}`}
+                      >
+                        <video src={item.videoObjectUrl} className="w-full h-full object-cover" muted preload="metadata" />
+                        <span className="absolute inset-0 grid place-items-center bg-black/20 text-white opacity-0 group-hover:opacity-100 transition-opacity">
+                          <FiMaximize2 />
+                        </span>
+                      </button>
+                    ) : (
+                      <div className="w-full aspect-video bg-black grid place-items-center text-[10px] text-muted">
+                        Uploaded
+                      </div>
+                    )}
+                    <div className="p-2 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-[10px] font-bold text-cyan">{item.violationType}</div>
+                        <span className="text-[9px] text-green bg-green/10 border border-green/20 rounded-full px-2 py-0.5">
+                          {evidenceStatusLabel(item.uploadStatus)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-muted flex items-center gap-1">
+                        <FiClock />
+                        Evidence Clip {Math.round(item.durationMs / 1000)}s - {(item.videoSizeBytes / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                      <div className="text-[10px] text-muted">
+                        Pre-event 5s + Post-event 5s - {item.violations.length} event{item.violations.length > 1 ? 's' : ''}
+                      </div>
+                      {item.violations.length > 1 && (
+                        <div className="text-[10px] text-muted truncate">
+                          Also includes {item.violations.slice(1).map((violation) => violation.violationType).join(', ')}
+                        </div>
+                      )}
+                      {item.uploadError && <div className="text-[10px] text-red">{item.uploadError}</div>}
+                      <div className="flex gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedEvidence(item)}
+                          disabled={!item.videoObjectUrl}
+                          className="uni-btn-ghost !text-[10px] !py-1.5 !px-2 disabled:opacity-40"
+                        >
+                          <FiMaximize2 />
+                          View
+                        </button>
+                        {item.videoObjectUrl && (
+                          <a href={item.videoObjectUrl} download={item.filename} className="uni-btn-ghost no-underline !text-[10px] !py-1.5 !px-2">
+                            <FiDownload />
+                            Download
+                          </a>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -208,8 +273,8 @@ export default function AiProctoringPanel() {
                 <div>
                   <p className="font-syne font-bold text-white-soft text-sm">{event.label}</p>
                   <p className="text-xs text-muted mt-0.5">
-                    {event.type} · {(event.durationMs / 1000).toFixed(1)}s · gaze {event.metadata.gaze ?? '--'}
-                    {event.metadata.faceQuality?.reasons.length ? ` · ${event.metadata.faceQuality.reasons.join(', ')}` : ''}
+                    {event.type} - {(event.durationMs / 1000).toFixed(1)}s - gaze {event.metadata.gaze ?? '--'}
+                    {event.metadata.faceQuality?.reasons.length ? ` - ${event.metadata.faceQuality.reasons.join(', ')}` : ''}
                   </p>
                 </div>
                 <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border w-fit ${
@@ -221,6 +286,66 @@ export default function AiProctoringPanel() {
             ))}
           </div>
         )}
+      </div>
+
+      {selectedEvidence && (
+        <EvidenceViewer evidence={selectedEvidence} onClose={() => setSelectedEvidence(null)} />
+      )}
+    </div>
+  );
+}
+
+function EvidenceViewer({ evidence, onClose }: { evidence: EvidenceItem; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-sm p-4 md:p-8 flex items-center justify-center">
+      <div className="w-full max-w-5xl bg-navy-card border border-border rounded-[24px] overflow-hidden shadow-2xl">
+        <div className="px-5 py-4 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h2 className="font-syne font-bold text-lg text-white-soft">{evidence.violationType} Evidence Clip</h2>
+            <p className="text-xs text-muted mt-0.5">
+              Pre-event 5s + post-event 5s - {evidence.violations.length} event{evidence.violations.length > 1 ? 's' : ''}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {evidence.videoObjectUrl && (
+              <>
+                <a href={evidence.videoObjectUrl} target="_blank" rel="noreferrer" className="uni-btn-ghost no-underline !text-xs !py-2 !px-3">
+                  <FiExternalLink />
+                  Open
+                </a>
+                <a href={evidence.videoObjectUrl} download={evidence.filename} className="uni-btn-ghost no-underline !text-xs !py-2 !px-3">
+                  <FiDownload />
+                  Download
+                </a>
+              </>
+            )}
+            <button type="button" onClick={onClose} className="uni-btn-danger !text-xs !py-2 !px-3">
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="bg-black">
+          {evidence.videoObjectUrl ? (
+            <video src={evidence.videoObjectUrl} className="w-full max-h-[70vh] bg-black" controls autoPlay />
+          ) : (
+            <div className="aspect-video grid place-items-center text-muted">Video was uploaded and is not stored locally.</div>
+          )}
+        </div>
+
+        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {evidence.violations.map((violation) => (
+            <div key={violation.violationId} className="bg-navy/40 border border-border rounded-2xl p-3">
+              <div className="text-xs font-bold text-cyan">{violation.violationType}</div>
+              <div className="text-[11px] text-muted mt-1">
+                Direction {violation.direction ?? '--'} - Confidence {formatPercent(violation.confidence)}
+              </div>
+              <div className="text-[11px] text-muted">
+                Duration {(violation.durationMs / 1000).toFixed(1)}s - Faces {violation.faceCount ?? '--'}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

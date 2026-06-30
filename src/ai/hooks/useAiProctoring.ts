@@ -7,7 +7,7 @@ import { FaceQualityEngine } from '../engines/FaceQualityEngine';
 import { HeadPoseEngine } from '../engines/HeadPoseEngine';
 import { TemporalFilterEngine } from '../engines/TemporalFilterEngine';
 import { ViolationEngine } from '../engines/ViolationEngine';
-import { EvidenceService } from '../services/EvidenceService';
+import { EvidenceRecorder } from '../services/EvidenceRecorder';
 import { mediaPipeFaceLandmarkerService } from '../services/MediaPipeFaceLandmarkerService';
 import type {
   CameraStatus,
@@ -39,7 +39,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       headPose: new HeadPoseEngine(),
       eyeGaze: new EyeGazeEngine(),
       violation: new ViolationEngine(),
-      evidence: new EvidenceService(),
+      evidence: new EvidenceRecorder({
+        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL,
+        participationId: import.meta.env.VITE_AI_PARTICIPATION_ID,
+        sessionId: import.meta.env.VITE_AI_SESSION_ID,
+        studentId: import.meta.env.VITE_AI_STUDENT_ID,
+      }),
     }),
     [],
   );
@@ -48,6 +53,7 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   const runningRef = useRef(false);
   const lastFrameAtRef = useRef(0);
   const lastUiUpdateAtRef = useRef(0);
+  const evidenceRef = useRef<EvidenceItem[]>([]);
 
   const stopLoop = useCallback(() => {
     runningRef.current = false;
@@ -121,12 +127,17 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
 
           if (evaluation.events.length > 0) {
             setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
-            setEvidence((current) => {
-              const captured = evaluation.events
-                .map((event) => engines.evidence.capture(video, event))
-                .filter((item): item is EvidenceItem => Boolean(item));
+            evaluation.events.forEach((event) => {
+              engines.evidence.recordEvidence(event).then((captured) => {
+                if (!captured) return;
 
-              return [...captured, ...current].slice(0, 20);
+                setEvidence((current) => {
+                  const next = [captured, ...current].slice(0, 20);
+                  engines.evidence.releaseEvidence(current.filter((item) => !next.includes(item)));
+
+                  return next;
+                });
+              });
             });
           }
 
@@ -149,7 +160,8 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     try {
       setError(null);
       setCameraStatus('requesting');
-      await cameraService.start(video);
+      const stream = await cameraService.start(video);
+      engines.evidence.start(stream);
       setCameraStatus('ready');
 
       setMediaPipeStatus('loading');
@@ -171,23 +183,35 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       stopLoop();
       cameraService.stop();
     }
-  }, [engines.calibration, engines.filter, engines.violation, processFrame, stopLoop, videoRef]);
+  }, [engines.calibration, engines.evidence, engines.filter, engines.violation, processFrame, stopLoop, videoRef]);
 
   const stop = useCallback(() => {
     stopLoop();
+    engines.evidence.stop();
     cameraService.stop();
     engines.calibration.reset();
     engines.filter.reset();
     engines.violation.reset();
     setCameraStatus('idle');
-  }, [engines.calibration, engines.filter, engines.violation, stopLoop]);
+  }, [engines.calibration, engines.evidence, engines.filter, engines.violation, stopLoop]);
 
   const clearLocalEvidence = useCallback(() => {
     setViolations([]);
-    setEvidence([]);
-  }, []);
+    setEvidence((current) => {
+      engines.evidence.releaseEvidence(current);
+      evidenceRef.current = [];
+      return [];
+    });
+  }, [engines.evidence]);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => {
+    evidenceRef.current = evidence;
+  }, [evidence]);
+
+  useEffect(() => () => {
+    stop();
+    engines.evidence.releaseEvidence(evidenceRef.current);
+  }, [engines.evidence, stop]);
 
   return {
     analysis,

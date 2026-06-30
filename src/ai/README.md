@@ -14,7 +14,7 @@ Camera at roughly 30 FPS goes through MediaPipe Face Landmarker, then:
 6. Temporal smoothing
 7. Independent diversion signals
 8. Violation engine
-9. Local evidence capture
+9. Rolling video evidence capture
 
 ## Detection Philosophy
 
@@ -45,6 +45,84 @@ Frames are ignored for gaze decisions when quality is not acceptable. Quality cu
 - Excessive yaw, pitch, and roll
 
 Low-quality frames can emit `FACE_OBSTRUCTED` only when the quality issue is severe or multiple obstruction signals agree. A single low EAR or weak eye blendshape is treated as a quality note, not an obstruction by itself.
+
+## Rolling Video Evidence
+
+The evidence system uses continuous video buffering, not image snapshots.
+
+Continuous Recording
+
+-> Rolling Buffer (Last 10 Seconds)
+
+-> Violation Trigger
+
+-> Freeze Previous Buffer
+
+-> Continue Recording (5 Seconds)
+
+-> Compose Evidence Clip
+
+-> Upload to FastAPI
+
+The recorder keeps only the latest 10 chunks in memory. Each chunk is approximately one second. When a violation event is emitted, the recorder freezes the pre-event buffer, continues collecting five more seconds, then composes a single `video/webm` evidence clip.
+
+If another violation happens during the five-second post-event period, it is appended as metadata to the same evidence clip. Only one video is produced, but it can contain multiple violation records.
+
+The recorder sets `videoBitsPerSecond` to 800 kbps by default so 15-second clips stay reasonably small while remaining clear enough for manual review.
+
+## Why Video Evidence Instead of Images
+
+The previous implementation captured only a single image when a violation occurred.
+
+This approach had several limitations:
+
+- No context before the violation.
+- Impossible to verify whether the student actually looked away.
+- Difficult for lecturers to distinguish false positives.
+- No temporal evidence.
+
+Rolling video evidence preserves both the events before and after the violation, providing much stronger proof for manual review.
+
+## Evidence Flow
+
+Camera (30 FPS)
+
+-> Continuous Video Buffer
+
+-> Rolling Buffer (last 10s)
+
+-> Violation Engine
+
+-> Freeze Buffer
+
+-> Record +5s
+
+-> Evidence Clip (15s)
+
+-> FastAPI
+
+-> Save
+
+-> ASP.NET API
+
+-> Supabase Storage
+
+If `VITE_FASTAPI_EVIDENCE_URL` is set, the clip is uploaded as `multipart/form-data` with:
+
+- `video`
+- `violationType`
+- `participationId`
+- `sessionId`
+- `studentId`
+- `timestamp`
+- `direction`
+- `confidence`
+- `duration`
+- `metadata`
+
+If no upload URL is configured, the clip stays as a local object URL for frontend testing.
+
+Local object URLs live only in the current browser session. They are useful for prototype review, but they are not files on disk and will be lost after reload or cleanup. Use the Download action to save a clip manually, or configure `VITE_FASTAPI_EVIDENCE_URL` for persistent storage.
 
 ## Calibration
 

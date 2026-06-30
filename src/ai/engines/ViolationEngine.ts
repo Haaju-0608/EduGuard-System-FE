@@ -11,7 +11,7 @@ import type {
 } from '../types/proctoring';
 
 const DEFAULT_THRESHOLDS: ViolationEngineThresholds = {
-  absenceMs: 2000,
+  absenceMs: 1200,
   multipleFaceMs: 1200,
   faceObstructedMs: 1800,
   headTurnMs: 1200,
