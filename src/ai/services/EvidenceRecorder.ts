@@ -1,9 +1,9 @@
 import type { EvidenceItem, EvidenceViolationMetadata, ViolationEvent } from '../types/proctoring';
 
 const DEFAULT_PRE_EVENT_MS = 5000;
-const DEFAULT_FRAME_INTERVAL_MS = 125;
+const DEFAULT_FRAME_INTERVAL_MS = 100;
 const DEFAULT_POST_VIOLATION_MS = 5000;
-const DEFAULT_VIDEO_BITS_PER_SECOND = 2_200_000;
+const DEFAULT_VIDEO_BITS_PER_SECOND = 2_400_000;
 const DEFAULT_CAPTURE_WIDTH = 1024;
 const DEFAULT_JPEG_QUALITY = 0.86;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
@@ -135,9 +135,9 @@ export class EvidenceRecorder {
     try {
       await this.wait(this.options.postViolationMs);
 
-      const clipFrames = [...request.preViolationFrames, ...this.postViolationFrames];
+      const clipFrames = this.buildFixedClipFrames(request.preViolationFrames, this.postViolationFrames);
       const violations = [...this.activeViolations];
-      const durationMs = clipFrames.length * this.options.chunkMs;
+      const durationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
 
       request.preViolationFrames.length = 0;
       this.postViolationFrames = [];
@@ -245,14 +245,15 @@ export class EvidenceRecorder {
   }
 
   private async composeVideoBlob(frames: EvidenceFrame[]) {
-    const firstBitmap = await createImageBitmap(frames[0].blob);
+    const bitmaps = await Promise.all(frames.map((frame) => createImageBitmap(frame.blob)));
+    const firstBitmap = bitmaps[0];
     const canvas = document.createElement('canvas');
     canvas.width = firstBitmap.width;
     canvas.height = firstBitmap.height;
     const context = canvas.getContext('2d', { alpha: false });
 
     if (!context) {
-      firstBitmap.close();
+      bitmaps.forEach((bitmap) => bitmap.close());
       throw new Error('Unable to create canvas context for evidence video.');
     }
 
@@ -275,22 +276,55 @@ export class EvidenceRecorder {
     });
 
     recorder.start();
-    context.drawImage(firstBitmap, 0, 0, canvas.width, canvas.height);
-    firstBitmap.close();
-    await this.wait(this.options.chunkMs);
+    const startedAt = performance.now();
 
-    for (const frame of frames.slice(1)) {
-      const bitmap = await createImageBitmap(frame.blob);
+    for (const [index, bitmap] of bitmaps.entries()) {
       context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      bitmap.close();
-      await this.wait(this.options.chunkMs);
+
+      const nextFrameAt = startedAt + (index + 1) * this.options.chunkMs;
+      const delayMs = Math.max(0, nextFrameAt - performance.now());
+      if (delayMs > 0) {
+        await this.wait(delayMs);
+      }
     }
 
+    bitmaps.forEach((bitmap) => bitmap.close());
+
     if (recorder.state !== 'inactive') {
+      recorder.requestData();
       recorder.stop();
     }
 
     return stopped;
+  }
+
+  private buildFixedClipFrames(preViolationFrames: EvidenceFrame[], postViolationFrames: EvidenceFrame[]) {
+    const preFrameCount = Math.ceil(DEFAULT_PRE_EVENT_MS / this.options.chunkMs);
+    const postFrameCount = Math.ceil(this.options.postViolationMs / this.options.chunkMs);
+    const preFrames = this.normalizeFrameCount(preViolationFrames.slice(-preFrameCount), preFrameCount);
+    const postFrames = this.normalizeFrameCount(postViolationFrames.slice(0, postFrameCount), postFrameCount);
+    const fallbackFrame = preFrames[0] ?? postFrames[0];
+
+    if (!fallbackFrame) return [];
+
+    return [...preFrames, ...postFrames];
+  }
+
+  private normalizeFrameCount(frames: EvidenceFrame[], targetCount: number) {
+    if (frames.length === 0) return [];
+    if (frames.length === targetCount) return frames;
+
+    if (frames.length > targetCount) {
+      return Array.from({ length: targetCount }, (_, index) => {
+        const sourceIndex = Math.round(index * (frames.length - 1) / Math.max(1, targetCount - 1));
+        return frames[sourceIndex];
+      });
+    }
+
+    return Array.from({ length: targetCount }, (_, index) => {
+      const sourceIndex = Math.round(index * (frames.length - 1) / Math.max(1, targetCount - 1));
+      return frames[sourceIndex];
+    });
   }
 
   private async createEvidenceItem(
