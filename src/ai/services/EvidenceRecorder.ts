@@ -1,11 +1,11 @@
 import type { EvidenceItem, EvidenceViolationMetadata, ViolationEvent } from '../types/proctoring';
 
 const DEFAULT_PRE_EVENT_MS = 5000;
-const DEFAULT_FRAME_INTERVAL_MS = 100;
+const DEFAULT_FRAME_INTERVAL_MS = 67;
 const DEFAULT_POST_VIOLATION_MS = 5000;
-const DEFAULT_VIDEO_BITS_PER_SECOND = 2_400_000;
-const DEFAULT_CAPTURE_WIDTH = 1024;
-const DEFAULT_JPEG_QUALITY = 0.86;
+const DEFAULT_VIDEO_BITS_PER_SECOND = 2_600_000;
+const DEFAULT_CAPTURE_WIDTH = 960;
+const DEFAULT_JPEG_QUALITY = 0.84;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
 const DEFAULT_SESSION_ID = 'local-session';
 const DEFAULT_STUDENT_ID = 'local-student';
