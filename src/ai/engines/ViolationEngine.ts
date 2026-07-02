@@ -15,7 +15,7 @@ const DEFAULT_THRESHOLDS: ViolationEngineThresholds = {
   multipleFaceMs: 1200,
   faceObstructedMs: 1800,
   headTurnMs: 1200,
-  eyeDiversionMs: 1200,
+  eyeDiversionMs: 1500,
 };
 
 const VOTE_RATIO = 0.72;
