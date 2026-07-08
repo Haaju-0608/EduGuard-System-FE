@@ -2,7 +2,7 @@ import React, { useState, ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell, FiSearch } from 'react-icons/fi';
+import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell } from 'react-icons/fi';
 import { CampusBackground, AcademySeal } from '../lecturer/LecturerUI';
 import { getFacultyByDepartment, getFacultyTheme } from '../../utils/facultyTheme';
 import NotificationPanel from '../feedback/NotificationPanel';
@@ -156,15 +156,6 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
               <FiMenu />
             </button>
 
-            {/* Search bar */}
-            <div className="hidden md:flex items-center gap-2 bg-navy border border-border rounded-xl py-2 px-3.5 w-[280px] focus-within:border-blue-bright/40 transition-colors">
-              <FiSearch className="text-muted text-sm" />
-              <input
-                type="text"
-                placeholder="Search..."
-                className="bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted w-full font-dm"
-              />
-            </div>
           </div>
 
           <div className="flex items-center gap-3">

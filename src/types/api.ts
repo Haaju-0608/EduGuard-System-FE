@@ -31,7 +31,7 @@ export interface ApiClass {
   createdAt: string;
   updatedAt: string;
   institution: unknown;
-  lecturer: unknown;
+  lecturer: { id: string; fullName: string; email: string } | null;
   enrollments: unknown[] | null;
 }
 
@@ -80,6 +80,7 @@ export interface ApiExamSlot {
   status: string;
   createdAt: string;
   updatedAt: string;
+  proctorId?: string;
 }
 
 /** Biometric request từ GET /api/biometric-requests */

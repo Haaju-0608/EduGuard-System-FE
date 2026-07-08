@@ -6,6 +6,7 @@ import { getInitialsFromName } from './authApi';
 import { ApiError, apiDelete, apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import type {
   ApiBiometricRequest,
+  ApiAttendanceRecord,
   ApiAttendanceSession,
   ApiClass,
   ApiEnrollment,
@@ -84,6 +85,8 @@ export function mapApiClassToLecturerClass(item: ApiClass): LecturerClass {
     studentCount: enrollments.length,
     status: deriveClassStatus(item.startDate, item.endDate),
     attendanceRate: 0,
+    lecturerId: item.lecturerId ?? '',
+    lecturerName: item.lecturer?.fullName ?? '—',
   };
 }
 
@@ -302,6 +305,7 @@ export interface CreateExamSlotPayload {
   endTime: string;
   expectedDurationMinutes?: number;
   status?: 'Scheduled' | 'InProgress' | 'Completed' | 'Cancelled';
+  proctorId?: string;
 }
 
 /** POST /api/exam-slots */
@@ -385,16 +389,17 @@ function mapApiBiometricRequest(
   };
 }
 
-/** GET /api/biometric-requests — duyệt sinh trắc học */
+/** GET /api/biometric-requests — duyệt sinh trắc học (chỉ của institution mình) */
 export async function fetchSchoolAdminBiometricRequests(
-  params: ListQueryParams = {},
+  params: ListQueryParams & { institutionId?: string } = {},
 ): Promise<PagedResult<BiometricRequest>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const { institutionId } = params;
 
   const [bioRes, userRes] = await Promise.all([
     apiGetPaginated<ApiBiometricRequest[]>(
-      `/api/biometric-requests${buildQueryParams({ page, pageSize })}`,
+      `/api/biometric-requests${buildQueryParams({ page, pageSize, ...(institutionId ? { institutionId } : {}) })}`,
     ),
     fetchApiUsersRaw({ page: 1, pageSize: DEFAULT_PAGE_SIZE }).catch(() => ({
       data: [] as ApiUser[],
@@ -404,8 +409,16 @@ export async function fetchSchoolAdminBiometricRequests(
 
   const userMap = new Map(userRes.data.map((user) => [user.id, user]));
 
+  // Filter client-side theo institution — backend trả tất cả requests
+  const filtered = institutionId
+    ? bioRes.data.filter((item) => {
+        const student = item.student ?? userMap.get(item.studentId);
+        return student?.institutionId === institutionId;
+      })
+    : bioRes.data;
+
   return {
-    items: bioRes.data.map((item) => mapApiBiometricRequest(item, userMap)),
+    items: filtered.map((item) => mapApiBiometricRequest(item, userMap)),
     pagination: bioRes.pagination,
   };
 }
@@ -508,6 +521,61 @@ export async function updateClass(
 /** DELETE /api/classes/{id} */
 export async function deleteClass(id: string): Promise<void> {
   await apiDelete(`/api/classes/${id}`);
+}
+
+// ─── Student exam slots ────────────────────────────────────────────────────
+
+/**
+ * Fetch exam slots cho student.
+ *
+ * Strategy:
+ * 1. Lấy tất cả exam slots
+ * 2. Lấy class info cho từng unique classId — nếu backend 403 class nào thì
+ *    student không thuộc class đó → dùng để filter
+ * 3. Nếu TẤT CẢ đều accessible (không có 403) → không thể filter → trả về tất cả
+ *    kèm class name đã resolve
+ */
+export async function fetchStudentExamSlots(_studentId: string): Promise<ExamSlot[]> {
+  const slotRes = await apiGetPaginated<ApiExamSlot[]>(
+    `/api/exam-slots${buildQueryParams({ page: 1, pageSize: 200 })}`,
+  ).catch(() => ({ data: [] as ApiExamSlot[], pagination: EMPTY_PAGINATION }));
+
+  if (slotRes.data.length === 0) return [];
+
+  const uniqueClassIds = [...new Set(slotRes.data.map((s) => s.classId))];
+
+  // Thử fetch từng class — 200 = accessible (student thuộc class), 403 = không thuộc
+  const classMap = new Map<string, LecturerClass>();
+  const accessible = new Set<string>();
+  const forbidden = new Set<string>();
+
+  await Promise.allSettled(
+    uniqueClassIds.map(async (classId) => {
+      try {
+        const cls = await apiGet<ApiClass>(`/api/classes/${classId}`);
+        classMap.set(classId, mapApiClassToLecturerClass(cls));
+        accessible.add(classId);
+      } catch (e) {
+        const status = e instanceof ApiError ? e.status : 0;
+        if (status === 403) forbidden.add(classId);
+        else accessible.add(classId); // lỗi khác (404, 500) → không chắc → giữ lại
+      }
+    }),
+  );
+
+  console.info('[fetchStudentExamSlots]', {
+    totalSlots: slotRes.data.length,
+    accessible: [...accessible],
+    forbidden: [...forbidden],
+  });
+
+  // Chỉ filter nếu thực sự có class bị 403 (không phải "all failed")
+  const canFilter = forbidden.size > 0;
+  const allowedIds = canFilter ? accessible : new Set(uniqueClassIds);
+
+  return slotRes.data
+    .filter((slot) => allowedIds.has(slot.classId))
+    .map((slot) => mapApiExamSlot(slot, classMap));
 }
 
 // ─── Enrollment ───────────────────────────────────────────────────────────
@@ -618,6 +686,82 @@ export async function deductProctoring(payload: DeductProctoringPayload): Promis
 /** PUT /api/users/me */
 export async function updateMyProfile(payload: UpdateUserMePayload): Promise<ApiUser> {
   return apiPut<ApiUser>('/api/users/me', payload);
+}
+
+// ─── Student attendance history ───────────────────────────────────────────
+
+export interface StudentAttendanceRecord {
+  id: string;
+  date: string;        // 'YYYY-MM-DD'
+  className: string;
+  classCode: string;
+  startTime: string;   // 'HH:MM'
+  endTime: string;     // 'HH:MM' or '—'
+  status: 'present' | 'absent' | 'late' | 'excused';
+  checkInTime: string | null;
+}
+
+function mapAttendanceStatus(s: string): StudentAttendanceRecord['status'] {
+  const v = s.trim().toLowerCase();
+  if (v === 'present') return 'present';
+  if (v === 'late') return 'late';
+  if (v === 'excused') return 'excused';
+  return 'absent';
+}
+
+function timePart(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+}
+
+function datePart(iso: string) {
+  return iso.slice(0, 10); // 'YYYY-MM-DD'
+}
+
+/**
+ * Lấy lịch sử điểm danh của student:
+ * 1. GET /api/attendance-records?studentId={id}
+ * 2. GET /api/attendance-sessions  → map sessionId → session info
+ * 3. Join để lấy className, classCode, ngày giờ
+ */
+export async function fetchStudentAttendanceHistory(
+  studentId: string,
+): Promise<StudentAttendanceRecord[]> {
+  const [recordRes, sessionRes] = await Promise.all([
+    apiGetPaginated<ApiAttendanceRecord[]>(
+      `/api/attendance-records${buildQueryParams({ studentId, page: 1, pageSize: 200 })}`,
+    ).catch(() => ({ data: [] as ApiAttendanceRecord[], pagination: EMPTY_PAGINATION })),
+    apiGetPaginated<ApiAttendanceSession[]>(
+      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200 })}`,
+    ).catch(() => ({ data: [] as ApiAttendanceSession[], pagination: EMPTY_PAGINATION })),
+  ]);
+
+  // Nếu studentId param không được hỗ trợ → filter client-side
+  const myRecords = recordRes.data.filter(
+    (r) => !studentId || r.studentId === studentId,
+  );
+
+  if (myRecords.length === 0) return [];
+
+  const sessionMap = new Map(sessionRes.data.map((s) => [s.id, s]));
+
+  return myRecords
+    .map((rec): StudentAttendanceRecord | null => {
+      const session = sessionMap.get(rec.sessionId);
+      if (!session) return null;
+      const cls = session.class;
+      return {
+        id: rec.id,
+        date: datePart(session.startTime),
+        className: cls?.courseName ?? 'Unknown class',
+        classCode: cls?.courseCode ?? session.classId.slice(0, 8),
+        startTime: timePart(session.startTime),
+        endTime: session.endTime ? timePart(session.endTime) : '—',
+        status: mapAttendanceStatus(rec.status),
+        checkInTime: rec.checkInTime ? timePart(rec.checkInTime) : null,
+      };
+    })
+    .filter((r): r is StudentAttendanceRecord => r !== null)
+    .sort((a, b) => b.date.localeCompare(a.date));
 }
 
 // ─── Monitoring ───────────────────────────────────────────────────────────

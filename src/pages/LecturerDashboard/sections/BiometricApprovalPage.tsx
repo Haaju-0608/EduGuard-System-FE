@@ -8,6 +8,7 @@ import {
   PageShell,
   SkeletonCard,
 } from '../../../components/lecturer/LecturerUI';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -110,14 +111,17 @@ function BiometricCard({
 
 /** Trang duyệt sinh trắc học */
 export default function BiometricApprovalPage() {
+  const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing] = useState<string | null>(null);
   const toast = useToast();
 
+  const institutionId = user?.institutionId ?? undefined;
+
   const { data, loading, error, reload } = useAsyncData(async () => {
-    const result = await fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50 });
+    const result = await fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50, institutionId });
     return result.items;
-  }, []);
+  }, [institutionId]);
 
   const requests = data ?? [];
 

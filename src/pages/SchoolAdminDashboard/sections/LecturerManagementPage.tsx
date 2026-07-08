@@ -155,6 +155,7 @@ export default function LecturerManagementPage() {
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [deleteLecturerTarget, setDeleteLecturerTarget] = useState<LecturerStudent | null>(null);
   const [form, setForm] = useState({
     fullName: '',
     email: '',
@@ -212,11 +213,13 @@ export default function LecturerManagementPage() {
     }
   };
 
-  const handleDelete = async (user: LecturerStudent) => {
-    if (!window.confirm(`Delete lecturer "${user.name}"? This cannot be undone.`)) return;
-    setActionId(user.id);
+  const confirmDeleteLecturer = async () => {
+    if (!deleteLecturerTarget) return;
+    const target = deleteLecturerTarget;
+    setDeleteLecturerTarget(null);
+    setActionId(target.id);
     try {
-      await deleteUser(user.id);
+      await deleteUser(target.id);
       toast.success('Deleted', 'Lecturer account removed.');
       reload();
     } catch {
@@ -329,7 +332,7 @@ export default function LecturerManagementPage() {
                         {status === 'Active' ? <FiXCircle className="text-xs" /> : <FiCheckCircle className="text-xs" />}
                       </button>
                       <button
-                        onClick={() => handleDelete(l)}
+                        onClick={() => setDeleteLecturerTarget(l)}
                         disabled={isActing}
                         title="Delete"
                         className="w-7 h-7 rounded-lg bg-transparent border border-border text-muted flex items-center justify-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40"
@@ -353,6 +356,41 @@ export default function LecturerManagementPage() {
           onSaved={reload}
           institutionName={institutionName}
         />
+      )}
+
+      {deleteLecturerTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Lecturer</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold">"{deleteLecturerTarget.name}"</span>?
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteLecturerTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteLecturer}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
 
       {/* Add Modal */}

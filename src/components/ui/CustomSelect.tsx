@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FiCheck, FiChevronDown } from 'react-icons/fi';
 
@@ -27,19 +27,32 @@ export default function CustomSelect({
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0, flipUp: false });
+
+  const MAX_LIST_HEIGHT = 240;
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? placeholder;
 
-  const openDropdown = () => {
-    if (disabled) return;
+  const calcPos = () => {
     const rect = triggerRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    setPos({
-      top: rect.bottom + window.scrollY + 4,
+    if (!rect) return null;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const flipUp = spaceBelow < MAX_LIST_HEIGHT && rect.top > MAX_LIST_HEIGHT;
+    return {
+      top: flipUp
+        ? rect.top + window.scrollY - MAX_LIST_HEIGHT - 4
+        : rect.bottom + window.scrollY + 4,
       left: rect.left + window.scrollX,
       width: Math.max(rect.width, 160),
-    });
+      flipUp,
+    };
+  };
+
+  const openDropdown = () => {
+    if (disabled) return;
+    const p = calcPos();
+    if (!p) return;
+    setPos(p);
     setOpen(true);
   };
 
@@ -68,10 +81,7 @@ export default function CustomSelect({
   // Reposition on scroll / resize
   useEffect(() => {
     if (!open) return;
-    const update = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (rect) setPos({ top: rect.bottom + window.scrollY + 4, left: rect.left + window.scrollX, width: Math.max(rect.width, 160) });
-    };
+    const update = () => { const p = calcPos(); if (p) setPos(p); };
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     return () => { window.removeEventListener('scroll', update, true); window.removeEventListener('resize', update); };
@@ -103,8 +113,8 @@ export default function CustomSelect({
       {open && createPortal(
         <div
           ref={listRef}
-          style={{ top: pos.top, left: pos.left, minWidth: pos.width }}
-          className="fixed z-[9999] bg-[#0f172a] border border-border rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-hidden py-1.5"
+          style={{ top: pos.top, left: pos.left, minWidth: pos.width, maxHeight: '240px' }}
+          className="fixed z-[9999] bg-[#0f172a] border border-border rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-y-auto py-1.5"
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Routes, Route } from 'react-router-dom';
 import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 import SchoolDashboardOverview from './sections/SchoolDashboardOverview';
@@ -9,18 +8,19 @@ import BiometricApprovalPage from '../LecturerDashboard/sections/BiometricApprov
 import WalletPage from './sections/WalletPage';
 import MonitoringPage from './sections/MonitoringPage';
 import ExamManagementPage from './sections/ExamManagementPage';
+import ExamQuestionsPage from './sections/ExamQuestionsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
 const menuItems: MenuItem[] = [
-  { icon: '🏫', label: 'Dashboard', path: '/school' },
-  { icon: '👨‍🎓', label: 'Students', path: '/school/students' },
-  { icon: '👨‍🏫', label: 'Lecturers', path: '/school/lecturers' },
-  { icon: '📚', label: 'Classes', path: '/school/classes' },
-  { icon: '📝', label: 'Exams', path: '/school/exams' },
-  { icon: '💳', label: 'Wallet', path: '/school/wallet' },
+  { icon: '🏫', label: 'Dashboard',    path: '/school' },
+  { icon: '👨‍🎓', label: 'Students',     path: '/school/students' },
+  { icon: '👨‍🏫', label: 'Lecturers',    path: '/school/lecturers' },
+  { icon: '📚', label: 'Classes',      path: '/school/classes' },
+  { icon: '📝', label: 'Exams',        path: '/school/exams' },
+  { icon: '💳', label: 'Wallet',       path: '/school/wallet' },
   { icon: '🔐', label: 'Face Approval', path: '/school/biometric' },
-  { icon: '📡', label: 'Monitoring', path: '/school/monitoring' },
-  { icon: '👤', label: 'My Profile', path: '/school/profile' },
+  { icon: '📡', label: 'Monitoring',   path: '/school/monitoring' },
+  { icon: '👤', label: 'My Profile',   path: '/school/profile' },
 ];
 
 export default function SchoolAdminDashboardPage() {
@@ -33,6 +33,7 @@ export default function SchoolAdminDashboardPage() {
           <Route path="lecturers" element={<LecturerManagementPage />} />
           <Route path="classes" element={<SchoolClassManagementPage />} />
           <Route path="exams" element={<ExamManagementPage />} />
+          <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
           <Route path="wallet" element={<WalletPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />
           <Route path="monitoring" element={<MonitoringPage />} />

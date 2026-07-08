@@ -28,6 +28,8 @@ export interface LecturerClass {
   studentCount: number;
   status: ClassStatus;
   attendanceRate: number;
+  lecturerId: string;
+  lecturerName: string;
 }
 
 /** Thông tin sinh viên thuộc lớp giảng viên */

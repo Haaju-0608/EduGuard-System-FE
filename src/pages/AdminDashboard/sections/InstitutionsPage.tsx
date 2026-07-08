@@ -155,6 +155,7 @@ export default function InstitutionsPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiInstitution | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
+  const [deleteInstTarget, setDeleteInstTarget] = useState<ApiInstitution | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(
     () => fetchInstitutions({ page: 1, pageSize: 100 }),
@@ -172,8 +173,10 @@ export default function InstitutionsPage() {
   const handleOpenCreate = () => { setEditTarget(null); setShowForm(true); };
   const handleOpenEdit = (inst: ApiInstitution) => { setEditTarget(inst); setShowForm(true); };
 
-  const handleDelete = async (inst: ApiInstitution) => {
-    if (!window.confirm(`Delete "${inst.name}"? This cannot be undone.`)) return;
+  const confirmDeleteInst = async () => {
+    if (!deleteInstTarget) return;
+    const inst = deleteInstTarget;
+    setDeleteInstTarget(null);
     setActionId(inst.id);
     try {
       await deleteInstitution(inst.id);
@@ -315,7 +318,7 @@ export default function InstitutionsPage() {
                       <FiEdit2 className="text-xs" />
                     </button>
                     <button
-                      onClick={() => handleDelete(inst)}
+                      onClick={() => setDeleteInstTarget(inst)}
                       disabled={isBusy}
                       className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"
                     >
@@ -331,6 +334,41 @@ export default function InstitutionsPage() {
 
       {showForm && (
         <InstitutionFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} />
+      )}
+
+      {deleteInstTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Institution</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold">"{deleteInstTarget.name}"</span>?
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteInstTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteInst}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  FiBook, FiCalendar, FiEdit2, FiMapPin, FiPlus,
-  FiSearch, FiTrash2, FiUsers, FiX,
+  FiBook, FiCalendar, FiEdit2, FiPlus,
+  FiSearch, FiTrash2, FiUser, FiUsers, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -52,6 +52,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string } | null>(null);
 
   const { data: enrollData, loading, reload } = useAsyncData(
     () => fetchClassEnrollments(cls.id),
@@ -103,11 +104,12 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
     }
   };
 
-  const handleRemove = async (studentId: string) => {
-    if (!window.confirm('Remove this student from the class?')) return;
-    setRemovingId(studentId);
+  const confirmRemove = async () => {
+    if (!removeTarget) return;
+    setRemovingId(removeTarget.studentId);
+    setRemoveTarget(null);
     try {
-      await deleteEnrollment(cls.id, studentId);
+      await deleteEnrollment(cls.id, removeTarget.studentId);
       toast.success('Removed', 'Student removed from class.');
       reload();
     } catch {
@@ -117,7 +119,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
     }
   };
 
-  return createPortal(
+  const panel = createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
       <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-2xl max-h-[85vh] flex flex-col">
         {/* Header */}
@@ -215,7 +217,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
                       e.status === 'active' ? 'text-green bg-green/10 border-green/25' : 'text-muted bg-white/5 border-border'
                     }`}>{e.status}</span>
                     <button
-                      onClick={() => handleRemove(e.studentId)}
+                      onClick={() => setRemoveTarget({ studentId: e.studentId, name })}
                       disabled={isRemoving}
                       className="w-7 h-7 rounded-lg bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40"
                     >
@@ -235,6 +237,46 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
       </div>
     </div>,
     document.body,
+  );
+
+  return (
+    <>
+      {panel}
+      {removeTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-300 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Remove Student</h3>
+                <p className="text-muted text-sm mt-1">
+                  Remove{' '}
+                  <span className="text-white-soft font-semibold">{removeTarget.name}</span>{' '}
+                  from this class?
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setRemoveTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmRemove}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 
@@ -433,8 +475,8 @@ function ClassCard({
 
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-xs text-muted">
-          <FiMapPin className="text-cyan shrink-0" />
-          <span>Room {cls.room}</span>
+          <FiUser className="text-cyan shrink-0" />
+          <span className="truncate">{cls.lecturerName}</span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted">
           <FiUsers className="text-cyan shrink-0" />
@@ -479,6 +521,7 @@ export default function SchoolClassManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerClass | null>(null);
   const [enrollTarget, setEnrollTarget] = useState<LecturerClass | null>(null);
+  const [deleteClassTarget, setDeleteClassTarget] = useState<LecturerClass | null>(null);
 
   const { data: classRes, loading, error, reload } = useAsyncData(
     () => fetchSchoolAdminClasses({ page: 1, pageSize: 100 }),
@@ -489,8 +532,12 @@ export default function SchoolClassManagementPage() {
     [],
   );
 
-  const classes: LecturerClass[] = classRes?.items ?? [];
   const lecturers: LecturerStudent[] = lecturerRes?.items ?? [];
+  const lecturerMap = new Map(lecturers.map((l) => [l.id, l.name]));
+  const classes: LecturerClass[] = (classRes?.items ?? []).map((cls) => ({
+    ...cls,
+    lecturerName: lecturerMap.get(cls.lecturerId) ?? cls.lecturerName,
+  }));
 
   const filtered = search.trim()
     ? classes.filter((c) =>
@@ -502,8 +549,10 @@ export default function SchoolClassManagementPage() {
   const handleOpenCreate = () => { setEditTarget(null); setShowForm(true); };
   const handleOpenEdit = (cls: LecturerClass) => { setEditTarget(cls); setShowForm(true); };
 
-  const handleDelete = async (cls: LecturerClass) => {
-    if (!window.confirm(`Delete class "${cls.name}"? This cannot be undone.`)) return;
+  const confirmDeleteClass = async () => {
+    if (!deleteClassTarget) return;
+    const cls = deleteClassTarget;
+    setDeleteClassTarget(null);
     try {
       await deleteClass(cls.id);
       toast.success('Deleted', `Class "${cls.name}" removed.`);
@@ -592,7 +641,7 @@ export default function SchoolClassManagementPage() {
               key={cls.id}
               cls={cls}
               onEdit={handleOpenEdit}
-              onDelete={handleDelete}
+              onDelete={setDeleteClassTarget}
               onManageStudents={setEnrollTarget}
             />
           ))}
@@ -611,6 +660,41 @@ export default function SchoolClassManagementPage() {
       )}
       {enrollTarget && (
         <EnrollmentPanel cls={enrollTarget} onClose={() => setEnrollTarget(null)} />
+      )}
+
+      {deleteClassTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Class</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold">"{deleteClassTarget.name}"</span>?
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteClassTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteClass}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

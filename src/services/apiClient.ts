@@ -5,7 +5,7 @@ import { clearAuthTokens, getAccessToken } from './authStorage';
 import type { PaginatedApiResponse, PaginationMeta } from '../types/api';
 
 export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? 'https://eduguard-api-gdhg.onrender.com';
+  import.meta.env.VITE_API_BASE_URL ?? '';
 
 const DEFAULT_DELAY_MS = 400;
 

@@ -3,10 +3,8 @@ import { Routes, Route, useNavigate } from 'react-router-dom';
 import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 import DashboardOverview from './sections/DashboardOverview';
 import UserManagementPage from './sections/UserManagementPage';
-import LiveMonitorPage from './sections/LiveMonitorPage';
 import ReportsPage from './sections/ReportsPage';
 import CreditsPage from './sections/CreditsPage';
-import ApprovalsPage from './sections/ApprovalsPage';
 import SettingsPage from './sections/SettingsPage';
 import InstitutionsPage from './sections/InstitutionsPage';
 import PricingPlansPage from './sections/PricingPlansPage';
@@ -17,8 +15,6 @@ const menuItems: MenuItem[] = [
   { icon: '👥', label: 'Users', path: '/admin/users' },
   { icon: '💰', label: 'Pricing Plans', path: '/admin/pricing' },
   { icon: '💳', label: 'Credits', path: '/admin/credits' },
-  { icon: '✅', label: 'Approvals', path: '/admin/approvals' },
-  { icon: '📡', label: 'Live Monitor', path: '/admin/live' },
   { icon: '📊', label: 'Reports', path: '/admin/reports' },
   { icon: '⚙️', label: 'Settings', path: '/admin/settings' },
 ];
@@ -35,8 +31,6 @@ export default function AdminDashboardPage() {
           <Route path="users" element={<UserManagementPage />} />
           <Route path="pricing" element={<PricingPlansPage />} />
           <Route path="credits" element={<CreditsPage />} />
-          <Route path="approvals" element={<ApprovalsPage />} />
-          <Route path="live" element={<LiveMonitorPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Routes>

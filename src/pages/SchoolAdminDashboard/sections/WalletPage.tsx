@@ -33,15 +33,19 @@ export default function WalletPage() {
   const institutionId = user?.institutionId ?? '';
 
   async function loadWallet() {
-    if (!institutionId) return;
+    if (!institutionId) {
+      setLoadingWallet(false);
+      setLoadingTx(false);
+      return;
+    }
     setLoadingWallet(true);
+    setLoadingTx(true);
     try {
       const w = await fetchWallet(institutionId);
       setWallet(w);
-      setLoadingTx(true);
       try {
         const { items } = await fetchWalletTransactions(w.id, { page: 1, pageSize: 20 });
-        setTransactions(items);
+        setTransactions(items ?? []);
       } catch {
         setTransactions([]);
       } finally {
@@ -49,6 +53,7 @@ export default function WalletPage() {
       }
     } catch {
       toast.error('Error', 'Failed to load wallet data.');
+      setLoadingTx(false);
     } finally {
       setLoadingWallet(false);
     }
@@ -66,8 +71,9 @@ export default function WalletPage() {
         description: `Top-up ${selectedPackage.toLocaleString()} credits via ${paymentMethod === 'card' ? 'Credit Card' : 'Bank Transfer'}`,
       });
       if (result?.paymentUrl) {
-        window.open(result.paymentUrl, '_blank');
-        toast.info('Redirecting', 'Opening payment gateway...');
+        // Dùng location.href thay vì window.open để tránh bị block popup
+        toast.info('Redirecting', 'Đang chuyển đến cổng thanh toán...');
+        setTimeout(() => { window.location.href = result.paymentUrl!; }, 500);
       } else {
         toast.success('Success', `Topped up ${selectedPackage.toLocaleString()} credits.`);
         setShowTopUp(false);
@@ -82,6 +88,21 @@ export default function WalletPage() {
 
   const balance = wallet?.balance ?? 0;
   const isLowBalance = balance < 10000;
+
+  if (!institutionId && !loadingWallet) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-navy-card border border-border rounded-[20px] p-6">
+          <h1 className="font-syne font-extrabold text-[1.6rem] text-white-soft">Institutional Wallet</h1>
+        </div>
+        <div className="bg-navy-card border border-red/20 rounded-[20px] py-16 text-center">
+          <p className="text-3xl mb-3">🏫</p>
+          <p className="font-syne font-bold text-white-soft mb-1">No institution linked</p>
+          <p className="text-muted text-sm">Your account is not linked to any institution yet.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -150,7 +171,7 @@ export default function WalletPage() {
               </button>
               {wallet && (
                 <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl bg-navy/60 border border-border text-sm text-muted">
-                  <span>Total deducted: <strong className="text-white-soft">{wallet.totalDeducted.toLocaleString()}</strong></span>
+                  <span>Total deducted: <strong className="text-white-soft">{(wallet.totalDeducted ?? 0).toLocaleString()}</strong></span>
                 </div>
               )}
             </div>
@@ -290,7 +311,7 @@ export default function WalletPage() {
                   </div>
                   <div className="text-right shrink-0">
                     <p className={`font-syne font-bold text-sm ${isTopUp ? 'text-green' : 'text-red'}`}>
-                      {isTopUp ? '+' : ''}{txn.amount.toLocaleString()}
+                      {isTopUp ? '+' : ''}{(txn.amount ?? 0).toLocaleString()}
                     </p>
                     <div className="flex items-center gap-1 justify-end mt-0.5">
                       <FiCheckCircle className="text-[10px] text-green" />

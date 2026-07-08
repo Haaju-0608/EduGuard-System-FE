@@ -5,7 +5,7 @@ import DashboardOverview from './sections/DashboardOverview';
 import ClassManagementPage from './sections/ClassManagementPage';
 import AttendanceSessionPage from './sections/AttendanceSessionPage';
 import ExamSlotsPage from './sections/ExamSlotsPage';
-import ExamQuestionsPage from './sections/ExamQuestionsPage';
+import ExamQuestionsViewPage from './sections/ExamQuestionsViewPage';
 import LecturerNotFoundPage from './sections/NotFoundPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
@@ -27,7 +27,7 @@ export default function LecturerDashboardPage() {
         <Route path="classes" element={<ClassManagementPage />} />
         <Route path="attendance" element={<AttendanceSessionPage />} />
         <Route path="exams" element={<ExamSlotsPage />} />
-        <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
+        <Route path="exams/:examId/questions" element={<ExamQuestionsViewPage />} />
         <Route path="profile" element={<ProfileDetailPage />} />
         <Route path="*" element={<LecturerNotFoundPage />} />
       </Routes>

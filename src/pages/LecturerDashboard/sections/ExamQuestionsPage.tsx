@@ -227,6 +227,7 @@ export default function ExamQuestionsPage() {
   );
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<MCQQuestion | null>(null);
+  const [deleteQId, setDeleteQId] = useState<string | null>(null);
 
   // Get exam name from localStorage (set by ExamSlotsPage when navigating)
   const examName = examId
@@ -249,8 +250,10 @@ export default function ExamQuestionsPage() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    if (!window.confirm('Delete this question?')) return;
+  const confirmDeleteQ = () => {
+    if (!deleteQId) return;
+    const id = deleteQId;
+    setDeleteQId(null);
     persist(questions.filter((q) => q.id !== id));
     toast.success('Deleted', 'Question removed.');
   };
@@ -310,7 +313,7 @@ export default function ExamQuestionsPage() {
       ) : (
         <div className="space-y-4">
           {questions.map((q, i) => (
-            <QuestionCard key={q.id} question={q} index={i} onEdit={openEdit} onDelete={handleDelete} />
+            <QuestionCard key={q.id} question={q} index={i} onEdit={openEdit} onDelete={setDeleteQId} />
           ))}
         </div>
       )}
@@ -321,6 +324,39 @@ export default function ExamQuestionsPage() {
           onClose={() => setShowForm(false)}
           onSave={handleSave}
         />
+      )}
+
+      {deleteQId && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Question</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete this question? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteQId(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteQ}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

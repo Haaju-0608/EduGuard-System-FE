@@ -164,6 +164,7 @@ export default function SchoolStudentManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
 
   const { data, loading, reload } = useAsyncData(
     () => fetchSchoolAdminStudents({ page: 1, pageSize: 200 }),
@@ -179,8 +180,10 @@ export default function SchoolStudentManagementPage() {
       || (s.studentId ?? '').toLowerCase().includes(q);
   });
 
-  const handleDelete = async (s: LecturerStudent) => {
-    if (!window.confirm(`Delete student "${s.name ?? s.email}"?`)) return;
+  const confirmDeleteStudent = async () => {
+    if (!deleteStudentTarget) return;
+    const s = deleteStudentTarget;
+    setDeleteStudentTarget(null);
     setDeletingId(s.id);
     try {
       await deleteUser(s.id);
@@ -291,7 +294,7 @@ export default function SchoolStudentManagementPage() {
                       <FiEdit2 className="text-xs" />
                     </button>
                     <button
-                      onClick={() => handleDelete(s)}
+                      onClick={() => setDeleteStudentTarget(s)}
                       disabled={deletingId === s.id}
                       className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"
                     >
@@ -313,6 +316,41 @@ export default function SchoolStudentManagementPage() {
           institutionId={user?.institutionId ?? null}
           institutionName={institutionName}
         />
+      )}
+
+      {deleteStudentTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Student</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold">"{deleteStudentTarget.name ?? deleteStudentTarget.email}"</span>?
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteStudentTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteStudent}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -186,6 +186,7 @@ export default function UserManagementPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteUserTarget, setDeleteUserTarget] = useState<ApiUser | null>(null);
 
   const { data, loading, reload } = useAsyncData(
     () => fetchUsers({ page: 1, pageSize: 200 }),
@@ -207,12 +208,14 @@ export default function UserManagementPage() {
     return matchRole && matchSearch;
   });
 
-  const handleDelete = async (u: ApiUser) => {
-    if (!window.confirm(`Delete user "${u.fullName ?? u.email}"?`)) return;
+  const confirmDeleteUser = async () => {
+    if (!deleteUserTarget) return;
+    const u = deleteUserTarget;
+    setDeleteUserTarget(null);
     setDeletingId(u.id);
     try {
       await deleteUser(u.id);
-      toast.success('Deleted', `User removed.`);
+      toast.success('Deleted', 'User removed.');
       reload();
     } catch { toast.error('Error', 'Failed to delete user.'); }
     finally { setDeletingId(null); }
@@ -298,7 +301,7 @@ export default function UserManagementPage() {
                   <p className="hidden md:block text-[11px] text-muted shrink-0">{fmt(u.createdAt)}</p>
                   <div className="flex gap-1.5 shrink-0">
                     <button onClick={() => { setEditTarget(u); setShowForm(true); }} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"><FiEdit2 className="text-xs" /></button>
-                    <button onClick={() => handleDelete(u)} disabled={isDeleting} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"><FiTrash2 className="text-xs" /></button>
+                    <button onClick={() => setDeleteUserTarget(u)} disabled={isDeleting} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"><FiTrash2 className="text-xs" /></button>
                   </div>
                 </div>
               );
@@ -308,6 +311,41 @@ export default function UserManagementPage() {
       </div>
 
       {showForm && <UserFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} institutions={institutions} />}
+
+      {deleteUserTarget && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete User</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold">"{deleteUserTarget.fullName ?? deleteUserTarget.email}"</span>?
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteUserTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDeleteUser}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 }

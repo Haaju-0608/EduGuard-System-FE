@@ -71,7 +71,12 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
   const correct = questions.filter((q) => answers[q.id] === q.correctOptionId).length;
   const total = questions.length;
   const pct = Math.round((correct / total) * 100);
+  const score10 = ((correct / total) * 10).toFixed(1);
   const timeTaken = Math.round((totalSeconds) / 60);
+
+  const scoreColor = pct >= 70 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
+  const scoreTextClass = pct >= 70 ? 'text-green' : pct >= 50 ? 'text-gold' : 'text-red';
+  const scoreBgClass  = pct >= 70 ? 'bg-green/10 border-green/30' : pct >= 50 ? 'bg-gold/10 border-gold/30' : 'bg-red/10 border-red/30';
 
   return (
     <div className="min-h-screen bg-navy flex items-center justify-center p-6">
@@ -82,7 +87,7 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
             <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" />
             <circle
               cx="60" cy="60" r="50" fill="none"
-              stroke={pct >= 70 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444'}
+              stroke={scoreColor}
               strokeWidth="10"
               strokeLinecap="round"
               strokeDasharray={`${2 * Math.PI * 50}`}
@@ -96,6 +101,12 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
           </div>
         </div>
 
+        {/* Score badge */}
+        <div className={`inline-flex items-baseline gap-1.5 px-5 py-2.5 rounded-2xl border mx-auto ${scoreBgClass}`}>
+          <span className={`font-syne font-extrabold text-4xl ${scoreTextClass}`}>{score10}</span>
+          <span className={`font-syne font-bold text-lg ${scoreTextClass} opacity-60`}>/&nbsp;10</span>
+        </div>
+
         <div>
           <h1 className="font-syne font-extrabold text-white-soft text-2xl">{pct >= 70 ? 'Great Job!' : pct >= 50 ? 'Almost There' : 'Keep Practicing'}</h1>
           <p className="text-muted text-sm mt-1">{examName}</p>
@@ -104,8 +115,8 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
         <div className="grid grid-cols-3 gap-3">
           {[
             { label: 'Correct', value: correct, color: 'text-green' },
-            { label: 'Wrong', value: total - correct, color: 'text-red' },
-            { label: 'Time', value: `${timeTaken}m`, color: 'text-gold' },
+            { label: 'Wrong',   value: total - correct, color: 'text-red' },
+            { label: 'Time',    value: `${timeTaken}m`, color: 'text-gold' },
           ].map((s) => (
             <div key={s.label} className="bg-navy-card border border-border rounded-2xl p-4">
               <p className={`font-syne font-extrabold text-xl ${s.color}`}>{s.value}</p>
