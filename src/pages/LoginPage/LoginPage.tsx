@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const idleLogout = new URLSearchParams(window.location.search).get('reason') === 'idle';
   const { login } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const toast = useToast();
@@ -41,12 +42,12 @@ export default function LoginPage() {
 
     const result = await login(email, password);
     if (result.success && result.user) {
-      toast.success('Đăng nhập thành công', `Chào mừng trở lại, ${result.user.name}!`);
+      toast.success('Login successful', `Welcome back, ${result.user.name}!`);
       navigate(getDashboardPath(result.user.role), { replace: true });
     } else {
-      const msg = result.error || 'Email hoặc mật khẩu không đúng.';
+      const msg = result.error || 'Incorrect email or password.';
       setError(msg);
-      toast.error('Đăng nhập thất bại', msg);
+      toast.error('Login failed', msg);
     }
     setLoading(false);
   };
@@ -137,6 +138,14 @@ export default function LoginPage() {
             Enter your credentials to access your dashboard.
           </p>
 
+          {/* Idle logout notice */}
+          {idleLogout && (
+            <div className="bg-gold/10 border border-gold/30 rounded-xl px-4 py-3 mb-6 flex items-center gap-2">
+              <span className="text-gold text-sm">⏱</span>
+              <span className="text-gold text-sm font-medium">Your session expired due to inactivity. Please log in again.</span>
+            </div>
+          )}
+
           {/* Error message */}
           {error && (
             <div className="bg-red/10 border border-red/30 rounded-xl px-4 py-3 mb-6 flex items-center gap-2">
@@ -220,7 +229,7 @@ export default function LoginPage() {
           {/* Divider */}
           <div className="flex items-center gap-4 my-7">
             <div className="flex-1 h-px bg-border" />
-            <span className="text-muted text-xs font-medium">Tài khoản thử</span>
+            <span className="text-muted text-xs font-medium">Demo accounts</span>
             <div className="flex-1 h-px bg-border" />
           </div>
 

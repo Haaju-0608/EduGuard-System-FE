@@ -79,9 +79,9 @@ function parseLoginError(body: LoginApiResponse | null, status: number): string 
   if (Array.isArray(body?.errors) && body.errors.length > 0) {
     return String(body.errors[0]);
   }
-  if (status === 401) return 'Email hoặc mật khẩu không đúng.';
-  if (status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.';
-  return 'Đăng nhập thất bại. Vui lòng kiểm tra lại thông tin.';
+  if (status === 401) return 'Incorrect email or password.';
+  if (status >= 500) return 'Server error. Please try again later.';
+  return 'Login failed. Please check your credentials.';
 }
 
 /** Gọi API đăng nhập — không gắn Bearer token */

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import {
   clearAuthTokens,
   fetchCurrentUserProfile,
@@ -8,6 +8,7 @@ import {
   saveAuthTokens,
 } from '../services/authApi';
 import { ApiError } from '../services/apiClient';
+import { useIdleTimeout } from '../hooks/useIdleTimeout';
 
 export interface User {
   id: string;
@@ -96,15 +97,22 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } catch (e) {
       clearAuthTokens();
       setUser(null);
-      const message = e instanceof Error ? e.message : 'Đăng nhập thất bại';
+      const message = e instanceof Error ? e.message : 'Login failed.';
       return { success: false, error: message };
     }
   };
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     clearAuthTokens();
-  };
+  }, []);
+
+  const handleIdle = useCallback(() => {
+    logout();
+    window.location.href = '/login?reason=idle';
+  }, [logout]);
+
+  useIdleTimeout(handleIdle, 10 * 60 * 1000, isAuthenticated);
 
   return (
     <AuthContext.Provider value={{ user, isAuthenticated, login, logout, refreshProfile }}>

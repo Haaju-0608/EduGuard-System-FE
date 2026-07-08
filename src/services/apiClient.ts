@@ -80,10 +80,10 @@ function extractErrorMessage(body: unknown, status: number): string {
     const str = JSON.stringify(body);
     if (str && str !== '{}') return str;
   }
-  if (status === 401) return 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.';
-  if (status === 403) return 'Bạn không có quyền thực hiện thao tác này.';
-  if (status >= 500) return 'Máy chủ đang gặp sự cố. Vui lòng thử lại sau.';
-  return `Yêu cầu thất bại (HTTP ${status}).`;
+  if (status === 401) return 'Session expired. Please log in again.';
+  if (status === 403) return 'You do not have permission to perform this action.';
+  if (status >= 500) return 'Server error. Please try again later.';
+  return `Request failed (HTTP ${status}).`;
 }
 
 function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {
@@ -195,7 +195,7 @@ export async function apiGetPaginated<T>(
   });
 
   if (!parsed || typeof parsed !== 'object' || !('success' in parsed)) {
-    throw new ApiError('Phản hồi API không hợp lệ.', 500);
+    throw new ApiError('Invalid API response.', 500);
   }
 
   const envelope = parsed as PaginatedApiResponse<T>;

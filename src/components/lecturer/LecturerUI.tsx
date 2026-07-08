@@ -72,11 +72,7 @@ export function PageHeader({ eyebrow, title, subtitle, actions, stats, facultyId
         <div className="flex items-start gap-4">
           <AcademySeal size="lg" />
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="uni-eyebrow">{eyebrow}</span>
-              {faculty && <FacultyBadge facultyId={faculty.id} size="sm" />}
-            </div>
-            <h1 className="font-syne font-extrabold text-[1.75rem] sm:text-[2rem] text-white-soft mt-2 leading-tight">
+            <h1 className="font-syne font-extrabold text-[1.75rem] sm:text-[2rem] text-white-soft leading-tight">
               {title}
             </h1>
             {subtitle && <p className="text-muted text-sm mt-2 max-w-xl">{subtitle}</p>}
