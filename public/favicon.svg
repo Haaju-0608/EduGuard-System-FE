@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2563EB"/>
+      <stop offset="100%" stop-color="#06B6D4"/>
+    </linearGradient>
+  </defs>
+  <!-- Rounded square background -->
+  <rect width="32" height="32" rx="8" fill="url(#bg)"/>
+  <!-- Shield icon (centered, white) -->
+  <path d="M16 5l-8 3.2v5.6c0 5.2 3.4 10 8 11.2 4.6-1.2 8-6 8-11.2V8.2L16 5z"
+        fill="none" stroke="white" stroke-width="1.8" stroke-linejoin="round"/>
+</svg>

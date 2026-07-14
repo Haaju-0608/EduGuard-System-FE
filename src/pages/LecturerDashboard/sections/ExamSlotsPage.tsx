@@ -1,0 +1,161 @@
+import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
+import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
+import {
+  CourseCodeBadge,
+  EmptyState,
+  FilterBar,
+  PageHeader,
+  PageShell,
+  SkeletonCard,
+  UniCard,
+} from '../../../components/lecturer/LecturerUI';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useListFilters } from '../../../hooks/useListFilters';
+import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
+import { fetchExamSlots } from '../../../services/schoolAdminApi';
+import type { ExamSlot, ExamSlotStatus } from '../../../types/lecturer';
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-GB', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+}
+
+function ExamStatusBadge({ status }: { status: ExamSlotStatus }) {
+  const config: Record<ExamSlotStatus, { label: string; className: string }> = {
+    scheduled: { label: 'Scheduled', className: 'text-blue-bright bg-blue/10 border-blue/25' },
+    ongoing:   { label: 'Ongoing',   className: 'text-green bg-green/10 border-green/25 animate-pulse' },
+    completed: { label: 'Completed', className: 'text-muted bg-white/5 border-border' },
+    cancelled: { label: 'Cancelled', className: 'text-red bg-red/10 border-red/25' },
+  };
+  const { label, className } = config[status] ?? { label: status, className: 'text-muted border-border' };
+  return <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${className}`}>{label}</span>;
+}
+
+function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
+  const navigate = useNavigate();
+
+  const handleViewQuestions = () => {
+    localStorage.setItem(`examName_${slot.id}`, slot.examName);
+    navigate(`/lecture/exams/${slot.id}/questions`);
+  };
+
+  return (
+    <AnimateIn index={index}>
+      <UniCard className="flex flex-col h-full">
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div className="min-w-0 flex-1">
+            <CourseCodeBadge code={slot.classCode} size="sm" />
+            <h3 className="font-syne font-bold text-white-soft mt-2 text-[1.05rem]">{slot.examName}</h3>
+            <p className="text-sm text-muted mt-1">{slot.className}</p>
+          </div>
+          <ExamStatusBadge status={slot.status} />
+        </div>
+
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 text-sm text-muted bg-navy/40 rounded-xl px-3 py-2 border border-border/40">
+            <FiCalendar className="text-cyan shrink-0" />
+            <span>Start: {formatDateTime(slot.startTime)}</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-muted bg-navy/40 rounded-xl px-3 py-2 border border-border/40">
+            <FiCalendar className="text-cyan shrink-0" />
+            <span>End: {formatDateTime(slot.endTime)}</span>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-muted bg-navy/40 rounded-xl px-3 py-2 border border-border/40">
+            <FiClock className="text-cyan shrink-0" />
+            <span>Duration: {slot.durationMinutes > 0 ? `${slot.durationMinutes} min` : 'Not set'}</span>
+          </div>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-border/50">
+          <button
+            onClick={handleViewQuestions}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-cyan/30 text-cyan text-sm font-semibold cursor-pointer hover:bg-cyan/10 transition-colors bg-transparent"
+          >
+            <FiFileText className="text-sm" /> View Questions
+          </button>
+        </div>
+      </UniCard>
+    </AnimateIn>
+  );
+}
+
+export default function ExamSlotsPage() {
+  const { facultyId } = useLecturerFaculty();
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
+
+  const { data, loading, error, reload } = useAsyncData(async () => {
+    const result = await fetchExamSlots({ page: 1, pageSize: 100 });
+    return result.items;
+  }, []);
+
+  const slots = data ?? [];
+
+  const predicates = useMemo(
+    () => [(slot: ExamSlot) => statusFilter === 'all' || slot.status === statusFilter],
+    [statusFilter],
+  );
+
+  const filteredSlots = useListFilters(slots, search, ['examName', 'classCode', 'className'], predicates);
+
+  return (
+    <PageShell>
+      <PageHeader
+        eyebrow="Exam Schedule"
+        title="Exam Slots"
+        subtitle="View exam sessions assigned to your classes."
+        facultyId={facultyId}
+        stats={[
+          { label: 'Total',     value: String(slots.length), icon: '📝' },
+          { label: 'Scheduled', value: String(slots.filter(s => s.status === 'scheduled').length), icon: '📅' },
+          { label: 'Ongoing',   value: String(slots.filter(s => s.status === 'ongoing').length), icon: '🔴' },
+          { label: 'Completed', value: String(slots.filter(s => s.status === 'completed').length), icon: '✅' },
+        ]}
+      />
+
+      <FilterBar>
+        <div className="uni-filter-input">
+          <FiSearch className="text-muted shrink-0" />
+          <input
+            type="text"
+            placeholder="Search exam name, course code..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <CustomSelect
+          value={statusFilter}
+          onChange={(v) => setStatusFilter(v as ExamSlotStatus | 'all')}
+          options={[
+            { value: 'all',       label: 'All Statuses' },
+            { value: 'scheduled', label: 'Scheduled' },
+            { value: 'ongoing',   label: 'Ongoing' },
+            { value: 'completed', label: 'Completed' },
+            { value: 'cancelled', label: 'Cancelled' },
+          ]}
+        />
+      </FilterBar>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+        </div>
+      ) : error ? (
+        <EmptyState variant="error" icon="📝" title="Failed to load exam slots" description={error} onRetry={reload} />
+      ) : filteredSlots.length === 0 ? (
+        <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to your classes yet." />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {filteredSlots.map((slot, i) => (
+            <ExamSlotCard key={slot.id} slot={slot} index={i} />
+          ))}
+        </div>
+      )}
+    </PageShell>
+  );
+}
