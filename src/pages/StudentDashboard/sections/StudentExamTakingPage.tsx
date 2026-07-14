@@ -1,28 +1,40 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag } from 'react-icons/fi';
+import { useAiProctoring } from '../../../ai/hooks/useAiProctoring';
+import type { ViolationType } from '../../../ai/types/proctoring';
+import { useAuth } from '../../../contexts/AuthContext';
+import { createExamParticipation, fetchExamParticipations, updateParticipationStatus } from '../../../services/schoolAdminApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
 interface MCQOption { id: string; text: string; }
-interface MCQQuestion { id: string; text: string; options: MCQOption[]; correctOptionId: string; }
+interface MCQQuestion { id: string; text: string; imageBase64?: string; options: MCQOption[]; correctOptionId: string; }
 
-const OPTION_LABELS = ['A', 'B', 'C', 'D'];
+// School admin format (saved by ExamQuestionsPage)
+interface MCQuestion { id: string; examId: string; text: string; imageBase64?: string; options: string[]; correctIndex: number; }
 
-// Mock questions used when localStorage has no questions for this exam
-const MOCK_QUESTIONS: MCQQuestion[] = Array.from({ length: 10 }, (_, i) => {
-  const opts = ['Option 1', 'Option 2', 'Option 3', 'Option 4'].map((t, j) => ({
-    id: `q${i}opt${j}`,
-    text: `${t} for Q${i + 1}`,
-  }));
-  return {
-    id: `q${i}`,
-    text: `Sample Question ${i + 1}: What is the correct answer for this question?`,
-    options: opts,
-    correctOptionId: opts[0].id,
-  };
-});
+const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+
+function loadExamQuestions(examId: string): MCQQuestion[] {
+  try {
+    const raw = localStorage.getItem(`eduguard_exam_questions_${examId}`);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as MCQuestion[];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+    return parsed.map((q) => {
+      const opts: MCQOption[] = q.options.map((text, i) => ({ id: `${q.id}_opt${i}`, text }));
+      return {
+        id: q.id,
+        text: q.text,
+        imageBase64: q.imageBase64,
+        options: opts,
+        correctOptionId: opts[q.correctIndex]?.id ?? opts[0].id,
+      };
+    });
+  } catch { return []; }
+}
 
 // ─── Submit Modal ─────────────────────────────────────────────────────────
 
@@ -136,37 +148,77 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
   );
 }
 
+// ─── Violation helpers ────────────────────────────────────────────────────
+
+const VIOLATION_LABEL: Record<ViolationType, string> = {
+  ABSENCE:         'Face Not Detected',
+  MULTIPLE_FACE:   'Multiple Faces',
+  FACE_OBSTRUCTED: 'Face Obstructed',
+  HEAD_TURN:       'Head Turned',
+  EYE_DIVERSION:   'Eye Diversion',
+};
+
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function StudentExamTakingPage() {
   const { examId } = useParams<{ examId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const exam = (() => {
     try { return JSON.parse(localStorage.getItem(`studentExam_${examId}`) ?? '{}'); } catch { return {}; }
   })();
 
-  const storedQs = (() => {
-    try {
-      const raw = localStorage.getItem(`examQuestions_${examId}`);
-      const parsed: MCQQuestion[] = raw ? JSON.parse(raw) : [];
-      return parsed.length > 0 ? parsed : MOCK_QUESTIONS;
-    } catch { return MOCK_QUESTIONS; }
-  })();
-
-  const [questions] = useState<MCQQuestion[]>(storedQs);
+  const [questions] = useState<MCQQuestion[]>(() => loadExamQuestions(examId ?? ''));
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [showSubmit, setShowSubmit] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [cameraReady, setCameraReady] = useState(false);
+  const participationIdRef = useRef<string | null>(null);
 
   const totalSeconds = (exam.durationMinutes ?? 60) * 60;
   const remaining = totalSeconds - elapsedSeconds;
   const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
   const startTimeRef = useRef(Date.now());
+
+  const proctoring = useAiProctoring(videoRef);
+  const { cameraStatus, violations, isRunning, start: startProctoring } = proctoring;
+  const proctoringRef = useRef(proctoring);
+  proctoringRef.current = proctoring;
+
+  // Tạo / lấy ExamParticipation rồi mới start proctoring để đảm bảo participationId đúng trước khi AI upload
+  useEffect(() => {
+    if (!examId || !user?.id) return;
+    const studentId = user.id;
+    const sessionId = examId;
+
+    const init = async () => {
+      let participationId: string | null = null;
+
+      try {
+        const p = await createExamParticipation({ examSlotId: examId, studentId });
+        participationId = p.id;
+      } catch {
+        try {
+          const { items } = await fetchExamParticipations(examId, { pageSize: 100 });
+          const existing = items.find((p) => p.studentId === studentId);
+          if (existing) participationId = existing.id;
+        } catch { /* bỏ qua */ }
+      }
+
+      if (participationId) {
+        participationIdRef.current = participationId;
+        proctoringRef.current.updateProctoringConfig({ participationId, studentId, sessionId });
+      }
+
+      // Start sau khi config đã được set
+      void proctoringRef.current.start();
+    };
+
+    void init();
+    return () => { proctoringRef.current.stop(); };
+  }, [examId, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer
   useEffect(() => {
@@ -179,20 +231,13 @@ export default function StudentExamTakingPage() {
 
   // Auto-submit when time runs out
   useEffect(() => {
-    if (!submitted && remaining <= 0) { setSubmitted(true); }
+    if (!submitted && remaining <= 0) {
+      setSubmitted(true);
+      if (participationIdRef.current) {
+        void updateParticipationStatus(participationIdRef.current, 'Submitted').catch(() => undefined);
+      }
+    }
   }, [remaining, submitted]);
-
-  // Camera
-  useEffect(() => {
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 160, height: 120 }, audio: false })
-      .then((stream) => {
-        streamRef.current = stream;
-        if (videoRef.current) { videoRef.current.srcObject = stream; }
-        setCameraReady(true);
-      })
-      .catch(() => setCameraReady(false));
-    return () => { streamRef.current?.getTracks().forEach((t) => t.stop()); };
-  }, []);
 
   const formatTime = useCallback((secs: number) => {
     if (secs <= 0) return '00:00';
@@ -208,7 +253,26 @@ export default function StudentExamTakingPage() {
   const handleSubmitConfirm = () => {
     setShowSubmit(false);
     setSubmitted(true);
+    // Cập nhật trạng thái participation về Submitted trên BE
+    if (participationIdRef.current) {
+      void updateParticipationStatus(participationIdRef.current, 'Submitted').catch(() => undefined);
+    }
   };
+
+  if (questions.length === 0) {
+    return (
+      <div className="min-h-screen bg-navy flex items-center justify-center p-6">
+        <div className="text-center space-y-4">
+          <p className="text-4xl">📭</p>
+          <h2 className="font-syne font-bold text-white-soft text-xl">No Questions Found</h2>
+          <p className="text-muted text-sm">The school admin hasn't added questions to this exam yet.</p>
+          <button onClick={() => navigate('/student/exams')} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
+            Back to My Exams
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (submitted) {
     return (
@@ -227,7 +291,7 @@ export default function StudentExamTakingPage() {
   const isLowTime = remaining <= 300;
 
   return (
-    <div className="min-h-screen bg-navy flex flex-col overflow-hidden">
+    <div className="h-screen bg-navy flex flex-col overflow-hidden">
       {/* ── Top bar ── */}
       <div className="shrink-0 flex items-center justify-between px-6 py-3 bg-navy-card border-b border-border gap-4">
         {/* Exam name */}
@@ -259,65 +323,73 @@ export default function StudentExamTakingPage() {
       </div>
 
       {/* ── Body ── */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Left panel: Question */}
-        <div className="flex-1 flex flex-col overflow-y-auto p-6 gap-6 min-w-0">
-          {/* Question header */}
-          <div className="flex items-start gap-3">
-            <span className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/30 text-blue-bright text-sm font-bold grid place-items-center shrink-0 mt-0.5">
-              {current + 1}
-            </span>
-            <p className="text-white-soft font-semibold text-base leading-relaxed">{q.text}</p>
+        <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
+          {/* Scrollable area: question + options */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-5 pb-3 space-y-4 custom-scrollbar">
+            {/* Question header */}
+            <div className="flex items-start gap-3">
+              <span className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/30 text-blue-bright text-sm font-bold grid place-items-center shrink-0 mt-0.5">
+                {current + 1}
+              </span>
+              <div className="flex-1 space-y-3">
+                {q.text && <p className="text-white-soft font-semibold text-base leading-relaxed">{q.text}</p>}
+                {q.imageBase64 && (
+                  <img src={q.imageBase64} alt="Question" className="max-w-full max-h-56 rounded-xl border border-border object-contain" />
+                )}
+              </div>
+            </div>
+
+            {/* Options */}
+            <div className="space-y-2">
+              {q.options.map((opt, i) => {
+                const isSelected = answers[q.id] === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleAnswer(opt.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left cursor-pointer transition-all group ${
+                      isSelected
+                        ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
+                        : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
+                      isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
+                    }`}>
+                      {OPTION_LABELS[i]}
+                    </div>
+                    <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
+                      {opt.text}
+                    </span>
+                    {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          {/* Options */}
-          <div className="space-y-3">
-            {q.options.map((opt, i) => {
-              const isSelected = answers[q.id] === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  onClick={() => handleAnswer(opt.id)}
-                  className={`w-full flex items-center gap-4 px-5 py-4 rounded-2xl border text-left cursor-pointer transition-all group ${
-                    isSelected
-                      ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
-                      : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-full border-2 font-bold text-sm grid place-items-center shrink-0 transition-all ${
-                    isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
-                  }`}>
-                    {OPTION_LABELS[i]}
-                  </div>
-                  <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
-                    {opt.text}
-                  </span>
-                  {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Navigation */}
-          <div className="flex justify-between gap-3 mt-auto pt-4">
+          {/* Navigation — pinned to bottom */}
+          <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-border">
             <button
               onClick={() => setCurrent((c) => c - 1)}
               disabled={current === 0}
-              className="flex-1 py-3 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:border-muted/60 disabled:opacity-30 transition-colors bg-transparent"
+              className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:border-muted/60 disabled:opacity-30 transition-colors bg-transparent"
             >
               ← Previous
             </button>
             {current < questions.length - 1 ? (
               <button
                 onClick={() => setCurrent((c) => c + 1)}
-                className="flex-1 py-3 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
+                className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
               >
                 Next →
               </button>
             ) : (
               <button
                 onClick={() => setShowSubmit(true)}
-                className="flex-1 py-3 rounded-xl bg-green text-white text-sm font-bold cursor-pointer hover:bg-green/80 transition-colors border-none"
+                className="flex-1 py-2.5 rounded-xl bg-green text-white text-sm font-bold cursor-pointer hover:bg-green/80 transition-colors border-none"
               >
                 Submit Exam
               </button>
@@ -327,7 +399,7 @@ export default function StudentExamTakingPage() {
 
         {/* Right panel: Navigator */}
         <div className="w-[200px] shrink-0 border-l border-border bg-navy-card flex flex-col overflow-hidden hidden sm:flex">
-          {/* Camera */}
+          {/* Camera + AI Status */}
           <div className="p-3 border-b border-border shrink-0">
             <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
               <FiCamera className="text-xs" /> Camera
@@ -338,17 +410,32 @@ export default function StudentExamTakingPage() {
                 className="absolute inset-0 w-full h-full object-cover scale-x-[-1]"
                 muted playsInline autoPlay
               />
-              {!cameraReady && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <FiCamera className="text-muted text-xl" />
+              {cameraStatus !== 'ready' && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-navy/90 px-2">
+                  {cameraStatus === 'requesting' ? (
+                    <p className="text-[10px] text-muted text-center">Requesting camera…</p>
+                  ) : (
+                    <>
+                      <FiCamera className={`text-lg ${cameraStatus === 'blocked' ? 'text-red' : 'text-muted'}`} />
+                      <p className="text-[9px] text-muted text-center leading-tight">
+                        {cameraStatus === 'blocked' ? 'Camera blocked' : 'Camera off'}
+                      </p>
+                      <button
+                        onClick={() => void startProctoring()}
+                        className="text-[9px] font-semibold px-2 py-1 rounded-lg bg-blue/20 border border-blue/40 text-blue-bright cursor-pointer hover:bg-blue/30 transition-colors"
+                      >
+                        Restart Camera
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
-              <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red animate-pulse" />
+              {isRunning && <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red animate-pulse" />}
             </div>
           </div>
 
           {/* Question navigator grid */}
-          <div className="flex-1 overflow-y-auto p-3">
+          <div className="shrink-0 p-3 border-b border-border">
             <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Questions</p>
             <div className="grid grid-cols-4 gap-1.5">
               {questions.map((ques, i) => {
@@ -373,7 +460,7 @@ export default function StudentExamTakingPage() {
             </div>
 
             {/* Legend */}
-            <div className="mt-4 space-y-1.5">
+            <div className="mt-3 space-y-1.5">
               {[
                 { cls: 'bg-blue border-blue-bright', label: 'Current' },
                 { cls: 'bg-green/10 border-green/30', label: 'Answered' },
@@ -387,9 +474,30 @@ export default function StudentExamTakingPage() {
             </div>
           </div>
 
+          {/* Violations */}
+          {violations.length > 0 && (
+            <div className="shrink-0 border-t border-border p-3">
+              <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                <FiAlertTriangle className="text-xs text-red" /> Violations
+                <span className="ml-auto font-normal text-red">{violations.length}</span>
+              </p>
+              <div className="space-y-1.5">
+                {violations.slice(0, 4).map((v) => (
+                  <div key={v.id} className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${v.severity === 'critical' ? 'bg-red' : 'bg-gold'}`} />
+                    <span className="text-[10px] text-white-soft/80 truncate">{VIOLATION_LABEL[v.type]}</span>
+                  </div>
+                ))}
+                {violations.length > 4 && (
+                  <p className="text-[9px] text-muted pl-3.5">+{violations.length - 4} more</p>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Warning */}
           {isLowTime && (
-            <div className="m-3 flex items-center gap-2 bg-red/10 border border-red/30 rounded-xl px-3 py-2">
+            <div className="m-3 shrink-0 flex items-center gap-2 bg-red/10 border border-red/30 rounded-xl px-3 py-2">
               <FiAlertTriangle className="text-red text-xs shrink-0" />
               <p className="text-[10px] text-red font-semibold">Time running out!</p>
             </div>
@@ -405,6 +513,7 @@ export default function StudentExamTakingPage() {
           onCancel={() => setShowSubmit(false)}
         />
       )}
+
     </div>
   );
 }

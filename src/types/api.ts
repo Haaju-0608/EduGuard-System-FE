@@ -81,6 +81,7 @@ export interface ApiExamSlot {
   createdAt: string;
   updatedAt: string;
   proctorId?: string;
+  lecturer?: { id: string; fullName: string; email: string; studentCode: string | null } | null;
 }
 
 /** Biometric request từ GET /api/biometric-requests */
@@ -94,6 +95,7 @@ export interface ApiBiometricRequest {
   createdAt: string;
   student: ApiUser | null;
   approver: ApiUser | null;
+  faceImageUrl?: string | null;
 }
 
 /** Wallet từ GET /api/wallets/institution/{institutionId} */

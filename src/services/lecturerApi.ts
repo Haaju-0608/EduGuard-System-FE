@@ -3,11 +3,13 @@
  * Camera feeds giữ mock vì không có camera API thật.
  */
 import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams, mockApiResponse } from './apiClient';
+import { updateParticipationStatus, disqualifyParticipation } from './schoolAdminApi';
 import { MOCK_CAMERA_FEEDS } from './mockData/lecturerMockData';
 import { fetchExamSlots, fetchSchoolAdminClasses, mapApiClassToLecturerClass } from './schoolAdminApi';
 import type {
   ApiAttendanceRecord,
   ApiAttendanceSession,
+  ApiExamParticipation,
   ApiViolationLog,
   ListQueryParams,
   PagedResult,
@@ -222,10 +224,57 @@ export async function fetchViolationAlerts(
   }
 }
 
+/** GET /api/violation-logs — raw paginated (giữ đủ evidencePath cho review page) */
+export async function fetchViolationLogs(
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiViolationLog>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 20;
+  const { data, pagination } = await apiGetPaginated<ApiViolationLog[]>(
+    `/api/violation-logs${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
 /** GET /api/violation-logs/{id} */
 export async function fetchViolationById(id: string): Promise<ApiViolationLog> {
   return apiGet<ApiViolationLog>(`/api/violation-logs/${id}`);
 }
+
+/** GET /api/exam-slots/{id} — lấy tên bài thi */
+export async function fetchExamSlotById(id: string): Promise<import('../types/api').ApiExamSlot | null> {
+  try {
+    return await apiGet<import('../types/api').ApiExamSlot>(`/api/exam-slots/${id}`);
+  } catch {
+    return null;
+  }
+}
+
+/** PUT /api/violation-logs/{id} — đánh dấu đã review */
+export async function reviewViolationLog(id: string, reviewedBy: string): Promise<void> {
+  await apiPut(`/api/violation-logs/${id}`, { isReviewed: true, reviewedBy });
+}
+
+/** GET /api/exam-participations/{id} — lấy thông tin participation + student */
+export async function fetchParticipationById(id: string): Promise<ApiExamParticipation | null> {
+  try {
+    const participation = await apiGet<ApiExamParticipation>(`/api/exam-participations/${id}`);
+    // Nếu student null nhưng có studentId, fetch user riêng
+    if (participation && !participation.student && participation.studentId) {
+      try {
+        const user = await apiGet<import('../types/api').ApiUser>(`/api/users/${participation.studentId}`);
+        return { ...participation, student: user };
+      } catch {
+        return participation;
+      }
+    }
+    return participation;
+  } catch {
+    return null;
+  }
+}
+
+export { updateParticipationStatus, disqualifyParticipation };
 
 // ─── Camera Feeds (mock — không có camera API thật) ───────────────────────
 

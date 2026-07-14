@@ -298,6 +298,7 @@ export const MOCK_BIOMETRIC_REQUESTS: BiometricRequest[] = [
     classCode: 'CS201',
     submittedAt: '2026-06-01 14:30',
     photoUrl: '',
+    faceImagePath: null,
     status: 'pending',
   },
   {
@@ -307,6 +308,7 @@ export const MOCK_BIOMETRIC_REQUESTS: BiometricRequest[] = [
     classCode: 'CS101',
     submittedAt: '2026-06-02 09:15',
     photoUrl: '',
+    faceImagePath: null,
     status: 'pending',
   },
   {
@@ -316,6 +318,7 @@ export const MOCK_BIOMETRIC_REQUESTS: BiometricRequest[] = [
     classCode: 'CS301',
     submittedAt: '2026-05-28 16:45',
     photoUrl: '',
+    faceImagePath: null,
     status: 'approved',
   },
   {
@@ -325,6 +328,7 @@ export const MOCK_BIOMETRIC_REQUESTS: BiometricRequest[] = [
     classCode: 'CS201',
     submittedAt: '2026-05-27 11:20',
     photoUrl: '',
+    faceImagePath: null,
     status: 'rejected',
     note: 'Blurry photo, face not recognized',
   },

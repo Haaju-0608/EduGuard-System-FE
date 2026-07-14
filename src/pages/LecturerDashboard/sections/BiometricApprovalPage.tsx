@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { FiCheck, FiClock, FiShield, FiUser, FiX } from 'react-icons/fi';
 import {
   CourseCodeBadge,
@@ -14,6 +14,7 @@ import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   approveBiometricRequest,
   fetchSchoolAdminBiometricRequests,
+  fetchSignedFaceUrl,
   rejectBiometricRequest,
 } from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
@@ -36,19 +37,37 @@ function BiometricCard({
   request,
   onReview,
   reviewing,
+  signedUrl,
 }: {
   request: BiometricRequest;
   onReview: (id: string, status: 'approved' | 'rejected', reason: string) => void;
   reviewing: string | null;
+  signedUrl: string | null | undefined;
 }) {
   const [reason, setReason] = useState('');
+  const [imgError, setImgError] = useState(false);
+
+  const showImage = signedUrl && !imgError;
 
   return (
     <div className="bio-id-card">
       <div className="bio-id-photo">
-        <div className="bio-face-frame">
-          <FiUser className="text-4xl text-blue-bright/50" />
-        </div>
+        {showImage ? (
+          <img
+            src={signedUrl}
+            alt={request.studentName}
+            className="absolute inset-0 w-full h-full object-cover"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <div className="bio-face-frame">
+            {signedUrl === undefined && request.status === 'pending' ? (
+              <div className="w-10 h-10 rounded-full border-2 border-blue-bright/30 border-t-blue-bright animate-spin" />
+            ) : (
+              <FiUser className="text-4xl text-blue-bright/50" />
+            )}
+          </div>
+        )}
         <div className="absolute top-3 right-3">
           <BiometricStatusBadge status={request.status} />
         </div>
@@ -114,6 +133,8 @@ export default function BiometricApprovalPage() {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing] = useState<string | null>(null);
+  // undefined = chưa fetch, null = failed/no image, string = URL
+  const [signedUrls, setSignedUrls] = useState<Record<string, string | null>>({});
   const toast = useToast();
 
   const institutionId = user?.institutionId ?? undefined;
@@ -122,6 +143,25 @@ export default function BiometricApprovalPage() {
     const result = await fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50, institutionId });
     return result.items;
   }, [institutionId]);
+
+  // Fetch signed URLs song song cho các pending request có faceImagePath
+  useEffect(() => {
+    if (!data) return;
+    const pending = data.filter(
+      (r) => r.status === 'pending' && r.faceImagePath && !(r.id in signedUrls),
+    );
+    if (pending.length === 0) return;
+    // Mark as loading (undefined → pending fetch)
+    setSignedUrls((prev) => {
+      const next = { ...prev };
+      pending.forEach((r) => { next[r.id] = undefined as unknown as null; });
+      return next;
+    });
+    pending.forEach(async (r) => {
+      const url = await fetchSignedFaceUrl(r.faceImagePath!);
+      setSignedUrls((prev) => ({ ...prev, [r.id]: url }));
+    });
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const requests = data ?? [];
 
@@ -215,7 +255,12 @@ export default function BiometricApprovalPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           {filteredRequests.map((req, i) => (
             <div key={req.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
-              <BiometricCard request={req} onReview={handleReview} reviewing={reviewing} />
+              <BiometricCard
+                request={req}
+                onReview={handleReview}
+                reviewing={reviewing}
+                signedUrl={req.id in signedUrls ? signedUrls[req.id] : undefined}
+              />
             </div>
           ))}
         </div>

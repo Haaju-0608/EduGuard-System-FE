@@ -12,6 +12,7 @@ import type {
   ApiEnrollment,
   ApiExamParticipation,
   ApiExamSlot,
+  ApiInstitution,
   ApiTransaction,
   ApiUser,
   ApiWallet,
@@ -121,6 +122,7 @@ function mapApiExamSlot(slot: ApiExamSlot, classMap: Map<string, LecturerClass>)
     endTime: slot.endTime,
     durationMinutes: slot.expectedDurationMinutes,
     status: deriveExamSlotStatus(slot),
+    proctorId: slot.proctorId ?? slot.lecturer?.id,
   };
 }
 
@@ -198,6 +200,18 @@ async function fetchApiUsersRaw(params: ListQueryParams = {}) {
   return apiGetPaginated<ApiUser[]>(
     `/api/users${buildQueryParams({ page, pageSize })}`,
   );
+}
+
+/** Lấy số lượng student + lecturer trong một lần fetch (dùng cho dashboard KPI) */
+export async function fetchUserRoleCounts(): Promise<{ students: number; lecturers: number }> {
+  const { data } = await apiGetPaginated<ApiUser[]>(
+    `/api/users${buildQueryParams({ page: 1, pageSize: 500 })}`,
+  );
+  const students  = data.filter((u) => u.role.trim().toLowerCase() === 'student').length;
+  const lecturers = data.filter((u) =>
+    ['lecturer', 'instructor', 'teacher'].includes(u.role.trim().toLowerCase()),
+  ).length;
+  return { students, lecturers };
 }
 
 /** GET /api/enrollments — trả rỗng nếu 403 (SchoolAdmin không có quyền) */
@@ -379,14 +393,27 @@ function mapApiBiometricRequest(
   return {
     id: item.id,
     studentId:
-      studentCode && studentCode !== 'none' ? studentCode : item.studentId.slice(0, 8).toUpperCase(),
+      studentCode && studentCode !== 'none' ? studentCode : (item.studentId ?? '').slice(0, 8).toUpperCase(),
     studentName: student?.fullName?.trim() || student?.email || 'Unknown student',
     classCode: '—',
     submittedAt: formatBiometricDate(item.createdAt),
     photoUrl: '',
+    faceImagePath: item.faceImageUrl ?? null,
     status: mapBiometricStatus(item.status),
     note: item.reason?.trim() || undefined,
   };
+}
+
+/** POST /api/storage/signed-url — lấy signed URL để hiển thị ảnh khuôn mặt */
+export async function fetchSignedFaceUrl(path: string): Promise<string | null> {
+  try {
+    const res = await apiPost<{ signedUrl?: string }>(
+      `/api/storage/signed-url?bucket=biometric-faces&path=${encodeURIComponent(path)}&expiresInSeconds=3600`,
+    );
+    return res?.signedUrl ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** GET /api/biometric-requests — duyệt sinh trắc học (chỉ của institution mình) */
@@ -399,7 +426,7 @@ export async function fetchSchoolAdminBiometricRequests(
 
   const [bioRes, userRes] = await Promise.all([
     apiGetPaginated<ApiBiometricRequest[]>(
-      `/api/biometric-requests${buildQueryParams({ page, pageSize, ...(institutionId ? { institutionId } : {}) })}`,
+      `/api/biometric-requests${buildQueryParams({ page, pageSize })}`,
     ),
     fetchApiUsersRaw({ page: 1, pageSize: DEFAULT_PAGE_SIZE }).catch(() => ({
       data: [] as ApiUser[],
@@ -526,55 +553,43 @@ export async function deleteClass(id: string): Promise<void> {
 // ─── Student exam slots ────────────────────────────────────────────────────
 
 /**
- * Fetch exam slots cho student.
- *
- * Strategy:
- * 1. Lấy tất cả exam slots
- * 2. Lấy class info cho từng unique classId — nếu backend 403 class nào thì
- *    student không thuộc class đó → dùng để filter
- * 3. Nếu TẤT CẢ đều accessible (không có 403) → không thể filter → trả về tất cả
- *    kèm class name đã resolve
+ * Fetch exam slots cho student hiện tại.
+ * Flow: GET /api/classes/my-classes → classIds
+ *       → GET /api/exam-slots/class/{classId} (parallel)
  */
 export async function fetchStudentExamSlots(_studentId: string): Promise<ExamSlot[]> {
-  const slotRes = await apiGetPaginated<ApiExamSlot[]>(
-    `/api/exam-slots${buildQueryParams({ page: 1, pageSize: 200 })}`,
-  ).catch(() => ({ data: [] as ApiExamSlot[], pagination: EMPTY_PAGINATION }));
-
-  if (slotRes.data.length === 0) return [];
-
-  const uniqueClassIds = [...new Set(slotRes.data.map((s) => s.classId))];
-
-  // Thử fetch từng class — 200 = accessible (student thuộc class), 403 = không thuộc
-  const classMap = new Map<string, LecturerClass>();
-  const accessible = new Set<string>();
-  const forbidden = new Set<string>();
-
-  await Promise.allSettled(
-    uniqueClassIds.map(async (classId) => {
-      try {
-        const cls = await apiGet<ApiClass>(`/api/classes/${classId}`);
-        classMap.set(classId, mapApiClassToLecturerClass(cls));
-        accessible.add(classId);
-      } catch (e) {
-        const status = e instanceof ApiError ? e.status : 0;
-        if (status === 403) forbidden.add(classId);
-        else accessible.add(classId); // lỗi khác (404, 500) → không chắc → giữ lại
-      }
-    }),
+  // 1. Lấy danh sách lớp của student qua JWT
+  const myClasses = await apiGet<ApiClass[]>('/api/classes/my-classes').catch(
+    () => [] as ApiClass[],
   );
 
-  console.info('[fetchStudentExamSlots]', {
-    totalSlots: slotRes.data.length,
-    accessible: [...accessible],
-    forbidden: [...forbidden],
-  });
+  if (myClasses.length === 0) return [];
 
-  // Chỉ filter nếu thực sự có class bị 403 (không phải "all failed")
-  const canFilter = forbidden.size > 0;
-  const allowedIds = canFilter ? accessible : new Set(uniqueClassIds);
+  // 2. Build classMap
+  const classMap = new Map<string, LecturerClass>(
+    myClasses.map((cls) => [cls.id, mapApiClassToLecturerClass(cls)]),
+  );
 
-  return slotRes.data
-    .filter((slot) => allowedIds.has(slot.classId))
+  const classIds = myClasses.map((cls) => cls.id);
+
+  // 3. Fetch exam slots cho từng class song song
+  const slotArrays = await Promise.all(
+    classIds.map((classId) =>
+      apiGet<ApiExamSlot[]>(`/api/exam-slots/class/${classId}`).catch(
+        () => [] as ApiExamSlot[],
+      ),
+    ),
+  );
+
+  // 4. Gộp, deduplicate theo id
+  const seen = new Set<string>();
+  return slotArrays
+    .flat()
+    .filter((slot) => {
+      if (seen.has(slot.id)) return false;
+      seen.add(slot.id);
+      return true;
+    })
     .map((slot) => mapApiExamSlot(slot, classMap));
 }
 
@@ -621,13 +636,14 @@ export async function fetchWalletTransactions(
   return { items: data, pagination };
 }
 
-/** POST /api/wallets/top-up */
+/** POST /api/wallets/top-up — trả về payment URL string */
 export async function topUpWallet(payload: {
   institutionId: string;
   amount: number;
   description?: string;
-}): Promise<{ paymentUrl?: string }> {
-  return apiPost<{ paymentUrl?: string }>('/api/wallets/top-up', payload);
+}): Promise<string | null> {
+  const result = await apiPost<string | null>('/api/wallets/top-up', payload);
+  return result ?? null;
 }
 
 // ─── Exam Participations ─────────────────────────────────────────────────
@@ -645,23 +661,28 @@ export async function fetchExamParticipations(
   return { items: data, pagination };
 }
 
-/** POST /api/exam-participations — thêm sinh viên vào kỳ thi */
+/** POST /api/exam-participations — thêm sinh viên vào kỳ thi (status mặc định Joined do BE set) */
 export async function createExamParticipation(payload: {
   examSlotId: string;
   studentId: string;
 }): Promise<ApiExamParticipation> {
-  return apiPost<ApiExamParticipation>('/api/exam-participations', {
-    ...payload,
-    status: 'Absent',
-  });
+  return apiPost<ApiExamParticipation>('/api/exam-participations', payload);
 }
 
-/** PUT /api/exam-participations/{examSlotId}/status — cập nhật trạng thái */
+/** PUT /api/exam-participations/{id}/status — cập nhật trạng thái (dùng cho Submitted, Left...) */
 export async function updateParticipationStatus(
-  examSlotId: string,
+  participationId: string,
   status: ParticipationStatus,
 ): Promise<void> {
-  await apiPut(`/api/exam-participations/${examSlotId}/status`, { status });
+  await apiPut(`/api/exam-participations/${participationId}/status`, { status });
+}
+
+/** POST /api/exam-participations/{id}/disqualify — đình chỉ student */
+export async function disqualifyParticipation(
+  participationId: string,
+  reason: string,
+): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/disqualify`, { reason });
 }
 
 /** DELETE /api/exam-participations/{examSlotId} — xóa tham gia */
@@ -679,6 +700,17 @@ export async function deductAttendance(payload: DeductAttendancePayload): Promis
 /** POST /api/transactions/deduct-proctoring */
 export async function deductProctoring(payload: DeductProctoringPayload): Promise<ApiTransaction> {
   return apiPost<ApiTransaction>('/api/transactions/deduct-proctoring', payload);
+}
+
+// ─── Institution ─────────────────────────────────────────────────────────
+
+/** GET /api/institutions/{id} — lấy thông tin trường */
+export async function fetchInstitution(id: string): Promise<ApiInstitution | null> {
+  try {
+    return await apiGet<ApiInstitution>(`/api/institutions/${id}`);
+  } catch {
+    return null;
+  }
 }
 
 // ─── Update own profile ──────────────────────────────────────────────────

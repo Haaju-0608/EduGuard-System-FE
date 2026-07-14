@@ -17,10 +17,10 @@ import {
   fetchClassEnrollments,
   fetchLecturers,
   fetchSchoolAdminClasses,
-  fetchSchoolAdminStudents,
+  fetchUsers,
   updateClass,
 } from '../../../services/schoolAdminApi';
-import type { ApiEnrollment } from '../../../types/api';
+import type { ApiEnrollment, ApiUser } from '../../../types/api';
 import type { LecturerClass, LecturerStudent } from '../../../types/lecturer';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -58,13 +58,15 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
     () => fetchClassEnrollments(cls.id),
     [cls.id],
   );
-  const { data: studentData } = useAsyncData(
-    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200 }),
+  const { data: usersData, loading: loadingStudents } = useAsyncData(
+    () => fetchUsers({ page: 1, pageSize: 500 }),
     [],
   );
 
   const enrollments: ApiEnrollment[] = enrollData ?? [];
-  const allStudents: LecturerStudent[] = studentData?.items ?? [];
+  const allStudents: ApiUser[] = (usersData?.items ?? []).filter(
+    (u) => u.role.trim().toLowerCase() === 'student',
+  );
 
   // Lọc students chưa enrolled và khớp search
   const enrolledIds = new Set(enrollments.map((e) => e.studentId));
@@ -73,17 +75,17 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
     if (!search.trim()) return false;
     const q = search.toLowerCase();
     return (
-      (s.name ?? '').toLowerCase().includes(q) ||
-      (s.studentId ?? '').toLowerCase().includes(q) ||
+      (s.fullName ?? '').toLowerCase().includes(q) ||
+      (s.studentCode ?? '').toLowerCase().includes(q) ||
       s.email.toLowerCase().includes(q)
     );
-  }).slice(0, 8);
+  }).slice(0, 20);
 
   const selectedStudent = allStudents.find((s) => s.id === selectedId);
 
-  const handleSelect = (s: LecturerStudent) => {
+  const handleSelect = (s: ApiUser) => {
     setSelectedId(s.id);
-    setSearch(`${s.name} (${s.studentId || s.email})`);
+    setSearch(`${s.fullName ?? s.email} (${s.studentCode || s.email})`);
     setShowDropdown(false);
   };
 
@@ -92,7 +94,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
     setAdding(true);
     try {
       await createEnrollment(cls.id, selectedId);
-      toast.success('Enrolled', `${selectedStudent?.name ?? 'Student'} added to class.`);
+      toast.success('Enrolled', `${selectedStudent?.fullName ?? 'Student'} added to class.`);
       setSelectedId('');
       setSearch('');
       reload();
@@ -149,7 +151,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
                 className="w-full bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
               />
               {showDropdown && suggestions.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl overflow-hidden z-50 shadow-xl">
+                <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl overflow-y-auto max-h-64 z-50 shadow-xl custom-scrollbar">
                   {suggestions.map((s) => (
                     <button
                       key={s.id}
@@ -158,19 +160,19 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
                       className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-navy/60 transition-colors text-left bg-transparent border-none cursor-pointer"
                     >
                       <div className="w-7 h-7 rounded-lg bg-blue/10 border border-blue/20 grid place-items-center text-xs font-bold text-blue-bright shrink-0">
-                        {(s.name ?? '?').slice(0, 2).toUpperCase()}
+                        {(s.fullName ?? s.email ?? '?').slice(0, 2).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white-soft font-medium truncate">{s.name}</p>
-                        <p className="text-[11px] text-muted truncate">{s.studentId && `${s.studentId} · `}{s.email}</p>
+                        <p className="text-sm text-white-soft font-medium truncate">{s.fullName ?? s.email}</p>
+                        <p className="text-[11px] text-muted truncate">{s.studentCode && `${s.studentCode} · `}{s.email}</p>
                       </div>
                     </button>
                   ))}
                 </div>
               )}
-              {showDropdown && search.trim() && suggestions.length === 0 && (
+              {showDropdown && search.trim() && suggestions.length === 0 && !loadingStudents && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl px-4 py-3 text-sm text-muted z-50">
-                  No students found matching "{search}"
+                  {loadingStudents ? 'Loading students…' : `No students found matching "${search}"`}
                 </div>
               )}
             </div>
@@ -200,8 +202,8 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
               {enrollments.map((e) => {
                 // Backend trả student: null → cross-reference với allStudents đã fetch
                 const info = allStudents.find((s) => s.id === e.studentId);
-                const name = e.student?.fullName ?? info?.name ?? e.studentId.slice(0, 8) + '…';
-                const code = e.student?.studentCode ?? info?.studentId ?? '';
+                const name = e.student?.fullName ?? info?.fullName ?? e.studentId.slice(0, 8) + '…';
+                const code = e.student?.studentCode ?? info?.studentCode ?? '';
                 const email = e.student?.email ?? info?.email ?? '';
                 const isRemoving = removingId === e.studentId;
                 return (

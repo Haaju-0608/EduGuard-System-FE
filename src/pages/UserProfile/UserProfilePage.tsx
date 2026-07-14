@@ -24,7 +24,7 @@ export default function UserProfilePage() {
 
   return (
     <DashboardLayout menuItems={menuItems}>
-      <div className="max-w-350 mx-auto animate-fade-slide-in">
+      <div className="max-w-7xl mx-auto w-full animate-fade-slide-in">
         <Routes>
           <Route index element={<DashboardOverview onNavigate={navigate} />} />
           <Route path="classes" element={<MyClassesPage />} />

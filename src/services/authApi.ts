@@ -74,7 +74,20 @@ export function getUserIdFromToken(accessToken: string): string {
 }
 
 function parseLoginError(body: LoginApiResponse | null, status: number): string {
-  if (body?.message && !body.success) return body.message;
+  if (body?.message && !body.success) {
+    // Backend đôi khi nhúng JSON vào message: "Fail to login: {"error_code":"invalid_credentials",...}"
+    const jsonMatch = body.message.match(/\{.*\}/s);
+    if (jsonMatch) {
+      try {
+        const inner = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+        const code = inner.error_code as string | undefined;
+        if (code === 'invalid_credentials') return 'Incorrect email or password.';
+        if (typeof inner.msg === 'string' && inner.msg) return inner.msg;
+        if (typeof inner.message === 'string' && inner.message) return inner.message;
+      } catch { /* not valid JSON, fall through */ }
+    }
+    return body.message;
+  }
   if (typeof body?.errors === 'string') return body.errors;
   if (Array.isArray(body?.errors) && body.errors.length > 0) {
     return String(body.errors[0]);

@@ -41,7 +41,7 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
     : null;
 
   return (
-    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-navy">
+    <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-navy overflow-x-hidden">
       {/* ── SIDEBAR ── */}
       <aside
         className={`sidebar-transition fixed top-0 left-0 lg:relative lg:top-auto lg:left-auto z-50 h-full flex flex-col bg-navy-card border-r border-border
@@ -194,9 +194,9 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
         </header>
 
         {/* Page Content */}
-        <main className={`flex-1 overflow-y-visible lg:overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
+        <main className={`flex-1 flex flex-col overflow-y-visible lg:overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
           {campusMode && <CampusBackground />}
-          <div className="relative z-[1]">{children}</div>
+          <div className="relative z-[1] flex-1 flex flex-col min-h-0">{children}</div>
         </main>
       </div>
     </div>

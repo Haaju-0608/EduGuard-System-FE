@@ -6,7 +6,6 @@ import LecturerManagementPage from './sections/LecturerManagementPage';
 import SchoolClassManagementPage from './sections/SchoolClassManagementPage';
 import BiometricApprovalPage from '../LecturerDashboard/sections/BiometricApprovalPage';
 import WalletPage from './sections/WalletPage';
-import MonitoringPage from './sections/MonitoringPage';
 import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
@@ -19,14 +18,13 @@ const menuItems: MenuItem[] = [
   { icon: '📝', label: 'Exams',        path: '/school/exams' },
   { icon: '💳', label: 'Wallet',       path: '/school/wallet' },
   { icon: '🔐', label: 'Face Approval', path: '/school/biometric' },
-  { icon: '📡', label: 'Monitoring',   path: '/school/monitoring' },
   { icon: '👤', label: 'My Profile',   path: '/school/profile' },
 ];
 
 export default function SchoolAdminDashboardPage() {
   return (
     <DashboardLayout menuItems={menuItems}>
-      <div className="max-w-350 mx-auto animate-fade-slide-in">
+      <div className="max-w-7xl mx-auto w-full animate-fade-slide-in">
         <Routes>
           <Route index element={<SchoolDashboardOverview />} />
           <Route path="students" element={<SchoolStudentManagementPage />} />
@@ -36,7 +34,6 @@ export default function SchoolAdminDashboardPage() {
           <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
           <Route path="wallet" element={<WalletPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />
-          <Route path="monitoring" element={<MonitoringPage />} />
           <Route path="profile" element={<ProfileDetailPage />} />
         </Routes>
       </div>

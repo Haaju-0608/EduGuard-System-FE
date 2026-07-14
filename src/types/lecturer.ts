@@ -85,6 +85,7 @@ export interface BiometricRequest {
   classCode: string;
   submittedAt: string;
   photoUrl: string;
+  faceImagePath: string | null;
   status: BiometricStatus;
   note?: string;
 }
@@ -136,4 +137,5 @@ export interface ExamSlot {
   endTime: string;
   durationMinutes: number;
   status: ExamSlotStatus;
+  proctorId?: string;
 }

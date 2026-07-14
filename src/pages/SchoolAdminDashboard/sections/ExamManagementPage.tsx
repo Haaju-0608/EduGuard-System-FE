@@ -198,7 +198,7 @@ function ExamFormModal({
       startTime: toLocalDT(target.startTime),
       endTime: toLocalDT(target.endTime),
       durationMinutes: target.durationMinutes > 0 ? String(target.durationMinutes) : '',
-      proctorId: '',
+      proctorId: target.proctorId ?? '',
     } : EMPTY_FORM);
   }, [target]);
 

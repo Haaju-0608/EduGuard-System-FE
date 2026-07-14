@@ -3,84 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { FiCalendar, FiClock, FiSearch } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchStudentExamSlots } from '../../../services/schoolAdminApi';
-import type { ExamSlot, ExamSlotStatus } from '../../../types/lecturer';
-
-// ─── Mock fallback (dùng khi API chưa filter được theo enrollment) ─────────
-const MOCK_EXAM_SLOTS: ExamSlot[] = [
-  {
-    id: 'mock-1',
-    classId: 'class-oop',
-    classCode: 'OOP212',
-    className: 'Object Oriented Programming',
-    examName: 'Midterm Exam',
-    startTime: '2026-07-10T07:30:00.000Z',
-    endTime:   '2026-07-10T09:30:00.000Z',
-    durationMinutes: 90,
-    status: 'scheduled',
-  },
-  {
-    id: 'mock-2',
-    classId: 'class-ds',
-    classCode: 'DS201',
-    className: 'Data Structures & Algorithms',
-    examName: 'Chapter 3 Quiz',
-    startTime: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
-    endTime:   new Date(Date.now() + 50 * 60 * 1000).toISOString(),
-    durationMinutes: 60,
-    status: 'ongoing',
-  },
-  {
-    id: 'mock-3',
-    classId: 'class-db',
-    classCode: 'DB301',
-    className: 'Database Systems',
-    examName: 'Final Exam',
-    startTime: '2026-07-15T13:00:00.000Z',
-    endTime:   '2026-07-15T15:30:00.000Z',
-    durationMinutes: 120,
-    status: 'scheduled',
-  },
-  {
-    id: 'mock-4',
-    classId: 'class-se',
-    classCode: 'SE401',
-    className: 'Software Engineering',
-    examName: 'Lab Test 2',
-    startTime: '2026-06-25T09:00:00.000Z',
-    endTime:   '2026-06-25T10:30:00.000Z',
-    durationMinutes: 90,
-    status: 'completed',
-  },
-  {
-    id: 'mock-5',
-    classId: 'class-oop',
-    classCode: 'OOP212',
-    className: 'Object Oriented Programming',
-    examName: 'Lab Test 1',
-    startTime: '2026-06-20T07:30:00.000Z',
-    endTime:   '2026-06-20T09:00:00.000Z',
-    durationMinutes: 90,
-    status: 'completed',
-  },
-  {
-    id: 'mock-6',
-    classId: 'class-net',
-    classCode: 'NET305',
-    className: 'Computer Networks',
-    examName: 'Midterm Exam',
-    startTime: '2026-07-01T13:00:00.000Z',
-    endTime:   '2026-07-01T14:30:00.000Z',
-    durationMinutes: 90,
-    status: 'cancelled',
-  },
-];
+import { fetchExamParticipations, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import { useToast } from '../../../contexts/ToastContext';
+import type { ExamSlot } from '../../../types/lecturer';
+import type { ParticipationStatus } from '../../../types/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-type StudentStatus = 'upcoming' | 'available' | 'completed' | 'missed';
+type StudentStatus = 'upcoming' | 'available' | 'completed' | 'missed' | 'submitted' | 'disqualified';
 
-function deriveStudentStatus(slot: ExamSlot): StudentStatus {
+function deriveStudentStatus(slot: ExamSlot, participationStatus?: ParticipationStatus): StudentStatus {
+  // Participation status takes precedence for the current student
+  if (participationStatus === 'Submitted') return 'submitted';
+  if (participationStatus === 'Disqualified') return 'disqualified';
+
   const now = Date.now();
   const start = new Date(slot.startTime).getTime();
   const end = new Date(slot.endTime).getTime();
@@ -102,10 +38,12 @@ function fmtDT(iso: string) {
 }
 
 const STATUS_CONFIG: Record<StudentStatus, { label: string; cls: string; dot: string }> = {
-  available: { label: 'Available', cls: 'text-green bg-green/10 border-green/25', dot: 'bg-green animate-pulse' },
-  upcoming:  { label: 'Upcoming',  cls: 'text-gold bg-gold/10 border-gold/25',    dot: 'bg-gold' },
-  completed: { label: 'Completed', cls: 'text-muted bg-white/5 border-border',    dot: 'bg-muted' },
-  missed:    { label: 'Missed',    cls: 'text-red bg-red/10 border-red/25',        dot: 'bg-red' },
+  available:    { label: 'Available',    cls: 'text-green bg-green/10 border-green/25',    dot: 'bg-green animate-pulse' },
+  upcoming:     { label: 'Upcoming',     cls: 'text-gold bg-gold/10 border-gold/25',        dot: 'bg-gold' },
+  completed:    { label: 'Completed',    cls: 'text-muted bg-white/5 border-border',        dot: 'bg-muted' },
+  missed:       { label: 'Missed',       cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
+  submitted:    { label: 'Submitted',    cls: 'text-cyan bg-cyan/10 border-cyan/25',        dot: 'bg-cyan' },
+  disqualified: { label: 'Disqualified', cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
 };
 
 // ─── Page ─────────────────────────────────────────────────────────────────
@@ -113,15 +51,42 @@ const STATUS_CONFIG: Record<StudentStatus, { label: string; cls: string; dot: st
 export default function StudentExamsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<StudentStatus | 'all'>('all');
+  const [checkingId, setCheckingId] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(async () => {
-    if (!user?.id) return [];
-    return fetchStudentExamSlots(user.id);
+    if (!user?.id) return { slots: [], participations: {} as Record<string, ParticipationStatus> };
+    const slots = await fetchStudentExamSlots(user.id);
+
+    // For slots the student could currently enter, check their participation status
+    const likelyCurrent = slots.filter((s) => {
+      const now = Date.now();
+      const start = new Date(s.startTime).getTime();
+      const end = new Date(s.endTime).getTime();
+      return s.status === 'ongoing' || (s.status === 'scheduled' && now >= start && now <= end);
+    });
+
+    const participations: Record<string, ParticipationStatus> = {};
+    await Promise.all(
+      likelyCurrent.map(async (slot) => {
+        try {
+          const { items } = await fetchExamParticipations(slot.id, { pageSize: 100 });
+          const mine = items.find((p) => p.studentId === user.id);
+          // Ignore "Submitted" if student never actually started (BE bug: auto-created record)
+          if (mine && !(mine.status === 'Submitted' && mine.actualStart === null)) {
+            participations[slot.id] = mine.status;
+          }
+        } catch { /* ignore */ }
+      }),
+    );
+
+    return { slots, participations };
   }, [user?.id]);
 
-  const slots = data && data.length > 0 ? data : MOCK_EXAM_SLOTS;
+  const slots = data?.slots ?? [];
+  const participations = data?.participations ?? {};
 
   const filtered = slots.filter((slot) => {
     const q = search.toLowerCase();
@@ -130,21 +95,38 @@ export default function StudentExamsPage() {
       slot.examName.toLowerCase().includes(q) ||
       slot.classCode.toLowerCase().includes(q) ||
       slot.className.toLowerCase().includes(q);
-    const status = deriveStudentStatus(slot);
+    const status = deriveStudentStatus(slot, participations[slot.id]);
     const matchFilter = filter === 'all' || status === filter;
     return matchSearch && matchFilter;
   });
 
-  const handleStart = (slot: ExamSlot) => {
+  const handleStart = async (slot: ExamSlot) => {
+    if (!user?.id || checkingId) return;
+    setCheckingId(slot.id);
+    try {
+      const { items } = await fetchExamParticipations(slot.id, { pageSize: 100 });
+      const mine = items.find((p) => p.studentId === user.id);
+      // Only block if student actually started AND submitted (ignore BE auto-created records)
+      if (mine?.status === 'Submitted' && mine.actualStart !== null) {
+        toast.warning('Already submitted', 'You have already completed this exam and cannot retake it.');
+        return;
+      }
+      if (mine?.status === 'Disqualified') {
+        toast.error('Disqualified', 'You have been disqualified from this exam.');
+        return;
+      }
+    } catch { /* if API fails, allow through */ }
+    finally { setCheckingId(null); }
     localStorage.setItem(`studentExam_${slot.id}`, JSON.stringify(slot));
     navigate(`/student/exams/${slot.id}/verify`);
   };
 
   const counts = {
     total:     slots.length,
-    available: slots.filter((s) => deriveStudentStatus(s) === 'available').length,
-    upcoming:  slots.filter((s) => deriveStudentStatus(s) === 'upcoming').length,
-    completed: slots.filter((s) => deriveStudentStatus(s) === 'completed').length,
+    available: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'available').length,
+    upcoming:  slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'upcoming').length,
+    submitted: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'submitted').length,
+    completed: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'completed').length,
   };
 
   return (
@@ -161,7 +143,7 @@ export default function StudentExamsPage() {
           { label: 'Total',     value: counts.total,     color: 'text-blue-bright' },
           { label: 'Available', value: counts.available, color: 'text-green' },
           { label: 'Upcoming',  value: counts.upcoming,  color: 'text-gold' },
-          { label: 'Completed', value: counts.completed, color: 'text-muted' },
+          { label: 'Submitted', value: counts.submitted, color: 'text-cyan' },
         ].map((k) => (
           <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4 text-center">
             <p className={`font-syne font-extrabold text-2xl ${k.color}`}>{k.value}</p>
@@ -182,8 +164,8 @@ export default function StudentExamsPage() {
             className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
           />
         </div>
-        <div className="flex gap-2">
-          {(['all', 'available', 'upcoming', 'completed'] as const).map((s) => (
+        <div className="flex gap-2 flex-wrap">
+          {(['all', 'available', 'upcoming', 'submitted', 'completed'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
@@ -220,7 +202,7 @@ export default function StudentExamsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map((slot) => {
-            const studentStatus = deriveStudentStatus(slot);
+            const studentStatus = deriveStudentStatus(slot, participations[slot.id]);
             const cfg = STATUS_CONFIG[studentStatus];
             const canStart = studentStatus === 'available';
             return (
@@ -254,25 +236,37 @@ export default function StudentExamsPage() {
 
                 {/* Action */}
                 <button
-                  onClick={() => canStart && handleStart(slot)}
-                  disabled={!canStart}
-                  className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all cursor-pointer ${
+                  onClick={() => canStart && void handleStart(slot)}
+                  disabled={!canStart || checkingId === slot.id}
+                  className={`w-full py-2.5 rounded-xl text-sm font-semibold border transition-all ${
                     canStart
-                      ? 'bg-blue text-white border-blue hover:bg-blue/80'
-                      : studentStatus === 'completed'
-                        ? 'bg-transparent text-muted border-border cursor-not-allowed'
-                        : studentStatus === 'missed'
-                          ? 'bg-transparent text-red border-red/30 cursor-not-allowed'
-                          : 'bg-transparent text-gold border-gold/30 cursor-not-allowed'
+                      ? 'bg-blue text-white border-blue hover:bg-blue/80 disabled:opacity-60 cursor-pointer'
+                      : 'bg-transparent cursor-not-allowed ' + (
+                          studentStatus === 'submitted'
+                            ? 'text-cyan border-cyan/30'
+                            : studentStatus === 'disqualified'
+                              ? 'text-red border-red/30'
+                              : studentStatus === 'completed'
+                                ? 'text-muted border-border'
+                                : studentStatus === 'missed'
+                                  ? 'text-red border-red/30'
+                                  : 'text-gold border-gold/30'
+                        )
                   }`}
                 >
-                  {canStart
-                    ? '🚀 Start Exam'
-                    : studentStatus === 'completed'
-                      ? '✅ Completed'
-                      : studentStatus === 'missed'
-                        ? '❌ Missed'
-                        : '⏳ Not Started Yet'}
+                  {checkingId === slot.id
+                    ? '⏳ Checking…'
+                    : canStart
+                      ? '🚀 Start Exam'
+                      : studentStatus === 'submitted'
+                        ? '✅ Submitted'
+                        : studentStatus === 'disqualified'
+                          ? '🚫 Disqualified'
+                          : studentStatus === 'completed'
+                            ? '✅ Completed'
+                            : studentStatus === 'missed'
+                              ? '❌ Missed'
+                              : '⏳ Not Started Yet'}
                 </button>
               </div>
             );

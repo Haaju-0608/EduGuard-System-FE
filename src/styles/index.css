@@ -45,6 +45,7 @@
 /* ───── BASE ───── */
 html {
   scroll-behavior: smooth;
+  overflow-x: hidden;
 }
 
 body {
@@ -920,6 +921,7 @@ body::before {
 /* ── Campus background ── */
 .lecture-main-campus {
   background: transparent;
+  overflow-x: clip;
 }
 
 .campus-bg-image {

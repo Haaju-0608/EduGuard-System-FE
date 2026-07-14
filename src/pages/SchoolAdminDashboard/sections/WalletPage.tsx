@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiAlertCircle, FiArrowUpRight, FiCheckCircle, FiClock, FiCreditCard, FiDollarSign, FiRefreshCw, FiTrendingDown } from 'react-icons/fi';
+import { FiAlertCircle, FiArrowUpRight, FiCheckCircle, FiClock, FiCreditCard, FiRefreshCw, FiTrendingDown } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { fetchWallet, fetchWalletTransactions, topUpWallet } from '../../../services/schoolAdminApi';
 import type { ApiTransaction, ApiWallet } from '../../../types/api';
 
 const TOP_UP_PACKAGES = [
-  { credits: 5000, price: '$45', popular: false },
-  { credits: 10000, price: '$85', popular: true },
-  { credits: 25000, price: '$200', popular: false },
-  { credits: 50000, price: '$380', popular: false },
+  { amount: 100000,  label: '100,000',  price: '100.000 ₫',  sessions: '~20 sessions',  popular: false },
+  { amount: 500000,  label: '500,000',  price: '500.000 ₫',  sessions: '~100 sessions', popular: true  },
+  { amount: 1000000, label: '1,000,000', price: '1.000.000 ₫', sessions: '~200 sessions', popular: false },
+  { amount: 2000000, label: '2,000,000', price: '2.000.000 ₫', sessions: '~400 sessions', popular: false },
 ];
 
 function formatDate(iso: string) {
@@ -26,8 +26,7 @@ export default function WalletPage() {
   const [loadingWallet, setLoadingWallet] = useState(true);
   const [loadingTx, setLoadingTx] = useState(true);
   const [showTopUp, setShowTopUp] = useState(false);
-  const [selectedPackage, setSelectedPackage] = useState(10000);
-  const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank'>('card');
+  const [selectedPackage, setSelectedPackage] = useState(500000);
   const [submitting, setSubmitting] = useState(false);
 
   const institutionId = user?.institutionId ?? '';
@@ -68,12 +67,11 @@ export default function WalletPage() {
       const result = await topUpWallet({
         institutionId,
         amount: selectedPackage,
-        description: `Top-up ${selectedPackage.toLocaleString()} credits via ${paymentMethod === 'card' ? 'Credit Card' : 'Bank Transfer'}`,
+        description: `Top-up ${selectedPackage.toLocaleString('vi-VN')} VND`,
       });
-      if (result?.paymentUrl) {
-        // Dùng location.href thay vì window.open để tránh bị block popup
+      if (result) {
         toast.info('Redirecting', 'Đang chuyển đến cổng thanh toán...');
-        setTimeout(() => { window.location.href = result.paymentUrl!; }, 500);
+        setTimeout(() => { window.location.href = result; }, 500);
       } else {
         toast.success('Success', `Topped up ${selectedPackage.toLocaleString()} credits.`);
         setShowTopUp(false);
@@ -221,10 +219,10 @@ export default function WalletPage() {
             <div className="grid grid-cols-2 gap-3 mb-5">
               {TOP_UP_PACKAGES.map((pkg) => (
                 <button
-                  key={pkg.credits}
-                  onClick={() => setSelectedPackage(pkg.credits)}
+                  key={pkg.amount}
+                  onClick={() => setSelectedPackage(pkg.amount)}
                   className={`relative p-4 rounded-[14px] border text-left cursor-pointer transition-all bg-transparent ${
-                    selectedPackage === pkg.credits
+                    selectedPackage === pkg.amount
                       ? 'border-blue-bright bg-blue/10 text-blue-bright'
                       : 'border-border text-muted hover:border-border/80'
                   }`}
@@ -232,23 +230,9 @@ export default function WalletPage() {
                   {pkg.popular && (
                     <span className="absolute -top-2 right-3 text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan text-navy">POPULAR</span>
                   )}
-                  <p className="font-syne font-extrabold text-xl text-white-soft">{pkg.credits.toLocaleString()}</p>
-                  <p className="text-xs mt-0.5">credits · <strong>{pkg.price}</strong></p>
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-3">Payment Method</p>
-            <div className="flex gap-3 mb-5">
-              {(['card', 'bank'] as const).map((m) => (
-                <button
-                  key={m}
-                  onClick={() => setPaymentMethod(m)}
-                  className={`flex-1 flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all bg-transparent text-sm font-medium ${
-                    paymentMethod === m ? 'border-blue-bright bg-blue/10 text-white-soft' : 'border-border text-muted'
-                  }`}
-                >
-                  {m === 'card' ? <FiCreditCard /> : <FiDollarSign />}
-                  {m === 'card' ? 'Credit Card' : 'Bank Transfer'}
+                  <p className="font-syne font-extrabold text-xl text-white-soft">{pkg.label}</p>
+                  <p className="text-xs mt-0.5 text-cyan font-semibold">{pkg.price}</p>
+                  <p className="text-[10px] mt-0.5 text-muted">{pkg.sessions}</p>
                 </button>
               ))}
             </div>
