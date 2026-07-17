@@ -47,9 +47,10 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
+  // sessionStorage (không phải localStorage) — user tự động bị đăng xuất khi đóng tab/trình duyệt.
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const saved = localStorage.getItem('eduguard_user');
+      const saved = sessionStorage.getItem('eduguard_user');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -66,9 +67,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   useEffect(() => {
     if (user) {
-      localStorage.setItem('eduguard_user', JSON.stringify(user));
+      sessionStorage.setItem('eduguard_user', JSON.stringify(user));
     } else {
-      localStorage.removeItem('eduguard_user');
+      sessionStorage.removeItem('eduguard_user');
     }
   }, [user]);
 

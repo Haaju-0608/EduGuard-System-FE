@@ -40,7 +40,9 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       eyeGaze: new EyeGazeEngine(),
       violation: new ViolationEngine(),
       evidence: new EvidenceRecorder({
-        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL,
+        // Không phải secret — cùng 1 giá trị cho mọi máy, không cần .env.local mới chạy được.
+        // .env.local vẫn có thể override khi cần trỏ sang backend khác để test.
+        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL ?? '/api/violation-logs',
         participationId: import.meta.env.VITE_AI_PARTICIPATION_ID,
         sessionId: import.meta.env.VITE_AI_SESSION_ID,
         studentId: import.meta.env.VITE_AI_STUDENT_ID,

@@ -14,7 +14,11 @@ const VIOLATION_TYPE_MAP: Record<ViolationType, string> = {
 const DEFAULT_PRE_EVENT_MS = 5000;
 const DEFAULT_FRAME_INTERVAL_MS = 67;
 const DEFAULT_POST_VIOLATION_MS = 5000;
-const DEFAULT_VIDEO_BITS_PER_SECOND = 2_600_000;
+const DEFAULT_VIDEO_BITS_PER_SECOND = 1_000_000;
+// Vi phạm CÙNG loại xảy ra trong khoảng này kể từ lần ghi hình gần nhất sẽ bị bỏ qua hoàn toàn
+// (không compose video, không tạo violation log) — clip vừa ghi đã đủ làm bằng chứng, tránh CPU
+// phải xử lý nhiều evidence gần như giống hệt nhau liên tiếp gây giật hình.
+const DUPLICATE_VIOLATION_COOLDOWN_MS = 8000;
 const DEFAULT_CAPTURE_WIDTH = 960;
 const DEFAULT_JPEG_QUALITY = 0.84;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
@@ -58,6 +62,7 @@ export class EvidenceRecorder {
   private postViolationFrames: EvidenceFrame[] = [];
   private activeViolations: EvidenceViolationMetadata[] = [];
   private pendingRequests: PendingEvidenceRequest[] = [];
+  private lastCapturedAtByType = new Map<ViolationType, number>();
   private captureTimer = 0;
   private mimeType = '';
   private isRunning = false;
@@ -105,6 +110,13 @@ export class EvidenceRecorder {
     if (!this.isRunning) {
       return null;
     }
+
+    const lastCapturedAt = this.lastCapturedAtByType.get(violation.type);
+    if (lastCapturedAt != null && Date.now() - lastCapturedAt < DUPLICATE_VIOLATION_COOLDOWN_MS) {
+      // Cùng loại vi phạm vừa mới được ghi hình gần đây — bỏ qua, không xử lý evidence lần này.
+      return null;
+    }
+    this.lastCapturedAtByType.set(violation.type, Date.now());
 
     const violationMetadata = this.toViolationMetadata(violation);
     if (this.isRecordingEvidence) {
@@ -203,6 +215,7 @@ export class EvidenceRecorder {
     this.activeViolations = [];
     this.pendingRequests.forEach((request) => request.resolve(null));
     this.pendingRequests = [];
+    this.lastCapturedAtByType.clear();
     this.isCapturingFrame = false;
     this.isCollectingEvidence = false;
     this.isRecordingEvidence = false;

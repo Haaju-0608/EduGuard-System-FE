@@ -5,42 +5,17 @@ import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag } from 'react-icons
 import { useAiProctoring } from '../../../ai/hooks/useAiProctoring';
 import type { ViolationType } from '../../../ai/types/proctoring';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   createExamParticipation,
   fetchExamParticipations,
+  fetchExamQuestions,
   joinExamParticipation,
   sendExamHeartbeat,
   submitExamParticipation,
+  submitStudentExamRecord,
 } from '../../../services/schoolAdminApi';
-
-// ─── Types ────────────────────────────────────────────────────────────────
-
-interface MCQOption { id: string; text: string; }
-interface MCQQuestion { id: string; text: string; imageBase64?: string; options: MCQOption[]; correctOptionId: string; }
-
-// School admin format (saved by ExamQuestionsPage)
-interface MCQuestion { id: string; examId: string; text: string; imageBase64?: string; options: string[]; correctIndex: number; }
-
-const OPTION_LABELS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-
-function loadExamQuestions(examId: string): MCQQuestion[] {
-  try {
-    const raw = localStorage.getItem(`eduguard_exam_questions_${examId}`);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as MCQuestion[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [];
-    return parsed.map((q) => {
-      const opts: MCQOption[] = q.options.map((text, i) => ({ id: `${q.id}_opt${i}`, text }));
-      return {
-        id: q.id,
-        text: q.text,
-        imageBase64: q.imageBase64,
-        options: opts,
-        correctOptionId: opts[q.correctIndex]?.id ?? opts[0].id,
-      };
-    });
-  } catch { return []; }
-}
+import type { ApiExamQuestion } from '../../../types/api';
 
 // ─── Submit Modal ─────────────────────────────────────────────────────────
 
@@ -78,20 +53,52 @@ function SubmitModal({ total, answered, onConfirm, onCancel }: {
 }
 
 // ─── Result Screen ─────────────────────────────────────────────────────────
+// BE chấm điểm server-side và không trả về đáp án đúng/sai từng câu (chỉ finalScore tổng),
+// nên màn hình này không thể tự đếm Correct/Wrong như trước nữa.
 
-function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
-  questions: MCQQuestion[];
-  answers: Record<string, string>;
-  totalSeconds: number;
+function ResultScreen({
+  examName, answeredCount, totalQuestions, totalSeconds, maxScore, finalScore, submitting, submitError, onExit,
+}: {
   examName: string;
+  answeredCount: number;
+  totalQuestions: number;
+  totalSeconds: number;
+  maxScore: number;
+  finalScore: number | null;
+  submitting: boolean;
+  submitError: string | null;
   onExit: () => void;
 }) {
-  const correct = questions.filter((q) => answers[q.id] === q.correctOptionId).length;
-  const total = questions.length;
-  const pct = Math.round((correct / total) * 100);
-  const score10 = ((correct / total) * 10).toFixed(1);
-  const timeTaken = Math.round((totalSeconds) / 60);
+  const timeTaken = Math.round(totalSeconds / 60);
 
+  if (submitting) {
+    return (
+      <div className="min-h-screen bg-navy flex items-center justify-center p-6">
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin mx-auto" />
+          <p className="text-muted text-sm">Submitting your exam…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (submitError) {
+    return (
+      <div className="min-h-screen bg-navy flex items-center justify-center p-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <p className="text-4xl">⚠️</p>
+          <h2 className="font-syne font-bold text-white-soft text-xl">Submission Failed</h2>
+          <p className="text-muted text-sm">{submitError}</p>
+          <button onClick={onExit} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
+            Back to My Exams
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const hasScore = finalScore !== null && maxScore > 0;
+  const pct = hasScore ? Math.round((finalScore! / maxScore) * 100) : 0;
   const scoreColor = pct >= 70 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
   const scoreTextClass = pct >= 70 ? 'text-green' : pct >= 50 ? 'text-gold' : 'text-red';
   const scoreBgClass  = pct >= 70 ? 'bg-green/10 border-green/30' : pct >= 50 ? 'bg-gold/10 border-gold/30' : 'bg-red/10 border-red/30';
@@ -103,38 +110,43 @@ function ResultScreen({ questions, answers, totalSeconds, examName, onExit }: {
         <div className="relative w-36 h-36 mx-auto">
           <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
             <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="10" />
-            <circle
-              cx="60" cy="60" r="50" fill="none"
-              stroke={scoreColor}
-              strokeWidth="10"
-              strokeLinecap="round"
-              strokeDasharray={`${2 * Math.PI * 50}`}
-              strokeDashoffset={`${2 * Math.PI * 50 * (1 - pct / 100)}`}
-              style={{ transition: 'stroke-dashoffset 1.2s ease' }}
-            />
+            {hasScore && (
+              <circle
+                cx="60" cy="60" r="50" fill="none"
+                stroke={scoreColor}
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 50}`}
+                strokeDashoffset={`${2 * Math.PI * 50 * (1 - pct / 100)}`}
+                style={{ transition: 'stroke-dashoffset 1.2s ease' }}
+              />
+            )}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="font-syne font-extrabold text-3xl text-white-soft">{pct}%</span>
-            <span className="text-xs text-muted">{correct}/{total}</span>
+            <span className="font-syne font-extrabold text-3xl text-white-soft">{hasScore ? `${pct}%` : '—'}</span>
+            {hasScore && <span className="text-xs text-muted">{finalScore}/{maxScore} pts</span>}
           </div>
         </div>
 
-        {/* Score badge */}
-        <div className={`inline-flex items-baseline gap-1.5 px-5 py-2.5 rounded-2xl border mx-auto ${scoreBgClass}`}>
-          <span className={`font-syne font-extrabold text-4xl ${scoreTextClass}`}>{score10}</span>
-          <span className={`font-syne font-bold text-lg ${scoreTextClass} opacity-60`}>/&nbsp;10</span>
-        </div>
+        {hasScore && (
+          <div className={`inline-flex items-baseline gap-1.5 px-5 py-2.5 rounded-2xl border mx-auto ${scoreBgClass}`}>
+            <span className={`font-syne font-extrabold text-4xl ${scoreTextClass}`}>{finalScore}</span>
+            <span className={`font-syne font-bold text-lg ${scoreTextClass} opacity-60`}>/&nbsp;{maxScore}</span>
+          </div>
+        )}
 
         <div>
-          <h1 className="font-syne font-extrabold text-white-soft text-2xl">{pct >= 70 ? 'Great Job!' : pct >= 50 ? 'Almost There' : 'Keep Practicing'}</h1>
+          <h1 className="font-syne font-extrabold text-white-soft text-2xl">
+            {hasScore ? (pct >= 70 ? 'Great Job!' : pct >= 50 ? 'Almost There' : 'Keep Practicing') : 'Exam Submitted'}
+          </h1>
           <p className="text-muted text-sm mt-1">{examName}</p>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
           {[
-            { label: 'Correct', value: correct, color: 'text-green' },
-            { label: 'Wrong',   value: total - correct, color: 'text-red' },
-            { label: 'Time',    value: `${timeTaken}m`, color: 'text-gold' },
+            { label: 'Answered', value: `${answeredCount}/${totalQuestions}`, color: 'text-blue-bright' },
+            { label: 'Time',     value: `${timeTaken}m`,                     color: 'text-gold' },
+            { label: 'Score',    value: hasScore ? `${finalScore}/${maxScore}` : 'Pending', color: 'text-green' },
           ].map((s) => (
             <div key={s.label} className="bg-navy-card border border-border rounded-2xl p-4">
               <p className={`font-syne font-extrabold text-xl ${s.color}`}>{s.value}</p>
@@ -175,13 +187,24 @@ export default function StudentExamTakingPage() {
     try { return JSON.parse(localStorage.getItem(`studentExam_${examId}`) ?? '{}'); } catch { return {}; }
   })();
 
-  const [questions] = useState<MCQQuestion[]>(() => loadExamQuestions(examId ?? ''));
+  const { data: questionsData, loading: loadingQuestions } = useAsyncData(
+    () => (examId ? fetchExamQuestions(examId, { pageSize: 200 }) : Promise.resolve({ items: [] as ApiExamQuestion[], pagination: { page: 1, pageSize: 0, totalItems: 0, totalPages: 0 } })),
+    [examId],
+  );
+  const questions = [...(questionsData?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
+  const maxScore = questions.reduce((sum, q) => sum + q.points, 0);
+
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [showSubmit, setShowSubmit] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [finalScore, setFinalScore] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const participationIdRef = useRef<string | null>(null);
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
 
   const totalSeconds = (exam.durationMinutes ?? 60) * 60;
   const remaining = totalSeconds - elapsedSeconds;
@@ -226,7 +249,9 @@ export default function StudentExamTakingPage() {
           const mine = items.find((p) => p.examSlotId === examId && p.studentId === studentId);
           if (mine?.actualStart) {
             startTimeRef.current = new Date(mine.actualStart).getTime();
-            setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+            // Clamp về 0 — đồng hồ máy client có thể lệch (chậm hơn) so với server lúc BE ghi actualStart,
+            // khiến Date.now() - startTimeRef.current ra số âm trong vài giây đầu.
+            setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startTimeRef.current) / 1000)));
           }
         } catch { /* giữ nguyên mốc local nếu không lấy được actualStart */ }
 
@@ -255,20 +280,43 @@ export default function StudentExamTakingPage() {
   useEffect(() => {
     if (submitted) return;
     const id = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      setElapsedSeconds(Math.max(0, Math.floor((Date.now() - startTimeRef.current) / 1000)));
     }, 1000);
     return () => clearInterval(id);
   }, [submitted]);
 
+  // Nộp bài: đóng participation (dừng proctoring) + gửi đáp án cho BE chấm điểm
+  const doSubmit = useCallback(async () => {
+    if (!examId || submitted) return;
+    setShowSubmit(false);
+    setSubmitted(true);
+    setSubmitting(true);
+    setSubmitError(null);
+
+    const pid = participationIdRef.current;
+    const answerList = Object.entries(answersRef.current).map(([questionId, optionId]) => ({ questionId, optionId }));
+
+    try {
+      const record = await submitStudentExamRecord({
+        examSlotId: examId,
+        answers: answerList,
+        durationSeconds: Math.max(0, elapsedSeconds),
+      });
+      if (pid) void submitExamParticipation(pid).catch(() => undefined);
+      setFinalScore(record.finalScore ?? null);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to submit exam.');
+    } finally {
+      setSubmitting(false);
+    }
+  }, [examId, submitted, elapsedSeconds]);
+
   // Auto-submit when time runs out
   useEffect(() => {
-    if (!submitted && remaining <= 0) {
-      setSubmitted(true);
-      if (participationIdRef.current) {
-        void submitExamParticipation(participationIdRef.current).catch(() => undefined);
-      }
+    if (!submitted && !loadingQuestions && questions.length > 0 && remaining <= 0) {
+      void doSubmit();
     }
-  }, [remaining, submitted]);
+  }, [remaining, submitted, loadingQuestions, questions.length, doSubmit]);
 
   const formatTime = useCallback((secs: number) => {
     if (secs <= 0) return '00:00';
@@ -281,13 +329,13 @@ export default function StudentExamTakingPage() {
     setAnswers((prev) => ({ ...prev, [questions[current].id]: optId }));
   };
 
-  const handleSubmitConfirm = () => {
-    setShowSubmit(false);
-    setSubmitted(true);
-    if (participationIdRef.current) {
-      void submitExamParticipation(participationIdRef.current).catch(() => undefined);
-    }
-  };
+  if (loadingQuestions) {
+    return (
+      <div className="min-h-screen bg-navy flex items-center justify-center p-6">
+        <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+      </div>
+    );
+  }
 
   if (questions.length === 0) {
     return (
@@ -304,20 +352,25 @@ export default function StudentExamTakingPage() {
     );
   }
 
+  const answeredCount = Object.keys(answers).length;
+
   if (submitted) {
     return (
       <ResultScreen
-        questions={questions}
-        answers={answers}
-        totalSeconds={elapsedSeconds}
         examName={exam.examName ?? 'Exam'}
+        answeredCount={answeredCount}
+        totalQuestions={questions.length}
+        totalSeconds={elapsedSeconds}
+        maxScore={maxScore}
+        finalScore={finalScore}
+        submitting={submitting}
+        submitError={submitError}
         onExit={() => navigate('/student/exams')}
       />
     );
   }
 
   const q = questions[current];
-  const answeredCount = Object.keys(answers).length;
   const isLowTime = remaining <= 300;
 
   return (
@@ -364,16 +417,16 @@ export default function StudentExamTakingPage() {
                 {current + 1}
               </span>
               <div className="flex-1 space-y-3">
-                {q.text && <p className="text-white-soft font-semibold text-base leading-relaxed">{q.text}</p>}
-                {q.imageBase64 && (
-                  <img src={q.imageBase64} alt="Question" className="max-w-full max-h-56 rounded-xl border border-border object-contain" />
+                <p className="text-white-soft font-semibold text-base leading-relaxed">{q.questionContent}</p>
+                {q.imageUrl && (
+                  <img src={q.imageUrl} alt="Question" className="max-w-full max-h-56 rounded-xl border border-border object-contain" />
                 )}
               </div>
             </div>
 
             {/* Options */}
             <div className="space-y-2">
-              {q.options.map((opt, i) => {
+              {q.options.map((opt) => {
                 const isSelected = answers[q.id] === opt.id;
                 return (
                   <button
@@ -388,10 +441,10 @@ export default function StudentExamTakingPage() {
                     <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
                       isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
                     }`}>
-                      {OPTION_LABELS[i]}
+                      {opt.optionLabel}
                     </div>
                     <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
-                      {opt.text}
+                      {opt.optionContent}
                     </span>
                     {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
                   </button>
@@ -539,7 +592,7 @@ export default function StudentExamTakingPage() {
         <SubmitModal
           total={questions.length}
           answered={answeredCount}
-          onConfirm={handleSubmitConfirm}
+          onConfirm={() => void doSubmit()}
           onCancel={() => setShowSubmit(false)}
         />
       )}

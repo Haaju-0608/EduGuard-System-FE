@@ -1,114 +1,165 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiArrowLeft, FiEdit2, FiImage, FiPlus, FiTrash2, FiX } from 'react-icons/fi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchExamSlots } from '../../../services/schoolAdminApi';
+import {
+  createExamQuestion,
+  createQuestionOption,
+  deleteExamQuestion,
+  deleteQuestionOption,
+  fetchExamQuestions,
+  fetchExamSlots,
+  updateExamQuestion,
+  updateQuestionOption,
+} from '../../../services/schoolAdminApi';
+import type { ApiExamQuestion, ApiQuestionOption } from '../../../types/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-export interface MCQuestion {
-  id: string;
-  examId: string;
-  text: string;
-  imageBase64?: string;
-  options: string[];   // min 2, no hard max
-  correctIndex: number;
-}
+/** BE hiện chỉ validate MaxLength(30), chưa có enum cố định — tạm hardcode 1 loại duy nhất */
+const QUESTION_TYPE = 'MCQ';
 
-function storageKey(examId: string) { return `eduguard_exam_questions_${examId}`; }
-function loadQuestions(examId: string): MCQuestion[] {
-  try { return JSON.parse(localStorage.getItem(storageKey(examId)) ?? '[]'); }
-  catch { return []; }
+interface EditableOption {
+  /** id thật từ BE nếu đã tồn tại, id tạm (client-side) nếu mới thêm chưa lưu */
+  id: string;
+  optionLabel: string;
+  optionContent: string;
+  isCorrect: boolean;
+  isNew: boolean;
 }
-function saveQuestions(examId: string, qs: MCQuestion[]) {
-  localStorage.setItem(storageKey(examId), JSON.stringify(qs));
-}
-function genId() { return `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
-function letter(i: number) { return String.fromCharCode(65 + i); } // A B C D E F…
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 8;
+
+function letter(i: number) { return String.fromCharCode(65 + i); }
+function tempId() { return `new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
+
+function emptyOptions(): EditableOption[] {
+  return Array.from({ length: 4 }, (_, i) => ({
+    id: tempId(),
+    optionLabel: letter(i),
+    optionContent: '',
+    isCorrect: i === 0,
+    isNew: true,
+  }));
+}
 
 // ─── Modal ────────────────────────────────────────────────────────────────
 
 interface ModalProps {
   examId: string;
-  initial?: MCQuestion;
+  displayOrder: number;
+  initial?: ApiExamQuestion;
   onClose: () => void;
-  onSave: (q: MCQuestion) => void;
+  onSaved: () => void;
 }
 
-function QuestionModal({ examId, initial, onClose, onSave }: ModalProps) {
+function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: ModalProps) {
   const toast = useToast();
-  const [text, setText] = useState(initial?.text ?? '');
-  const [imageBase64, setImageBase64] = useState<string | undefined>(initial?.imageBase64);
-  const [options, setOptions] = useState<string[]>(initial?.options ?? ['', '', '', '']);
-  const [correctIndex, setCorrectIndex] = useState<number>(initial?.correctIndex ?? 0);
-  const [dragging, setDragging] = useState(false);
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [text, setText] = useState(initial?.questionContent ?? '');
+  const [points, setPoints] = useState(initial?.points ?? 1);
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? '');
+  const [imageError, setImageError] = useState(false);
+  const [options, setOptions] = useState<EditableOption[]>(() =>
+    initial
+      ? initial.options.map((o) => ({
+          id: o.id, optionLabel: o.optionLabel, optionContent: o.optionContent,
+          isCorrect: !!o.isCorrect, isNew: false,
+        }))
+      : emptyOptions(),
+  );
+  const [saving, setSaving] = useState(false);
 
-  const updateOption = (i: number, val: string) =>
-    setOptions((prev) => prev.map((o, idx) => (idx === i ? val : o)));
+  const isEdit = !!initial;
+
+  const updateOptionText = (id: string, val: string) =>
+    setOptions((prev) => prev.map((o) => (o.id === id ? { ...o, optionContent: val } : o)));
 
   const addOption = () => {
     if (options.length >= MAX_OPTIONS) return;
-    setOptions((prev) => [...prev, '']);
+    setOptions((prev) => [...prev, { id: tempId(), optionLabel: letter(prev.length), optionContent: '', isCorrect: false, isNew: true }]);
   };
 
-  const removeOption = (i: number) => {
+  const removeOption = (id: string) => {
     if (options.length <= MIN_OPTIONS) return;
-    setOptions((prev) => prev.filter((_, idx) => idx !== i));
-    setCorrectIndex((prev) => {
-      if (prev === i) return 0;
-      if (prev > i) return prev - 1;
-      return prev;
+    setOptions((prev) => {
+      const next = prev.filter((o) => o.id !== id);
+      if (!next.some((o) => o.isCorrect) && next.length > 0) next[0].isCorrect = true;
+      return next.map((o, i) => ({ ...o, optionLabel: letter(i) }));
     });
   };
 
-  const processFile = (file: File) => {
-    if (!file.type.startsWith('image/')) { toast.warning('Invalid', 'Please upload an image file.'); return; }
-    if (file.size > 5 * 1024 * 1024) { toast.warning('Too large', 'Image must be under 5 MB.'); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => setImageBase64(e.target?.result as string);
-    reader.readAsDataURL(file);
-  };
+  const handleSave = async () => {
+    if (!text.trim()) { toast.warning('Required', 'Enter question text.'); return; }
+    if (options.some((o) => !o.optionContent.trim())) { toast.warning('Required', 'All options must be filled in.'); return; }
+    if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
+    if (points < 0) { toast.warning('Invalid', 'Points must be 0 or more.'); return; }
 
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault(); setDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) processFile(file);
-  };
+    setSaving(true);
+    try {
+      if (isEdit && initial) {
+        await updateExamQuestion(initial.id, {
+          questionType: QUESTION_TYPE,
+          questionContent: text.trim(),
+          imageUrl: imageUrl.trim() || null,
+          points,
+          displayOrder: initial.displayOrder,
+        });
 
-  const handleSave = () => {
-    if (!text.trim() && !imageBase64) { toast.warning('Required', 'Enter question text or upload an image.'); return; }
-    // When image exists, text options are optional (letters shown in image)
-    if (!imageBase64 && options.some((o) => !o.trim())) {
-      toast.warning('Required', 'All options must be filled in.'); return;
+        // Diff options: xoá option cũ bị bỏ, tạo option mới, cập nhật option còn lại
+        const originalIds = new Set(initial.options.map((o) => o.id));
+        const currentExistingIds = new Set(options.filter((o) => !o.isNew).map((o) => o.id));
+        const removedIds = [...originalIds].filter((id) => !currentExistingIds.has(id));
+
+        await Promise.all([
+          ...removedIds.map((id) => deleteQuestionOption(id)),
+          ...options.map((o) => {
+            const payload = { optionLabel: o.optionLabel, optionContent: o.optionContent.trim(), isCorrect: o.isCorrect };
+            return o.isNew
+              ? createQuestionOption(initial.id, payload)
+              : updateQuestionOption(o.id, payload);
+          }),
+        ]);
+
+        toast.success('Updated', 'Question updated.');
+      } else {
+        await createExamQuestion({
+          examSlotId: examId,
+          questionType: QUESTION_TYPE,
+          questionContent: text.trim(),
+          imageUrl: imageUrl.trim() || null,
+          points,
+          displayOrder,
+          options: options.map((o) => ({
+            optionLabel: o.optionLabel,
+            optionContent: o.optionContent.trim(),
+            isCorrect: o.isCorrect,
+          })),
+        });
+        toast.success('Added', 'Question added.');
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error.';
+      toast.error('Failed to save', msg);
+    } finally {
+      setSaving(false);
     }
-    onSave({
-      id: initial?.id ?? genId(),
-      examId,
-      text: text.trim(),
-      imageBase64,
-      options: options.map((o) => o.trim()),
-      correctIndex,
-    });
   };
 
   return createPortal(
     <div
-      ref={overlayRef}
       className="fixed inset-0 z-200 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onMouseDown={(e) => { if (e.target === overlayRef.current) onClose(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="bg-[#0f172a] border border-border rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
           <h2 className="font-syne font-extrabold text-white-soft text-lg">
-            {initial ? 'Edit Question' : 'Add Question'}
+            {isEdit ? 'Edit Question' : 'Add Question'}
           </h2>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-white-soft transition-colors cursor-pointer">
             <FiX />
@@ -118,9 +169,7 @@ function QuestionModal({ examId, initial, onClose, onSave }: ModalProps) {
         <div className="px-6 py-5 space-y-5">
           {/* Question text */}
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-              Question text <span className="normal-case font-normal">(optional if image provided)</span>
-            </label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question *</label>
             <textarea
               rows={2}
               value={text}
@@ -130,81 +179,80 @@ function QuestionModal({ examId, initial, onClose, onSave }: ModalProps) {
             />
           </div>
 
-          {/* Image upload */}
+          {/* Points */}
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Points</label>
+            <input
+              type="number"
+              min={0}
+              step="0.5"
+              value={points}
+              onChange={(e) => setPoints(Number(e.target.value))}
+              className="w-32 bg-navy border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/40 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            />
+          </div>
+
+          {/* Image URL */}
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-              Question image <span className="normal-case font-normal">(optional)</span>
+              Image URL <span className="normal-case font-normal">(optional — paste a link to an existing image; direct file upload isn't supported yet)</span>
             </label>
-            {imageBase64 ? (
-              <div className="relative">
-                <img src={imageBase64} alt="Question" className="w-full max-h-56 object-contain rounded-xl border border-border bg-navy" />
-                <button
-                  type="button"
-                  onClick={() => setImageBase64(undefined)}
-                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-red/80 transition-colors cursor-pointer"
-                >
-                  <FiX size={13} />
-                </button>
-              </div>
-            ) : (
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-                onDragLeave={() => setDragging(false)}
-                onDrop={handleDrop}
-                className={`flex flex-col items-center justify-center gap-2 py-8 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
-                  dragging ? 'border-blue-bright bg-blue/10' : 'border-border hover:border-blue-bright/40 hover:bg-white/5'
-                }`}
-              >
-                <FiImage className="text-muted text-2xl" />
-                <p className="text-sm text-muted">Click or drag & drop an image</p>
-                <p className="text-xs text-muted/60">PNG, JPG, GIF — max 5 MB</p>
-              </div>
+            <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/40 transition-colors">
+              <FiImage className="text-muted shrink-0" />
+              <input
+                type="text"
+                value={imageUrl}
+                onChange={(e) => { setImageUrl(e.target.value); setImageError(false); }}
+                placeholder="https://..."
+                className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+              />
+            </div>
+            {imageUrl.trim() && !imageError && (
+              <img
+                src={imageUrl.trim()}
+                alt="Question preview"
+                onError={() => setImageError(true)}
+                className="mt-2 w-full max-h-40 object-contain rounded-xl border border-border bg-navy"
+              />
             )}
-            <input ref={fileInputRef} type="file" accept="image/*" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); e.target.value = ''; }} />
+            {imageUrl.trim() && imageError && (
+              <p className="mt-2 text-xs text-red">Could not load image from this URL.</p>
+            )}
           </div>
 
           {/* Options */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-[10px] font-bold text-muted uppercase tracking-wider">
-                Options{imageBase64 ? '' : ' *'}{' '}
-                <span className="normal-case font-normal">
-                  {imageBase64
-                    ? '— optional if shown in image, click letter to mark correct'
-                    : '— click a letter to mark correct answer'}
-                </span>
+                Options * <span className="normal-case font-normal">— click a letter to mark correct</span>
               </label>
               <span className="text-[10px] text-muted">{options.length}/{MAX_OPTIONS}</span>
             </div>
 
             <div className="space-y-2.5">
-              {options.map((opt, i) => (
-                <div key={i} className="flex items-center gap-3">
+              {options.map((opt) => (
+                <div key={opt.id} className="flex items-center gap-3">
                   <button
                     type="button"
-                    onClick={() => setCorrectIndex(i)}
+                    onClick={() => setOptions((prev) => prev.map((o) => ({ ...o, isCorrect: o.id === opt.id })))}
                     className={`shrink-0 w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                      correctIndex === i
-                        ? 'border-green bg-green/20 text-green'
-                        : 'border-border text-muted hover:border-blue-bright/40'
+                      opt.isCorrect ? 'border-green bg-green/20 text-green' : 'border-border text-muted hover:border-blue-bright/40'
                     }`}
                   >
-                    {letter(i)}
+                    {opt.optionLabel}
                   </button>
                   <input
                     type="text"
-                    value={opt}
-                    onChange={(e) => updateOption(i, e.target.value)}
-                    placeholder={imageBase64 ? `Option ${letter(i)} (optional)` : `Option ${letter(i)}`}
+                    value={opt.optionContent}
+                    onChange={(e) => updateOptionText(opt.id, e.target.value)}
+                    placeholder={`Option ${opt.optionLabel}`}
                     className="flex-1 bg-navy border border-border rounded-xl px-3 py-2 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/40 transition-colors"
                   />
-                  {correctIndex === i && (
+                  {opt.isCorrect && (
                     <span className="text-[10px] font-bold text-green shrink-0 w-14">✓ Correct</span>
                   )}
                   {options.length > MIN_OPTIONS ? (
-                    <button type="button" onClick={() => removeOption(i)}
+                    <button type="button" onClick={() => removeOption(opt.id)}
                       className="shrink-0 w-6 h-6 rounded-full text-muted hover:text-red hover:bg-red/10 flex items-center justify-center transition-colors cursor-pointer">
                       <FiX size={12} />
                     </button>
@@ -225,11 +273,11 @@ function QuestionModal({ examId, initial, onClose, onSave }: ModalProps) {
 
         {/* Footer */}
         <div className="flex gap-3 px-6 pb-6">
-          <button onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white-soft transition-all cursor-pointer">
+          <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white-soft transition-all cursor-pointer disabled:opacity-50">
             Cancel
           </button>
-          <button onClick={handleSave} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer">
-            {initial ? 'Save Changes' : 'Add Question'}
+          <button onClick={() => void handleSave()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer disabled:opacity-50">
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Question'}
           </button>
         </div>
       </div>
@@ -245,10 +293,10 @@ export default function ExamQuestionsPage() {
   const navigate = useNavigate();
   const toast = useToast();
 
-  const [questions, setQuestions] = useState<MCQuestion[]>(() => loadQuestions(examId ?? ''));
   const [modal, setModal] = useState<'create' | 'edit' | null>(null);
-  const [editing, setEditing] = useState<MCQuestion | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<MCQuestion | null>(null);
+  const [editing, setEditing] = useState<ApiExamQuestion | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<ApiExamQuestion | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const { data: slotsData } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 200 });
@@ -256,38 +304,39 @@ export default function ExamQuestionsPage() {
   }, []);
   const slot = slotsData?.find((s) => s.id === examId);
 
-  useEffect(() => {
-    if (examId) saveQuestions(examId, questions);
-  }, [questions, examId]);
+  const { data, loading, error, reload } = useAsyncData(
+    () => (examId ? fetchExamQuestions(examId, { pageSize: 200 }) : Promise.resolve({ items: [] as ApiExamQuestion[], pagination: { page: 1, pageSize: 0, totalItems: 0, totalPages: 0 } })),
+    [examId],
+  );
+  const questions = [...(data?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
 
-
-  const handleSave = (q: MCQuestion) => {
-    setQuestions((prev) =>
-      modal === 'edit' ? prev.map((x) => (x.id === q.id ? q : x)) : [...prev, q],
-    );
-    toast.success(modal === 'edit' ? 'Updated' : 'Added', 'Question saved.');
-    setModal(null);
-    setEditing(null);
-  };
-
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
-    setQuestions((prev) => prev.filter((q) => q.id !== deleteTarget.id));
-    toast.success('Deleted', 'Question removed.');
-    setDeleteTarget(null);
+    setDeleting(true);
+    try {
+      await deleteExamQuestion(deleteTarget.id);
+      toast.success('Deleted', 'Question removed.');
+      setDeleteTarget(null);
+      reload();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error.';
+      toast.error('Failed to delete', msg);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-navy-card border border-border rounded-[20px] p-6">
+      <div className="bg-navy-card border border-border rounded-[20px] p-6 flex items-center gap-4 flex-wrap">
         <button
           onClick={() => navigate('/school/exams')}
           className="flex items-center gap-2 text-xs text-muted hover:text-blue-bright transition-colors cursor-pointer mb-4 bg-transparent border-none"
         >
           <FiArrowLeft /> Back to Exams
         </button>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start justify-between gap-4 flex-wrap w-full">
           <div>
             <h1 className="font-syne text-2xl font-extrabold text-white-soft">
               {slot ? slot.examName : 'Exam Questions'}
@@ -301,7 +350,8 @@ export default function ExamQuestionsPage() {
           </div>
           <button
             onClick={() => { setEditing(null); setModal('create'); }}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer shrink-0"
+            disabled={!examId}
+            className="flex items-center gap-2 px-4 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer shrink-0 disabled:opacity-50"
           >
             <FiPlus /> Add Question
           </button>
@@ -316,19 +366,35 @@ export default function ExamQuestionsPage() {
       </div>
 
       {/* Question list */}
-      {questions.length === 0 ? (
+      {loading ? (
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-navy-card border border-border rounded-[20px] h-32 animate-pulse" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="bg-navy-card border border-red/30 rounded-[20px] py-16 text-center">
+          <p className="text-red text-sm mb-3">{error}</p>
+          <button onClick={reload} className="text-xs text-blue-bright underline cursor-pointer bg-transparent border-none">Retry</button>
+        </div>
+      ) : questions.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">📋</p>
           <p className="text-muted text-sm">No questions yet. Click "Add Question" to get started.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {questions.map((q: MCQuestion, i: number) => (
+          {questions.map((q: ApiExamQuestion, i: number) => (
             <div key={q.id} className="bg-navy-card border border-border rounded-[20px] p-5">
               <div className="flex items-start justify-between gap-3 mb-4">
-                <span className="text-[10px] font-bold text-muted bg-navy border border-border px-2 py-0.5 rounded-full font-mono">
-                  Q{i + 1}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] font-bold text-muted bg-navy border border-border px-2 py-0.5 rounded-full font-mono">
+                    Q{i + 1}
+                  </span>
+                  <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full">
+                    {q.points} pt{q.points !== 1 ? 's' : ''}
+                  </span>
+                </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button onClick={() => { setEditing(q); setModal('edit'); }} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-blue-bright transition-colors cursor-pointer">
                     <FiEdit2 size={14} />
@@ -339,30 +405,33 @@ export default function ExamQuestionsPage() {
                 </div>
               </div>
 
-              {q.imageBase64 && (
-                <img src={q.imageBase64} alt="Question" className="w-full max-h-60 object-contain rounded-xl border border-border bg-navy mb-4" />
-              )}
-              {q.text && (
-                <p className="text-sm text-white-soft font-medium leading-relaxed mb-4">{q.text}</p>
+              <p className="text-sm text-white-soft font-medium leading-relaxed mb-4">{q.questionContent}</p>
+
+              {q.imageUrl && (
+                <img
+                  src={q.imageUrl}
+                  alt={`Question ${i + 1}`}
+                  className="w-full max-h-60 object-contain rounded-xl border border-border bg-navy mb-4"
+                />
               )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {q.options.map((opt, j) => (
+                {q.options.map((opt: ApiQuestionOption) => (
                   <div
-                    key={j}
+                    key={opt.id}
                     className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs border ${
-                      j === q.correctIndex
+                      opt.isCorrect
                         ? 'border-green/40 bg-green/10 text-green font-semibold'
                         : 'border-border/50 bg-navy/40 text-muted'
                     }`}
                   >
                     <span className={`w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold shrink-0 ${
-                      j === q.correctIndex ? 'border-green text-green' : 'border-border text-muted'
+                      opt.isCorrect ? 'border-green text-green' : 'border-border text-muted'
                     }`}>
-                      {letter(j)}
+                      {opt.optionLabel}
                     </span>
-                    <span className="flex-1">{opt}</span>
-                    {j === q.correctIndex && <span className="shrink-0">✓</span>}
+                    <span className="flex-1">{opt.optionContent}</span>
+                    {opt.isCorrect && <span className="shrink-0">✓</span>}
                   </div>
                 ))}
               </div>
@@ -371,12 +440,13 @@ export default function ExamQuestionsPage() {
         </div>
       )}
 
-      {(modal === 'create' || modal === 'edit') && (
+      {(modal === 'create' || modal === 'edit') && examId && (
         <QuestionModal
-          examId={examId ?? ''}
+          examId={examId}
+          displayOrder={questions.length}
           initial={modal === 'edit' && editing ? editing : undefined}
           onClose={() => { setModal(null); setEditing(null); }}
-          onSave={handleSave}
+          onSaved={reload}
         />
       )}
 
@@ -385,17 +455,15 @@ export default function ExamQuestionsPage() {
           <div className="bg-[#0f172a] border border-border rounded-[20px] shadow-2xl w-full max-w-sm p-6 space-y-4">
             <h3 className="font-syne font-bold text-white-soft">Delete Question?</h3>
             <p className="text-sm text-muted leading-relaxed">
-              {deleteTarget.text
-                ? `"${deleteTarget.text.slice(0, 80)}${deleteTarget.text.length > 80 ? '…' : ''}"`
-                : 'This question contains only an image.'}
+              "{deleteTarget.questionContent.slice(0, 80)}{deleteTarget.questionContent.length > 80 ? '…' : ''}"
             </p>
             <p className="text-xs text-red">This action cannot be undone.</p>
             <div className="flex gap-3">
-              <button onClick={() => setDeleteTarget(null)} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white-soft transition-all cursor-pointer">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white-soft transition-all cursor-pointer disabled:opacity-50">
                 Cancel
               </button>
-              <button onClick={confirmDelete} className="flex-1 py-2.5 rounded-xl bg-red/90 text-white text-sm font-semibold hover:bg-red transition-all cursor-pointer">
-                Delete
+              <button onClick={() => void confirmDelete()} disabled={deleting} className="flex-1 py-2.5 rounded-xl bg-red/90 text-white text-sm font-semibold hover:bg-red transition-all cursor-pointer disabled:opacity-50">
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

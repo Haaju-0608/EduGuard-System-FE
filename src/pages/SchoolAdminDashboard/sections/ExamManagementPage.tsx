@@ -80,7 +80,7 @@ function ProctorDropdown({
   return (
     <div ref={ref} className="relative">
       <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-        Proctor (Giám thị){' '}
+        Proctor{' '}
         <span className="text-muted font-normal normal-case tracking-normal">— optional</span>
       </label>
 

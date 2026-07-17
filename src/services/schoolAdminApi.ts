@@ -11,8 +11,11 @@ import type {
   ApiClass,
   ApiEnrollment,
   ApiExamParticipation,
+  ApiExamQuestion,
   ApiExamSlot,
   ApiInstitution,
+  ApiQuestionOption,
+  ApiStudentExamRecord,
   ApiTransaction,
   ApiUser,
   ApiWallet,
@@ -741,6 +744,118 @@ export async function disqualifyParticipation(
 /** DELETE /api/exam-participations/{participationId} — xóa tham gia */
 export async function deleteExamParticipation(participationId: string): Promise<void> {
   await apiDelete(`/api/exam-participations/${participationId}`);
+}
+
+// ─── Exam Questions ─────────────────────────────────────────────────────
+
+export interface CreateQuestionOptionPayload {
+  optionLabel: string;
+  optionContent: string;
+  isCorrect: boolean;
+}
+
+export interface CreateExamQuestionPayload {
+  examSlotId: string;
+  questionType: string;
+  questionContent: string;
+  audioUrl?: string | null;
+  imageUrl?: string | null;
+  points: number;
+  displayOrder: number;
+  options?: CreateQuestionOptionPayload[];
+}
+
+export interface UpdateExamQuestionPayload {
+  questionType: string;
+  questionContent: string;
+  audioUrl?: string | null;
+  imageUrl?: string | null;
+  points: number;
+  displayOrder: number;
+}
+
+/** GET /api/exam-questions?examSlotId=... — Student không thấy isCorrect (BE trả null) */
+export async function fetchExamQuestions(
+  examSlotId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiExamQuestion>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiExamQuestion[]>(
+    `/api/exam-questions${buildQueryParams({ examSlotId, page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
+/** POST /api/exam-questions — có thể kèm luôn options trong 1 request */
+export async function createExamQuestion(payload: CreateExamQuestionPayload): Promise<ApiExamQuestion> {
+  return apiPost<ApiExamQuestion>('/api/exam-questions', payload);
+}
+
+/** PUT /api/exam-questions/{id} — chỉ sửa field câu hỏi, không sửa options */
+export async function updateExamQuestion(
+  id: string,
+  payload: UpdateExamQuestionPayload,
+): Promise<ApiExamQuestion> {
+  return apiPut<ApiExamQuestion>(`/api/exam-questions/${id}`, payload);
+}
+
+/** DELETE /api/exam-questions/{id} */
+export async function deleteExamQuestion(id: string): Promise<void> {
+  await apiDelete(`/api/exam-questions/${id}`);
+}
+
+/** POST /api/exam-questions/{questionId}/options */
+export async function createQuestionOption(
+  questionId: string,
+  payload: CreateQuestionOptionPayload,
+): Promise<ApiQuestionOption> {
+  return apiPost<ApiQuestionOption>(`/api/exam-questions/${questionId}/options`, payload);
+}
+
+/** PUT /api/exam-questions/options/{optionId} */
+export async function updateQuestionOption(
+  optionId: string,
+  payload: CreateQuestionOptionPayload,
+): Promise<ApiQuestionOption> {
+  return apiPut<ApiQuestionOption>(`/api/exam-questions/options/${optionId}`, payload);
+}
+
+/** DELETE /api/exam-questions/options/{optionId} */
+export async function deleteQuestionOption(optionId: string): Promise<void> {
+  await apiDelete(`/api/exam-questions/options/${optionId}`);
+}
+
+// ─── Student Exam Records (nộp bài + chấm điểm) ──────────────────────────
+
+export interface SubmitStudentExamRecordPayload {
+  examSlotId: string;
+  answers: Array<{ questionId: string; optionId?: string; selectedOption?: string }>;
+  durationSeconds?: number;
+}
+
+/** POST /api/student-exam-records/submit — BE tự chấm điểm, trả finalScore */
+export async function submitStudentExamRecord(
+  payload: SubmitStudentExamRecordPayload,
+): Promise<ApiStudentExamRecord> {
+  return apiPost<ApiStudentExamRecord>('/api/student-exam-records/submit', payload);
+}
+
+/** GET /api/student-exam-records?studentId=&examSlotId= — xem điểm đã nộp */
+export async function fetchStudentExamRecords(
+  params: ListQueryParams & { studentId?: string; examSlotId?: string } = {},
+): Promise<PagedResult<ApiStudentExamRecord>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiStudentExamRecord[]>(
+    `/api/student-exam-records${buildQueryParams({
+      studentId: params.studentId,
+      examSlotId: params.examSlotId,
+      page,
+      pageSize,
+    })}`,
+  );
+  return { items: data, pagination };
 }
 
 // ─── Transactions Deduct ─────────────────────────────────────────────────

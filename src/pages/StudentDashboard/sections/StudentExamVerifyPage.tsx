@@ -213,9 +213,13 @@ export default function StudentExamVerifyPage() {
 
               {/* Đang tải */}
               {step === 'loading' && (
-                <div className="absolute inset-0 bg-navy/80 flex flex-col items-center justify-center gap-3">
-                  <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
-                  <p className="text-sm text-muted">Loading…</p>
+                <div className="absolute inset-0 bg-navy/80">
+                  {/* Spinner căn giữa tuyệt đối theo khung camera, tách riêng khỏi chữ bên dưới
+                      để không bị đẩy lệch tâm khi flex-col + gap canh cả nhóm làm 1 khối */}
+                  <div className="absolute inset-0 grid place-items-center">
+                    <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+                  </div>
+                  <p className="absolute left-1/2 -translate-x-1/2 top-[58%] text-sm text-muted whitespace-nowrap">Loading…</p>
                 </div>
               )}
 
@@ -229,9 +233,13 @@ export default function StudentExamVerifyPage() {
 
               {/* Đang khởi động camera */}
               {step === 'starting' && (
-                <div className="absolute inset-0 bg-navy/80 flex flex-col items-center justify-center gap-3">
-                  <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
-                  <p className="text-sm text-muted">Accessing camera…</p>
+                <div className="absolute inset-0 bg-navy/80">
+                  {/* Spinner căn giữa tuyệt đối theo khung camera, tách riêng khỏi chữ bên dưới
+                      để không bị đẩy lệch tâm khi flex-col + gap canh cả nhóm làm 1 khối */}
+                  <div className="absolute inset-0 grid place-items-center">
+                    <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+                  </div>
+                  <p className="absolute left-1/2 -translate-x-1/2 top-[58%] text-sm text-muted whitespace-nowrap">Accessing camera…</p>
                 </div>
               )}
 

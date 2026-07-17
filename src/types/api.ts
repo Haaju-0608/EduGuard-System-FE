@@ -201,6 +201,47 @@ export interface ApiExamParticipation {
   student: ApiUser | null;
 }
 
+/** Option của 1 câu hỏi trắc nghiệm — GET /api/exam-questions */
+export interface ApiQuestionOption {
+  id: string;
+  questionId: string;
+  optionLabel: string;
+  optionContent: string;
+  /** null khi role Student gọi — BE không lộ đáp án đúng cho student */
+  isCorrect: boolean | null;
+}
+
+/** Câu hỏi thi từ GET /api/exam-questions */
+export interface ApiExamQuestion {
+  id: string;
+  examSlotId: string;
+  examName: string | null;
+  questionType: string;
+  questionContent: string;
+  audioUrl: string | null;
+  imageUrl: string | null;
+  points: number;
+  displayOrder: number;
+  createdAt: string;
+  options: ApiQuestionOption[];
+}
+
+/** Kết quả bài thi từ POST /api/student-exam-records/submit */
+export interface ApiStudentExamRecord {
+  id: string;
+  examSlotId: string;
+  examName: string | null;
+  studentId: string;
+  studentName: string | null;
+  createdAt: string;
+  endedAt: string | null;
+  examRecord: string | null;
+  finalScore: number | null;
+  submittedAt: string | null;
+  durationSeconds: number | null;
+  status: string;
+}
+
 /** Deduct attendance request */
 export interface DeductAttendancePayload {
   walletId: string;
