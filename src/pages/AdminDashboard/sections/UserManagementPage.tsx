@@ -87,7 +87,7 @@ function UserFormModal({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          role: form.role.toLowerCase() as 'student' | 'lecturer' | 'schooladmin',
+          role: form.role as 'Student' | 'Lecturer' | 'SchoolAdmin',
           studentCode: form.studentCode.trim() || null,
           phone: form.phone.trim() || null,
           institutionId: form.institutionId || null,

@@ -72,7 +72,7 @@ function StudentFormModal({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          role: 'student',
+          role: 'Student',
           studentCode: form.studentCode.trim() || null,
           phone: form.phone.trim() || null,
           institutionId: institutionId || null,
@@ -167,8 +167,8 @@ export default function SchoolStudentManagementPage() {
   const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
 
   const { data, loading, reload } = useAsyncData(
-    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200 }),
-    [],
+    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
   );
   const students: LecturerStudent[] = data?.items ?? [];
 

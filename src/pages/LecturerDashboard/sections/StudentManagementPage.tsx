@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { FiBookOpen, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { ModalOverlay } from '../../../components/lecturer/LecturerAnimations';
+import { useAuth } from '../../../contexts/AuthContext';
 import {
   AttendanceProgressBar,
   CourseCodeBadge,
@@ -98,6 +99,7 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
 /** Trang quản lý sinh viên */
 export default function StudentManagementPage() {
   const { facultyId } = useLecturerFaculty();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
@@ -106,12 +108,12 @@ export default function StudentManagementPage() {
   const { data, loading, error, reload } = useAsyncData(
     async () => {
       const [studentResult, classResult] = await Promise.all([
-        fetchSchoolAdminStudents({ page: 1, pageSize: 50 }),
+        fetchSchoolAdminStudents({ page: 1, pageSize: 50, institutionId: user?.institutionId ?? undefined }),
         fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
       ]);
       return { students: studentResult.items, classes: classResult.items };
     },
-    []
+    [user?.institutionId]
   );
 
   const students = data?.students ?? [];

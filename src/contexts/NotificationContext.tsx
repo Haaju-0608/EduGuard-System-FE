@@ -3,6 +3,8 @@ import { apiGet, apiPut } from '../services/apiClient';
 import type { ApiNotification } from '../types/api';
 import type { AppNotification, NotificationType } from '../types/feedback';
 import { useAuth } from './AuthContext';
+import { useHubConnection, useHubEvent } from '../hooks/useHubConnection';
+import { HubRoute } from '../services/realtimeClient';
 
 interface NotificationContextType {
   notifications: AppNotification[];
@@ -52,7 +54,7 @@ function mapApiNotification(n: ApiNotification): AppNotification {
 }
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -77,6 +79,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Realtime: server bắn NotificationCreated qua NotificationHub mỗi khi có thông báo mới cho user này
+  const notificationHub = useHubConnection(HubRoute.Notifications, isAuthenticated);
+  useHubEvent(notificationHub, 'NotificationCreated', () => { reload(); });
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 

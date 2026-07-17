@@ -337,7 +337,7 @@ export default function LiveMonitorPage() {
             Live Event Logger
           </h2>
 
-          <div className="bg-navy-card border border-border rounded-2xl p-4 flex flex-col gap-3 h-[490px] overflow-y-auto">
+          <div className="bg-navy-card border border-border rounded-2xl p-4 flex flex-col gap-3 h-[490px] overflow-y-auto custom-scrollbar">
             {logs.length > 0 ? (
               logs.map((log) => {
                 const isCritical = log.severity === 'Critical';

@@ -145,8 +145,8 @@ export default function LecturerManagementPage() {
   }, [user?.institutionId]);
 
   const { data, loading, reload } = useAsyncData(
-    () => fetchLecturers({ page: 1, pageSize: 100 }),
-    [],
+    () => fetchLecturers({ page: 1, pageSize: 100, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
   );
   const lecturers: LecturerStudent[] = data?.items ?? [];
 
@@ -182,7 +182,7 @@ export default function LecturerManagementPage() {
         fullName: form.fullName,
         email: form.email,
         password: form.password,
-        role: 'lecturer',
+        role: 'Lecturer',
         studentCode: form.studentCode || undefined,
         institutionId: user?.institutionId ?? null,
       });

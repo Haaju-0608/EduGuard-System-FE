@@ -45,7 +45,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Enrollment Panel ────────────────────────────────────────────────────
 
-function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => void }) {
+function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; institutionId: string; onClose: () => void }) {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState('');
@@ -64,8 +64,9 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
   );
 
   const enrollments: ApiEnrollment[] = enrollData ?? [];
+  // Filter client-side theo institution — backend /api/users chưa scope theo institution
   const allStudents: ApiUser[] = (usersData?.items ?? []).filter(
-    (u) => u.role.trim().toLowerCase() === 'student',
+    (u) => u.role.trim().toLowerCase() === 'student' && (!institutionId || u.institutionId === institutionId),
   );
 
   // Lọc students chưa enrolled và khớp search
@@ -187,7 +188,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
         </div>
 
         {/* Student list */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-14 bg-white/5 rounded-xl animate-pulse" />)}
@@ -530,8 +531,8 @@ export default function SchoolClassManagementPage() {
     [],
   );
   const { data: lecturerRes } = useAsyncData(
-    () => fetchLecturers({ page: 1, pageSize: 200 }),
-    [],
+    () => fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
   );
 
   const lecturers: LecturerStudent[] = lecturerRes?.items ?? [];
@@ -661,7 +662,7 @@ export default function SchoolClassManagementPage() {
         />
       )}
       {enrollTarget && (
-        <EnrollmentPanel cls={enrollTarget} onClose={() => setEnrollTarget(null)} />
+        <EnrollmentPanel cls={enrollTarget} institutionId={institutionId} onClose={() => setEnrollTarget(null)} />
       )}
 
       {deleteClassTarget && createPortal(

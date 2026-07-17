@@ -21,6 +21,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 45,
     status: 'active',
     attendanceRate: 88.5,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-002',
@@ -33,6 +35,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 38,
     status: 'active',
     attendanceRate: 91.2,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-003',
@@ -45,6 +49,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 32,
     status: 'active',
     attendanceRate: 85.7,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-004',
@@ -57,6 +63,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 28,
     status: 'upcoming',
     attendanceRate: 0,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-005',
@@ -69,6 +77,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 52,
     status: 'active',
     attendanceRate: 86.3,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-006',
@@ -81,6 +91,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 41,
     status: 'active',
     attendanceRate: 89.1,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-007',
@@ -93,6 +105,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 35,
     status: 'active',
     attendanceRate: 82.0,
+    lecturerId: '',
+    lecturerName: '',
   },
   {
     id: 'cls-008',
@@ -105,6 +119,8 @@ export const MOCK_LECTURER_CLASSES: LecturerClass[] = [
     studentCount: 30,
     status: 'active',
     attendanceRate: 91.5,
+    lecturerId: '',
+    lecturerName: '',
   },
 ];
 

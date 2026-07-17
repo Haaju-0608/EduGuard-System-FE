@@ -12,6 +12,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
       },
+      '/hubs': {
+        target: 'https://eduguard-api-gdhg.onrender.com',
+        changeOrigin: true,
+        secure: true,
+        ws: true,
+      },
     },
   },
 })

@@ -222,7 +222,7 @@ export default function StudentSchedulePage() {
                 .filter((e) => isSameDay(new Date(e.startTime), day))
                 .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
               return (
-                <div key={i} className={`border-r last:border-r-0 border-border p-1.5 space-y-1.5 overflow-y-auto ${isToday ? 'bg-blue/5' : ''}`}>
+                <div key={i} className={`border-r last:border-r-0 border-border p-1.5 space-y-1.5 overflow-y-auto custom-scrollbar ${isToday ? 'bg-blue/5' : ''}`}>
                   {dayExams.length === 0 ? (
                     <div className="h-full flex items-center justify-center">
                       <span className="text-[10px] text-muted">–</span>
@@ -249,7 +249,7 @@ export default function StudentSchedulePage() {
 
       {/* ── List View ── */}
       {!loading && view === 'list' && (
-        <div className="flex-1 overflow-y-auto space-y-2 pr-0.5">
+        <div className="flex-1 overflow-y-auto space-y-2 pr-0.5 custom-scrollbar">
           {sortedExams.length === 0 ? (
             <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
               <p className="text-muted text-sm">No exams found.</p>

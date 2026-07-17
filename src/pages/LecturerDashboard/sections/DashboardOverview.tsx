@@ -143,7 +143,7 @@ export default function DashboardOverview() {
   const { data, loading, error, reload } = useAsyncData(
     async () => {
       if (isSchoolAdmin) {
-        const stats = await fetchSchoolAdminOverviewStats();
+        const stats = await fetchSchoolAdminOverviewStats(user?.institutionId ?? undefined);
         return { mode: 'schoolAdmin' as const, stats };
       }
       const [kpis, cameras, violations] = await Promise.all([
@@ -153,7 +153,7 @@ export default function DashboardOverview() {
       ]);
       return { mode: 'lecturer' as const, kpis, cameras, violations };
     },
-    [isSchoolAdmin]
+    [isSchoolAdmin, user?.institutionId]
   );
 
   const kpis = data?.mode === 'lecturer' ? data.kpis : [];

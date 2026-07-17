@@ -8,6 +8,7 @@ import {
   saveAuthTokens,
 } from '../services/authApi';
 import { ApiError } from '../services/apiClient';
+import { stopAllHubConnections } from '../services/realtimeClient';
 import { useIdleTimeout } from '../hooks/useIdleTimeout';
 
 export interface User {
@@ -105,6 +106,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const logout = useCallback(() => {
     setUser(null);
     clearAuthTokens();
+    stopAllHubConnections();
   }, []);
 
   const handleIdle = useCallback(() => {

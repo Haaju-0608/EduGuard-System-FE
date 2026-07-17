@@ -395,23 +395,31 @@ body::before {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* Custom scrollbar for dashboard */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
+/* ── Global custom scrollbar ─────────────────────────────────────── */
+*::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(59, 130, 246, 0.2);
-  border-radius: 3px;
+*::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.25);
+  border-radius: 99px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(59, 130, 246, 0.4);
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
 }
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* .custom-scrollbar kept for backward-compat; inherits from * above */
+.custom-scrollbar::-webkit-scrollbar { width: 5px; }
 
 /* Spinner animation for login */
 @keyframes spin {
@@ -423,13 +431,13 @@ body::before {
   animation: spin 0.8s linear infinite;
 }
 
-/* Light mode dashboard adjustments */
-:root.light .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(15, 23, 42, 0.12);
+/* Light mode scrollbar */
+:root.light *::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.15);
 }
 
-:root.light .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(15, 23, 42, 0.25);
+:root.light *::-webkit-scrollbar-thumb:hover {
+  background: rgba(15, 23, 42, 0.3);
 }
 
 /* Dashboard table styles */
@@ -1124,7 +1132,7 @@ body::before {
   position: fixed;
   top: 1.25rem;
   right: 1.25rem;
-  z-index: 9999;
+  z-index: 10000;
   display: flex;
   flex-direction: column;
   gap: 0.65rem;

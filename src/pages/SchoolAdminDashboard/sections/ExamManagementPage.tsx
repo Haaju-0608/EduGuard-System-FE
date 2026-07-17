@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { FiCalendar, FiCheck, FiChevronDown, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -126,7 +127,7 @@ function ProctorDropdown({
               className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
             />
           </div>
-          <div className="max-h-48 overflow-y-auto">
+          <div className="max-h-48 overflow-y-auto custom-scrollbar">
             {filtered.length === 0 ? (
               <p className="text-muted text-sm text-center py-4">No lecturers found</p>
             ) : (
@@ -231,7 +232,7 @@ function ExamFormModal({
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString(),
         expectedDurationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
-        proctorId: form.proctorId || undefined,
+        lecturerId: form.proctorId || undefined,
       };
       if (isEdit) {
         await updateExamSlot(target!.id, { classId: form.classId, ...base });
@@ -260,7 +261,7 @@ function ExamFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar min-h-0">
           {/* Class selector */}
           {isEdit ? (
             <div>
@@ -277,7 +278,7 @@ function ExamFormModal({
                 Classes *{' '}
                 <span className="text-muted font-normal normal-case tracking-normal">— select one or more</span>
               </label>
-              <div className="bg-navy border border-border rounded-xl max-h-44 overflow-y-auto">
+              <div className="bg-navy border border-border rounded-xl max-h-44 overflow-y-auto custom-scrollbar">
                 {classes.length === 0 ? (
                   <p className="text-muted text-sm text-center py-4">No classes available</p>
                 ) : (
@@ -384,6 +385,7 @@ const STATUS_OPTIONS: { value: ExamSlotStatus | 'all'; label: string }[] = [
 ];
 
 export default function ExamManagementPage() {
+  const { user } = useAuth();
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
@@ -403,9 +405,9 @@ export default function ExamManagementPage() {
   }, []);
 
   const { data: lecturersData } = useAsyncData(async () => {
-    const result = await fetchLecturers({ page: 1, pageSize: 200 });
+    const result = await fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined });
     return result.items;
-  }, []);
+  }, [user?.institutionId]);
 
   const classes: LecturerClass[] = classesData ?? [];
   const lecturers: LecturerStudent[] = lecturersData ?? [];

@@ -88,12 +88,14 @@ export default function AttendanceSessionPage() {
     try {
       const [classData, sessionData] = await Promise.all([
         fetchSchoolAdminClassesSimple(),
-        fetchActiveAttendanceSession(),
+        fetchActiveAttendanceSession().catch(() => null),
       ]);
       setClasses(classData.filter((c) => c.status === 'active'));
       setSession(sessionData);
       if (sessionData) setSelectedClassId(sessionData.classId);
       else if (classData.length > 0) setSelectedClassId(classData[0].id);
+    } catch {
+      // classes failed to load — page still renders empty state
     } finally {
       setLoading(false);
     }

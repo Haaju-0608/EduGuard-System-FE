@@ -5,7 +5,13 @@ import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag } from 'react-icons
 import { useAiProctoring } from '../../../ai/hooks/useAiProctoring';
 import type { ViolationType } from '../../../ai/types/proctoring';
 import { useAuth } from '../../../contexts/AuthContext';
-import { createExamParticipation, fetchExamParticipations, updateParticipationStatus } from '../../../services/schoolAdminApi';
+import {
+  createExamParticipation,
+  fetchExamParticipations,
+  joinExamParticipation,
+  sendExamHeartbeat,
+  submitExamParticipation,
+} from '../../../services/schoolAdminApi';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -187,7 +193,7 @@ export default function StudentExamTakingPage() {
   const proctoringRef = useRef(proctoring);
   proctoringRef.current = proctoring;
 
-  // Tạo / lấy ExamParticipation rồi mới start proctoring để đảm bảo participationId đúng trước khi AI upload
+  // Tạo / lấy ExamParticipation → gọi /join → start proctoring
   useEffect(() => {
     if (!examId || !user?.id) return;
     const studentId = user.id;
@@ -202,22 +208,47 @@ export default function StudentExamTakingPage() {
       } catch {
         try {
           const { items } = await fetchExamParticipations(examId, { pageSize: 100 });
-          const existing = items.find((p) => p.studentId === studentId);
+          // Lọc thêm examSlotId ở FE vì BE hiện chưa filter theo examSlotId (trả về participation của mọi bài thi)
+          const existing = items.find((p) => p.examSlotId === examId && p.studentId === studentId);
           if (existing) participationId = existing.id;
         } catch { /* bỏ qua */ }
       }
 
       if (participationId) {
         participationIdRef.current = participationId;
+        // Gọi /join để BE ghi actualStart (chỉ set lần đầu, các lần join lại sau giữ nguyên) và chuyển status → Joined
+        try { await joinExamParticipation(participationId); } catch { /* không chặn thi nếu fail */ }
+
+        // Đồng bộ đồng hồ đếm ngược theo actualStart thật từ BE — để khi thoát ra vào lại,
+        // thời gian còn lại tính đúng từ lúc bắt đầu làm bài, không bị reset về đủ giờ.
+        try {
+          const { items } = await fetchExamParticipations(examId, { pageSize: 100 });
+          const mine = items.find((p) => p.examSlotId === examId && p.studentId === studentId);
+          if (mine?.actualStart) {
+            startTimeRef.current = new Date(mine.actualStart).getTime();
+            setElapsedSeconds(Math.floor((Date.now() - startTimeRef.current) / 1000));
+          }
+        } catch { /* giữ nguyên mốc local nếu không lấy được actualStart */ }
+
         proctoringRef.current.updateProctoringConfig({ participationId, studentId, sessionId });
       }
 
-      // Start sau khi config đã được set
       void proctoringRef.current.start();
     };
 
     void init();
-    return () => { proctoringRef.current.stop(); };
+
+    // Heartbeat mỗi 30s để báo student còn online
+    const heartbeatTimer = setInterval(() => {
+      if (participationIdRef.current) {
+        void sendExamHeartbeat(participationIdRef.current).catch(() => undefined);
+      }
+    }, 30_000);
+
+    return () => {
+      proctoringRef.current.stop();
+      clearInterval(heartbeatTimer);
+    };
   }, [examId, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Timer
@@ -234,7 +265,7 @@ export default function StudentExamTakingPage() {
     if (!submitted && remaining <= 0) {
       setSubmitted(true);
       if (participationIdRef.current) {
-        void updateParticipationStatus(participationIdRef.current, 'Submitted').catch(() => undefined);
+        void submitExamParticipation(participationIdRef.current).catch(() => undefined);
       }
     }
   }, [remaining, submitted]);
@@ -253,9 +284,8 @@ export default function StudentExamTakingPage() {
   const handleSubmitConfirm = () => {
     setShowSubmit(false);
     setSubmitted(true);
-    // Cập nhật trạng thái participation về Submitted trên BE
     if (participationIdRef.current) {
-      void updateParticipationStatus(participationIdRef.current, 'Submitted').catch(() => undefined);
+      void submitExamParticipation(participationIdRef.current).catch(() => undefined);
     }
   };
 

@@ -78,7 +78,7 @@ function QuestionFormModal({
 
   return createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
-      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-lg max-h-[90vh] overflow-y-auto">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-lg max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div className="flex items-center justify-between p-6 border-b border-border sticky top-0 bg-navy-card z-10">
           <h2 className="font-syne font-bold text-white-soft text-lg">
             {isEdit ? 'Edit Question' : 'New Question'}

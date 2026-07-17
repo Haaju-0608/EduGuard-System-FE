@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FiAlertTriangle, FiEye, FiSlash, FiRefreshCw,
   FiVideo, FiUser, FiClock, FiChevronLeft, FiChevronRight, FiX, FiCheckCircle,
@@ -13,7 +14,14 @@ import {
 } from '../../../services/lecturerApi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import type { ApiViolationLog, ApiExamParticipation, ApiExamSlot } from '../../../types/api';
+
+interface ResourceChangedPayload {
+  resource: string;
+  action: string;
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -68,11 +76,11 @@ function EvidenceModal({
     || (log.evidencePath?.startsWith('http') && !log.evidencePath?.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i));
   const isImage = log.evidencePath?.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) != null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
-        className="relative z-10 bg-navy-card border border-border rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+        className="relative z-10 bg-navy-card border border-border rounded-t-[20px] sm:rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -97,7 +105,7 @@ function EvidenceModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar min-h-0">
           {/* Evidence */}
           <div className="bg-navy border border-border rounded-xl overflow-hidden">
             {log.evidencePath ? (
@@ -156,29 +164,41 @@ function EvidenceModal({
         </div>
 
         {/* Footer */}
-        <div className="flex gap-3 p-5 border-t border-border shrink-0">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer"
-          >
-            Close
-          </button>
-          <button
-            onClick={() => onDisqualify(log)}
-            disabled={disqualifying || alreadyDisqualified}
-            className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
-            {disqualifying ? (
-              <><span className="animate-spin">⏳</span> Disqualifying…</>
-            ) : alreadyDisqualified ? (
-              '✅ Already Disqualified'
-            ) : (
-              <><FiSlash size={14} /> Disqualify Student</>
-            )}
-          </button>
-        </div>
+        {(() => {
+          const status = participation?.status;
+          const canDisqualify = !alreadyDisqualified && status === 'Joined';
+          const statusLabel =
+            alreadyDisqualified ? '✅ Already Disqualified' :
+            status === 'Submitted' ? '📋 Student Already Submitted' :
+            status === 'Left'      ? '🚪 Student Left The Exam' :
+            status === 'Absent'    ? '❌ Student Was Absent' :
+            null;
+          return (
+            <div className="flex gap-3 p-5 border-t border-border shrink-0">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => onDisqualify(log)}
+                disabled={disqualifying || !canDisqualify}
+                title={!canDisqualify && !alreadyDisqualified ? 'Disqualify only works while the student is actively in the exam (status: Joined)' : undefined}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
+              >
+                {disqualifying ? (
+                  <><span className="animate-spin">⏳</span> Disqualifying…</>
+                ) : statusLabel ? statusLabel : (
+                  <><FiSlash size={14} /> Disqualify Student</>
+                )}
+              </button>
+            </div>
+          );
+        })()}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -208,7 +228,7 @@ function ConfirmDialog({ log, studentName, onConfirm, onCancel }: ConfirmDialogP
   const defaultReason = `${viol.label} violation detected by AI proctoring`;
   const [reason, setReason] = useState(defaultReason);
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative z-10 bg-navy-card border border-red/40 rounded-[20px] w-full max-w-sm p-6 shadow-2xl">
@@ -247,7 +267,8 @@ function ConfirmDialog({ log, studentName, onConfirm, onCancel }: ConfirmDialogP
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -277,6 +298,15 @@ export default function ViolationReviewPage() {
     () => fetchViolationLogs({ page, pageSize: PAGE_SIZE }),
     [page],
   );
+
+  // Realtime: BE bắn ResourceChanged("violations") tới DashboardHub group của lecturer ngay khi AI phát hiện vi phạm mới
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
+  useHubGroup(HubRoute.Dashboard, 'JoinLecturerDashboard', user?.id ? [user.id] : null);
+  useHubEvent<ResourceChangedPayload>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'violations') return;
+    toast.warning('New violation detected', 'AI proctoring flagged a new violation — list refreshed.');
+    reload();
+  });
 
   const logs = data?.items ?? [];
   const pagination = data?.pagination;
@@ -466,6 +496,16 @@ export default function ViolationReviewPage() {
               const studentName = p?.student?.fullName ?? p?.student?.email ?? null;
               const isDisqualified = disqualifiedIds.has(log.participationId) || p?.status === 'Disqualified';
               const isDisqualifying = disqualifyingId === log.participationId;
+              const canDisqualify = !isDisqualified && !isDisqualifying && p?.status === 'Joined';
+              const disqualifyTitle =
+                isDisqualifying              ? 'Processing…' :
+                isDisqualified               ? 'Already disqualified' :
+                p === undefined              ? 'Loading participation…' :
+                p === null                   ? 'Unable to load participation' :
+                p.status === 'Submitted'     ? 'Student already submitted — cannot disqualify' :
+                p.status === 'Left'          ? 'Student left the exam — cannot disqualify' :
+                p.status === 'Absent'        ? 'Student was absent — cannot disqualify' :
+                                               'Disqualify student';
               const isReviewed = log.reviewedBy != null || reviewedLogIds.has(log.id);
               const examSlot = p?.examSlotId ? examSlotCache[p.examSlotId] : null;
               const examName = examSlot?.examName ?? null;
@@ -554,10 +594,10 @@ export default function ViolationReviewPage() {
                     </button>
                     <button
                       onClick={() => handleDisqualify(log)}
-                      disabled={isDisqualified || isDisqualifying}
-                      title={isDisqualified ? 'Already disqualified' : 'Disqualify student'}
+                      disabled={!canDisqualify}
+                      title={disqualifyTitle}
                       className={`p-2 rounded-lg border transition-colors cursor-pointer ${
-                        isDisqualified
+                        !canDisqualify
                           ? 'border-border text-muted opacity-40 cursor-not-allowed'
                           : 'border-red/30 text-red hover:bg-red/10 hover:border-red/60'
                       }`}

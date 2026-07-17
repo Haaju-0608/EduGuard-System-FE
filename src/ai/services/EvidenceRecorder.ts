@@ -150,18 +150,20 @@ export class EvidenceRecorder {
       const violations = [...this.activeViolations];
       const durationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
 
+      // Đã chốt xong frame + gộp violation — violation mới tới từ giờ sẽ được xếp hàng (pendingRequests)
+      // thay vì merge vào clip này. Nhưng CHƯA mở khóa cho violation kế tiếp compose/upload ngay
+      // (isRecordingEvidence vẫn giữ true tới hết finally) để tránh 2 vòng lặp canh giờ frame + upload
+      // mạng chạy chồng lên nhau trên cùng 1 luồng JS, gây giật video khi ghép canvas.
       request.preViolationFrames.length = 0;
       this.postViolationFrames = [];
       this.activeViolations = [];
       this.isCollectingEvidence = false;
-      this.isRecordingEvidence = false;
-      this.processNextPendingRequest();
 
       if (clipFrames.length === 0) return null;
 
       const videoBlob = await this.composeVideoBlob(clipFrames);
 
-      return this.createEvidenceItem(
+      return await this.createEvidenceItem(
         videoBlob,
         request.violation,
         violations,
@@ -170,14 +172,8 @@ export class EvidenceRecorder {
         durationMs,
       );
     } finally {
-      if (this.isRecordingEvidence && this.activeViolations[0]?.violationId === request.violationMetadata.violationId) {
-        request.preViolationFrames.length = 0;
-        this.postViolationFrames = [];
-        this.activeViolations = [];
-        this.isCollectingEvidence = false;
-        this.isRecordingEvidence = false;
-        this.processNextPendingRequest();
-      }
+      this.isRecordingEvidence = false;
+      this.processNextPendingRequest();
     }
   }
 
@@ -288,7 +284,11 @@ export class EvidenceRecorder {
       };
       recorder.onstop = () => {
         stream.getTracks().forEach((track) => track.stop());
-        resolve(new Blob(videoChunks, { type: recorder.mimeType || this.mimeType || 'video/webm' }));
+        // BE whitelist content-type theo chuỗi tuyệt đối ("video/webm"/"video/mp4"),
+        // không chấp nhận tham số codec (vd "video/webm;codecs=vp9") → phải bỏ phần sau dấu ";"
+        const rawType = recorder.mimeType || this.mimeType || 'video/webm';
+        const baseType = rawType.split(';')[0].trim();
+        resolve(new Blob(videoChunks, { type: baseType }));
       };
     });
 
@@ -397,7 +397,7 @@ export class EvidenceRecorder {
     if (!this.options.uploadUrl) return;
 
     const token = getAccessToken();
-    const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+    const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
     // Step 1: Tạo violation log (evidencePath: null), lấy violationId
     const logResponse = await fetch(this.options.uploadUrl, {
@@ -424,8 +424,6 @@ export class EvidenceRecorder {
     if (!violationId) return; // Log tạo thành công nhưng không có ID để upload video
 
     // Step 2: Upload video lên Supabase qua BE
-    // NOTE: /api/storage/evidence hiện chưa cho phép Student role.
-    // BE cần thêm Student vào [SupabaseAuthorize] trước khi bước này hoạt động.
     const formData = new FormData();
     formData.append('file', videoBlob, `evidence-${violationId}.webm`);
     formData.append('violationId', violationId);

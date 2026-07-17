@@ -114,7 +114,7 @@ export default function CustomSelect({
         <div
           ref={listRef}
           style={{ top: pos.top, left: pos.left, minWidth: pos.width, maxHeight: '240px' }}
-          className="fixed z-[9999] bg-[#0f172a] border border-border rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-y-auto py-1.5"
+          className="fixed z-[9999] bg-[#0f172a] border border-border rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] overflow-y-auto py-1.5 custom-scrollbar"
         >
           {options.map((opt) => {
             const isSelected = opt.value === value;

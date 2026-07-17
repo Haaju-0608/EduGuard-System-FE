@@ -198,12 +198,28 @@ async function buildAttendanceSession(session: ApiAttendanceSession): Promise<At
   };
 }
 
-/** POST /api/attendance-sessions/{sessionId}/records/bulk — điểm danh thủ công */
+/** POST /api/attendance-sessions/{sessionId}/records/bulk — điểm danh thủ công.
+ *  BE nhận { presentStudentIds, method, status } — group records by status rồi gửi từng batch. */
 export async function bulkUpdateAttendance(
   sessionId: string,
-  records: Array<{ studentId: string; status: string; checkInTime?: string }>,
+  records: Array<{ studentId: string; status: string }>,
 ): Promise<void> {
-  await apiPost(`/api/attendance-sessions/${sessionId}/records/bulk`, { records });
+  // Group student IDs by status (Present, Absent, Late, Excused…)
+  const byStatus = records.reduce<Record<string, string[]>>((acc, r) => {
+    const key = r.status.charAt(0).toUpperCase() + r.status.slice(1).toLowerCase();
+    (acc[key] ??= []).push(r.studentId);
+    return acc;
+  }, {});
+
+  await Promise.all(
+    Object.entries(byStatus).map(([status, studentIds]) =>
+      apiPost(`/api/attendance-sessions/${sessionId}/records/bulk`, {
+        presentStudentIds: studentIds,
+        method: 'Manual',
+        status,
+      }),
+    ),
+  );
 }
 
 // ─── Violation Logs ───────────────────────────────────────────────────────
@@ -248,6 +264,19 @@ export async function fetchExamSlotById(id: string): Promise<import('../types/ap
   } catch {
     return null;
   }
+}
+
+/** GET /api/violation-logs/exam-slot/{examSlotId} — violation logs theo bài thi */
+export async function fetchViolationsByExamSlot(
+  examSlotId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiViolationLog>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 20;
+  const { data, pagination } = await apiGetPaginated<ApiViolationLog[]>(
+    `/api/violation-logs/exam-slot/${examSlotId}${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
 }
 
 /** PUT /api/violation-logs/{id} — đánh dấu đã review */
