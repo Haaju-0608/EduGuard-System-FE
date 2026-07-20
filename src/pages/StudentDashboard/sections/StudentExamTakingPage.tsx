@@ -578,36 +578,6 @@ export default function StudentExamTakingPage() {
             </div>
           )}
 
-          {/* DEBUG: Preview original frontend Blob before upload */}
-          {/* Used to compare Blob output vs uploaded Supabase video. */}
-          {evidence.some((item) => item.videoObjectUrl) && (
-            <div className="shrink-0 border-t border-border p-3">
-              <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
-                Frontend Blob Preview
-              </p>
-              <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
-                {evidence.filter((item) => item.videoObjectUrl).map((item) => (
-                  <div key={item.id} className="rounded-xl overflow-hidden border border-border bg-navy/50">
-                    <video
-                      controls
-                      preload="metadata"
-                      src={item.videoObjectUrl}
-                      style={{ width: '100%', maxWidth: 500 }}
-                      className="block bg-black"
-                    />
-                    <div className="p-2 space-y-0.5">
-                      <p className="text-[9px] font-bold text-cyan truncate">{item.violationType}</p>
-                      <p className="text-[9px] text-muted">
-                        {Math.round(item.durationMs / 1000)}s - {(item.videoSizeBytes / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                      <p className="text-[9px] text-muted">Upload: {item.uploadStatus}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Warning */}
           {isLowTime && (
             <div className="m-3 shrink-0 flex items-center gap-2 bg-red/10 border border-red/30 rounded-xl px-3 py-2">
