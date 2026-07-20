@@ -38,6 +38,7 @@ import type {
   StudentStatus,
 } from '../types/lecturer';
 import { getFacultyByCourseCode } from '../utils/facultyTheme';
+import type { BrowserViolationResponse, BrowserViolationType, ExamParticipationStatusResponse } from '../types/termination';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -731,6 +732,33 @@ export async function updateParticipationStatus(
   status: ParticipationStatus,
 ): Promise<void> {
   await apiPut(`/api/exam-participations/${participationId}/status`, { status });
+}
+
+/**
+ * GET /api/exam-participations/{id}/status — trạng thái realtime của participation, dùng để:
+ * (1) check ngay khi vào trang thi / F5 / mất-rồi-có-mạng-lại, không đợi SignalR;
+ * (2) biết bài thi đã bị terminate (disqualify do vi phạm trình duyệt) hay chưa.
+ * Response shape khớp ExamParticipationStatusResponseDto (BE).
+ */
+export async function fetchExamParticipationStatus(
+  participationId: string,
+): Promise<ExamParticipationStatusResponse> {
+  return apiGet<ExamParticipationStatusResponse>(`/api/exam-participations/${participationId}/status`);
+}
+
+/**
+ * POST /api/browser-violations — báo cáo hành vi rời khỏi màn hình thi (đổi tab, mất focus cửa
+ * sổ, thoát fullscreen). BE tự đếm dồn và quyết định khi nào terminate participation (>=3 lần).
+ * Response trả về examTerminated ngay lập tức — không cần đợi SignalR mới biết vừa bị terminate.
+ */
+export async function reportBrowserViolation(payload: {
+  participationId: string;
+  violationType: BrowserViolationType;
+}): Promise<BrowserViolationResponse> {
+  return apiPost<BrowserViolationResponse>('/api/browser-violations', {
+    participationId: payload.participationId,
+    violationType: payload.violationType,
+  });
 }
 
 /** POST /api/exam-participations/{id}/disqualify — đình chỉ student */
