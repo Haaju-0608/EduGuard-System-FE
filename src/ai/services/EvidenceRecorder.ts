@@ -2,13 +2,13 @@ import type { EvidenceItem, EvidenceViolationMetadata, ViolationType, ViolationE
 import { getAccessToken } from '../../services/authStorage';
 
 // Map FE violation types → BE enum values (AcademicRequestDtos.cs ViolationType)
-// BE only has: Impersonation | GazeDiversion | MultipleFaces | Absence
+// BE có đủ: Impersonation | GazeDiversion | MultipleFaces | Absence | HeadTurn | FaceObstructed
 const VIOLATION_TYPE_MAP: Record<ViolationType, string> = {
   EYE_DIVERSION:   'GazeDiversion',
-  HEAD_TURN:       'GazeDiversion',   // BE chưa có HeadTurn riêng
+  HEAD_TURN:       'HeadTurn',
   ABSENCE:         'Absence',
   MULTIPLE_FACE:   'MultipleFaces',
-  FACE_OBSTRUCTED: 'Absence',         // BE chưa có FaceObstructed riêng
+  FACE_OBSTRUCTED: 'FaceObstructed',
 };
 
 const DEFAULT_PRE_EVENT_MS = 5000;
