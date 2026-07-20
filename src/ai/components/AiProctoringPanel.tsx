@@ -214,6 +214,11 @@ export default function AiProctoringPanel() {
                       </div>
                     )}
                     <div className="p-2 space-y-1.5">
+                      {item.videoObjectUrl && (
+                        <div className="text-[9px] font-bold uppercase tracking-wide text-cyan">
+                          Frontend Blob Preview
+                        </div>
+                      )}
                       <div className="flex items-center justify-between gap-2">
                         <div className="text-[10px] font-bold text-cyan">{item.violationType}</div>
                         <span className="text-[9px] text-green bg-green/10 border border-green/20 rounded-full px-2 py-0.5">
@@ -327,7 +332,22 @@ function EvidenceViewer({ evidence, onClose }: { evidence: EvidenceItem; onClose
 
         <div className="bg-black">
           {evidence.videoObjectUrl ? (
-            <video src={evidence.videoObjectUrl} className="w-full max-h-[70vh] bg-black" controls autoPlay />
+            <div className="p-4 space-y-3">
+              <div className="text-xs font-bold uppercase tracking-wide text-cyan">
+                Frontend Blob Preview
+              </div>
+              <video
+                src={evidence.videoObjectUrl}
+                className="w-full max-h-[70vh] bg-black"
+                controls
+                autoPlay
+                preload="metadata"
+                style={{ width: '100%', maxWidth: 500 }}
+              />
+              <div className="text-[11px] text-muted">
+                Uploaded/Supabase status: {evidenceStatusLabel(evidence.uploadStatus)}
+              </div>
+            </div>
           ) : (
             <div className="aspect-video grid place-items-center text-muted">Video was uploaded and is not stored locally.</div>
           )}

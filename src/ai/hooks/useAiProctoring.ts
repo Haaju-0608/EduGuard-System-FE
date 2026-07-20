@@ -77,6 +77,10 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         return;
       }
 
+      // Chụp frame evidence ngay đầu tick, TRƯỚC khi chạy MediaPipe (việc nặng, đồng bộ) — để
+      // việc chụp không bị trễ thêm bởi thời gian detect của chính tick đang xử lý violation.
+      engines.evidence.tick(timestamp);
+
       if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;
 
@@ -164,8 +168,8 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     // ── Camera ──
     try {
       setCameraStatus('requesting');
-      const stream = await cameraService.start(video);
-      engines.evidence.start(stream);
+      await cameraService.start(video);
+      engines.evidence.start(video);
       setCameraStatus('ready');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to access camera.';

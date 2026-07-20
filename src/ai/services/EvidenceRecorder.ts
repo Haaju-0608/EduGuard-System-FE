@@ -14,11 +14,10 @@ const VIOLATION_TYPE_MAP: Record<ViolationType, string> = {
 const DEFAULT_PRE_EVENT_MS = 5000;
 const DEFAULT_FRAME_INTERVAL_MS = 67;
 const DEFAULT_POST_VIOLATION_MS = 5000;
-const DEFAULT_VIDEO_BITS_PER_SECOND = 1_000_000;
+const DEFAULT_VIDEO_BITS_PER_SECOND = 2_600_000;
 // Vi phạm CÙNG loại xảy ra trong khoảng này kể từ lần ghi hình gần nhất sẽ bị bỏ qua hoàn toàn
 // (không compose video, không tạo violation log) — clip vừa ghi đã đủ làm bằng chứng, tránh CPU
 // phải xử lý nhiều evidence gần như giống hệt nhau liên tiếp gây giật hình.
-const DUPLICATE_VIOLATION_COOLDOWN_MS = 8000;
 const DEFAULT_CAPTURE_WIDTH = 960;
 const DEFAULT_JPEG_QUALITY = 0.84;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
@@ -54,7 +53,6 @@ interface PendingEvidenceRequest extends EvidenceRequest {
 }
 
 export class EvidenceRecorder {
-  private stream: MediaStream | null = null;
   private video: HTMLVideoElement | null = null;
   private captureCanvas: HTMLCanvasElement | null = null;
   private captureContext: CanvasRenderingContext2D | null = null;
@@ -62,8 +60,7 @@ export class EvidenceRecorder {
   private postViolationFrames: EvidenceFrame[] = [];
   private activeViolations: EvidenceViolationMetadata[] = [];
   private pendingRequests: PendingEvidenceRequest[] = [];
-  private lastCapturedAtByType = new Map<ViolationType, number>();
-  private captureTimer = 0;
+  private lastCaptureAt = 0;
   private mimeType = '';
   private isRunning = false;
   private isCapturingFrame = false;
@@ -84,39 +81,39 @@ export class EvidenceRecorder {
     };
   }
 
-  start(stream: MediaStream) {
+  start(video: HTMLVideoElement) {
     this.stop();
 
     if (!window.MediaRecorder) {
       throw new Error('MediaRecorder is not supported in this browser.');
     }
 
-    this.stream = stream;
+    // Dùng chung <video> đang chạy detection (videoRef) thay vì tạo video ẩn riêng để decode lại
+    // cùng 1 stream lần nữa — decode kép + setInterval độc lập với vòng lặp rAF của detection là
+    // nguyên nhân chính gây đứng hình/giật: dưới tải nặng (MediaPipe chạy đồng bộ mỗi rAF tick),
+    // browser có thể trì hoãn/gộp các lần gọi setInterval một cách không đều, đúng lúc violation
+    // vừa bắt được lại càng dễ bị vì có thêm việc đồng bộ (setState, ghi log) chen vào cùng tick.
+    this.video = video;
     this.mimeType = this.resolveMimeType();
-    this.video = document.createElement('video');
-    this.video.srcObject = stream;
-    this.video.muted = true;
-    this.video.playsInline = true;
-    this.video.play().catch(() => undefined);
     this.captureCanvas = document.createElement('canvas');
     this.captureContext = this.captureCanvas.getContext('2d', { alpha: false });
     this.isRunning = true;
-    this.captureTimer = window.setInterval(() => {
-      void this.captureFrame();
-    }, this.options.chunkMs);
+    this.lastCaptureAt = 0;
+  }
+
+  // Gọi từ vòng lặp requestAnimationFrame của detection (cùng "đồng hồ" với việc phân tích
+  // vi phạm) thay vì setInterval riêng, để việc chụp frame không bị timer khác cạnh tranh/trễ.
+  tick(now: number) {
+    if (!this.isRunning) return;
+    if (now - this.lastCaptureAt < this.options.chunkMs) return;
+    this.lastCaptureAt = now;
+    void this.captureFrame();
   }
 
   async recordEvidence(violation: ViolationEvent): Promise<EvidenceItem | null> {
     if (!this.isRunning) {
       return null;
     }
-
-    const lastCapturedAt = this.lastCapturedAtByType.get(violation.type);
-    if (lastCapturedAt != null && Date.now() - lastCapturedAt < DUPLICATE_VIOLATION_COOLDOWN_MS) {
-      // Cùng loại vi phạm vừa mới được ghi hình gần đây — bỏ qua, không xử lý evidence lần này.
-      return null;
-    }
-    this.lastCapturedAtByType.set(violation.type, Date.now());
 
     const violationMetadata = this.toViolationMetadata(violation);
     if (this.isRecordingEvidence) {
@@ -158,7 +155,11 @@ export class EvidenceRecorder {
     try {
       await this.wait(this.options.postViolationMs);
 
-      const clipFrames = this.buildFixedClipFrames(request.preViolationFrames, this.postViolationFrames);
+      const clipFrames = this.buildFixedClipFrames(
+        request.preViolationFrames,
+        this.postViolationFrames,
+        request.capturedAt,
+      );
       const violations = [...this.activeViolations];
       const durationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
 
@@ -197,15 +198,10 @@ export class EvidenceRecorder {
 
   stop() {
     this.isRunning = false;
-    window.clearInterval(this.captureTimer);
-    this.captureTimer = 0;
+    this.lastCaptureAt = 0;
 
-    if (this.video) {
-      this.video.pause();
-      this.video.srcObject = null;
-    }
-
-    this.stream = null;
+    // Video giờ là <video> dùng chung với detection (không còn sở hữu riêng) — không được
+    // pause/clear srcObject của nó ở đây vì sẽ làm gãy preview camera + vòng lặp detection.
     this.video = null;
     this.captureCanvas = null;
     this.captureContext = null;
@@ -215,7 +211,6 @@ export class EvidenceRecorder {
     this.activeViolations = [];
     this.pendingRequests.forEach((request) => request.resolve(null));
     this.pendingRequests = [];
-    this.lastCapturedAtByType.clear();
     this.isCapturingFrame = false;
     this.isCollectingEvidence = false;
     this.isRecordingEvidence = false;
@@ -271,19 +266,23 @@ export class EvidenceRecorder {
   }
 
   private async composeVideoBlob(frames: EvidenceFrame[]) {
-    const bitmaps = await Promise.all(frames.map((frame) => createImageBitmap(frame.blob)));
-    const firstBitmap = bitmaps[0];
+    // Decode từng bitmap RẢI RA theo tiến độ vẽ (thay vì Promise.all giải mã hết ~150 ảnh cùng lúc
+    // lúc bắt đầu compose) — giải mã hàng loạt dồn vào 1 thời điểm sẽ dồn CPU đúng lúc vòng lặp
+    // rAF detection + evidence.tick của violation KẾ TIẾP đang chạy, gây giật hình ở clip đó.
+    let currentBitmap = await createImageBitmap(frames[0].blob);
     const canvas = document.createElement('canvas');
-    canvas.width = firstBitmap.width;
-    canvas.height = firstBitmap.height;
+    canvas.width = currentBitmap.width;
+    canvas.height = currentBitmap.height;
     const context = canvas.getContext('2d', { alpha: false });
 
     if (!context) {
-      bitmaps.forEach((bitmap) => bitmap.close());
+      currentBitmap.close();
       throw new Error('Unable to create canvas context for evidence video.');
     }
 
-    const stream = canvas.captureStream(Math.round(1000 / this.options.chunkMs));
+    const stream = canvas.captureStream(0);
+    const [track] = stream.getVideoTracks();
+    const manualTrack = track as CanvasCaptureMediaStreamTrack | undefined;
     const recorder = new MediaRecorder(stream, {
       ...(this.mimeType ? { mimeType: this.mimeType } : {}),
       videoBitsPerSecond: this.options.videoBitsPerSecond,
@@ -308,17 +307,19 @@ export class EvidenceRecorder {
     recorder.start();
     const startedAt = performance.now();
 
-    for (const [index, bitmap] of bitmaps.entries()) {
-      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < frames.length; index += 1) {
+      context.drawImage(currentBitmap, 0, 0, canvas.width, canvas.height);
+      manualTrack?.requestFrame();
+      currentBitmap.close();
+
+      const nextFrame = frames[index + 1];
+      const decodeNext = nextFrame ? createImageBitmap(nextFrame.blob) : null;
 
       const nextFrameAt = startedAt + (index + 1) * this.options.chunkMs;
       const delayMs = Math.max(0, nextFrameAt - performance.now());
-      if (delayMs > 0) {
-        await this.wait(delayMs);
-      }
+      const [decoded] = await Promise.all([decodeNext, this.wait(delayMs)]);
+      if (decoded) currentBitmap = decoded;
     }
-
-    bitmaps.forEach((bitmap) => bitmap.close());
 
     if (recorder.state !== 'inactive') {
       recorder.requestData();
@@ -328,32 +329,39 @@ export class EvidenceRecorder {
     return stopped;
   }
 
-  private buildFixedClipFrames(preViolationFrames: EvidenceFrame[], postViolationFrames: EvidenceFrame[]) {
+  private buildFixedClipFrames(
+    preViolationFrames: EvidenceFrame[],
+    postViolationFrames: EvidenceFrame[],
+    violationAt: number,
+  ) {
     const preFrameCount = Math.ceil(DEFAULT_PRE_EVENT_MS / this.options.chunkMs);
     const postFrameCount = Math.ceil(this.options.postViolationMs / this.options.chunkMs);
-    const preFrames = this.normalizeFrameCount(preViolationFrames.slice(-preFrameCount), preFrameCount);
-    const postFrames = this.normalizeFrameCount(postViolationFrames.slice(0, postFrameCount), postFrameCount);
-    const fallbackFrame = preFrames[0] ?? postFrames[0];
+    const targetCount = preFrameCount + postFrameCount;
+    const frames = [...preViolationFrames, ...postViolationFrames]
+      .filter((frame) => frame.blob.size > 0)
+      .sort((a, b) => a.capturedAt - b.capturedAt);
 
-    if (!fallbackFrame) return [];
-
-    return [...preFrames, ...postFrames];
-  }
-
-  private normalizeFrameCount(frames: EvidenceFrame[], targetCount: number) {
     if (frames.length === 0) return [];
-    if (frames.length === targetCount) return frames;
 
-    if (frames.length > targetCount) {
-      return Array.from({ length: targetCount }, (_, index) => {
-        const sourceIndex = Math.round(index * (frames.length - 1) / Math.max(1, targetCount - 1));
-        return frames[sourceIndex];
-      });
-    }
+    // Chọn frame theo mốc thời gian THỰC (không theo tỉ lệ index) và neo đúng vào thời điểm
+    // xảy ra vi phạm (violationAt). Tốc độ chụp frame thực tế không đều tuyệt đối 67ms/frame
+    // (JPEG encode + isCapturingFrame guard có thể làm rớt frame), nên nếu resample theo tỉ lệ
+    // index như trước sẽ làm ranh giới pre/post trôi khỏi thời điểm vi phạm thật, gây giật/nhảy
+    // hình đúng ngay chỗ nối 5s.
+    const totalDurationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
+    const startAt = violationAt - DEFAULT_PRE_EVENT_MS;
+    const stepMs = totalDurationMs / Math.max(1, targetCount - 1);
 
+    let cursor = 0;
     return Array.from({ length: targetCount }, (_, index) => {
-      const sourceIndex = Math.round(index * (frames.length - 1) / Math.max(1, targetCount - 1));
-      return frames[sourceIndex];
+      const idealAt = startAt + index * stepMs;
+      while (
+        cursor < frames.length - 1
+        && Math.abs(frames[cursor + 1].capturedAt - idealAt) <= Math.abs(frames[cursor].capturedAt - idealAt)
+      ) {
+        cursor += 1;
+      }
+      return frames[cursor];
     });
   }
 
@@ -377,10 +385,14 @@ export class EvidenceRecorder {
       uploadStatus: this.options.uploadUrl ? 'pending' : 'local',
     };
 
+    // DEBUG: Preview original frontend Blob before upload
+    // Used to compare Blob output vs uploaded Supabase video.
+    const objectUrl = URL.createObjectURL(videoBlob);
+
     if (!this.options.uploadUrl) {
       return {
         ...baseItem,
-        videoObjectUrl: URL.createObjectURL(videoBlob),
+        videoObjectUrl: objectUrl,
       };
     }
 
@@ -388,12 +400,13 @@ export class EvidenceRecorder {
       await this.upload(videoBlob, violation, violations, timestampIso, baseItem.durationMs);
       return {
         ...baseItem,
+        videoObjectUrl: objectUrl,
         uploadStatus: 'uploaded',
       };
     } catch (error) {
       return {
         ...baseItem,
-        videoObjectUrl: URL.createObjectURL(videoBlob),
+        videoObjectUrl: objectUrl,
         uploadStatus: 'failed',
         uploadError: error instanceof Error ? error.message : 'Video upload failed.',
       };

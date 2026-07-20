@@ -212,7 +212,7 @@ export default function StudentExamTakingPage() {
   const startTimeRef = useRef(Date.now());
 
   const proctoring = useAiProctoring(videoRef);
-  const { cameraStatus, violations, isRunning, start: startProctoring } = proctoring;
+  const { cameraStatus, evidence, violations, isRunning, start: startProctoring } = proctoring;
   const proctoringRef = useRef(proctoring);
   proctoringRef.current = proctoring;
 
@@ -574,6 +574,36 @@ export default function StudentExamTakingPage() {
                 {violations.length > 4 && (
                   <p className="text-[9px] text-muted pl-3.5">+{violations.length - 4} more</p>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* DEBUG: Preview original frontend Blob before upload */}
+          {/* Used to compare Blob output vs uploaded Supabase video. */}
+          {evidence.some((item) => item.videoObjectUrl) && (
+            <div className="shrink-0 border-t border-border p-3">
+              <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
+                Frontend Blob Preview
+              </p>
+              <div className="space-y-2 max-h-80 overflow-y-auto custom-scrollbar pr-1">
+                {evidence.filter((item) => item.videoObjectUrl).map((item) => (
+                  <div key={item.id} className="rounded-xl overflow-hidden border border-border bg-navy/50">
+                    <video
+                      controls
+                      preload="metadata"
+                      src={item.videoObjectUrl}
+                      style={{ width: '100%', maxWidth: 500 }}
+                      className="block bg-black"
+                    />
+                    <div className="p-2 space-y-0.5">
+                      <p className="text-[9px] font-bold text-cyan truncate">{item.violationType}</p>
+                      <p className="text-[9px] text-muted">
+                        {Math.round(item.durationMs / 1000)}s - {(item.videoSizeBytes / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                      <p className="text-[9px] text-muted">Upload: {item.uploadStatus}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           )}
