@@ -90,17 +90,6 @@ export interface BiometricRequest {
   note?: string;
 }
 
-/** Ô camera trên dashboard giám sát */
-export interface CameraFeed {
-  id: string;
-  studentId: string;
-  studentName: string;
-  classCode: string;
-  isOnline: boolean;
-  hasViolation: boolean;
-  lastActivity: string;
-}
-
 /** Cảnh báo vi phạm trong phiên thi/giám sát */
 export interface ViolationAlert {
   id: string;

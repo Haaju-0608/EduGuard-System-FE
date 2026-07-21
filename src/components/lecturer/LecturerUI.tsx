@@ -26,7 +26,7 @@ export function AcademySeal({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
 /* ── Wrapper trang với ảnh nền campus ── */
 export function PageShell({ children }: { children: ReactNode }) {
   return (
-    <div className="lecture-page-shell max-w-[1400px] mx-auto space-y-6 relative z-10">
+    <div className="lecture-page-shell w-full space-y-6 relative z-10">
       {children}
     </div>
   );

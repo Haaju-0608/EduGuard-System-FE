@@ -1,5 +1,6 @@
 import type { EvidenceItem, EvidenceViolationMetadata, ViolationType, ViolationEvent } from '../types/proctoring';
 import { getAccessToken } from '../../services/authStorage';
+import { patchWebmDuration } from './webmDurationFix';
 
 // Map FE violation types → BE enum values (AcademicRequestDtos.cs ViolationType)
 // BE có đủ: Impersonation | GazeDiversion | MultipleFaces | Absence | HeadTurn | FaceObstructed
@@ -324,12 +325,27 @@ export class EvidenceRecorder {
       }
     }
 
+    const recordedMs = performance.now() - startedAt;
+
     if (recorder.state !== 'inactive') {
       recorder.requestData();
       recorder.stop();
     }
 
-    return stopped;
+    const rawBlob = await stopped;
+
+    // Chrome's MediaRecorder CÓ ghi Duration vào header webm khi assemble Blob từ các chunk
+    // ondataavailable, nhưng ghi giá trị SAI (đã verify bằng ffprobe trên file thật: header báo
+    // "Duration: 00:00:00.00" — giá trị thật lưu bên trong chỉ là "1" đơn vị TimecodeScale, tức
+    // 1ms — dù decode được đủ 100% frame, ~10s data thật). Vì vậy <video> (kể cả phát từ blob:
+    // URL nội bộ) đọc duration ra 0:00 và không chịu phát, trong khi data KHÔNG hề bị mất/hỏng.
+    // Vá lại header bằng patchWebmDuration (ghi đè byte tại chỗ, không re-encode) trước khi trả
+    // về — nếu vá lỗi (vd cấu trúc file khác thường) thì vẫn trả blob gốc thay vì chặn evidence.
+    try {
+      return await patchWebmDuration(rawBlob, recordedMs);
+    } catch {
+      return rawBlob;
+    }
   }
 
   private buildFixedClipFrames(

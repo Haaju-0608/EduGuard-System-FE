@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { patchWebmDuration } from '../../../ai/services/webmDurationFix';
 import {
   FiAlertTriangle, FiEye, FiSlash, FiRefreshCw,
   FiVideo, FiUser, FiClock, FiChevronLeft, FiChevronRight, FiX, FiCheckCircle,
@@ -11,11 +12,13 @@ import {
   fetchExamSlotById,
   disqualifyParticipation,
   reviewViolationLog,
+  resolveEvidenceUrl,
 } from '../../../services/lecturerApi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
+import { getViolationLabel } from '../../../utils/violationLabels';
 import type { ApiViolationLog, ApiExamParticipation, ApiExamSlot } from '../../../types/api';
 
 interface ResourceChangedPayload {
@@ -23,20 +26,14 @@ interface ResourceChangedPayload {
   action: string;
 }
 
+interface ParticipationGroup {
+  participationId: string;
+  logs: ApiViolationLog[];
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const PAGE_SIZE = 15;
-
-const VIOLATION_LABELS: Record<string, { label: string; icon: string }> = {
-  GazeDiversion:  { label: 'Gaze Diversion',  icon: '👁' },
-  MultipleFaces:  { label: 'Multiple Faces',   icon: '👥' },
-  Absence:        { label: 'Absence',          icon: '🚫' },
-  Impersonation:  { label: 'Impersonation',    icon: '🎭' },
-};
-
-function getViolationLabel(type: string) {
-  return VIOLATION_LABELS[type] ?? { label: type, icon: '⚠️' };
-}
 
 function severityConfig(severity: string) {
   if (severity === 'Severe')
@@ -49,6 +46,138 @@ function fmtTime(iso: string) {
     day: '2-digit', month: 'short', year: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
+}
+
+// ─── Evidence resolving ─────────────────────────────────────────────────────
+// `log.evidencePath` từ `/api/violation-logs` chỉ là raw object path trong bucket Supabase
+// (vd "FPT/TEST_PAL/.../xxx.webm"), KHÔNG phải URL — đã verify qua Network tab: trỏ <video src>
+// hay fetch() thẳng vào nó khiến trình duyệt hiểu nhầm là URL tương đối, resolve về chính domain
+// của app (vd "localhost:5173/lecture/FPT/...") thay vì Supabase, luôn nhận về response rỗng/sai.
+// Phải đổi qua POST /api/storage/signed-url (resolveEvidenceUrl) lấy URL thật trước khi dùng.
+function useResolvedEvidenceUrl(path: string | null) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!path) {
+      setUrl(null);
+      setError(false);
+      return;
+    }
+    let cancelled = false;
+    setUrl(null);
+    setError(false);
+
+    resolveEvidenceUrl(path)
+      .then((signedUrl) => {
+        if (!cancelled) setUrl(signedUrl);
+      })
+      .catch((err) => {
+        console.warn('[useResolvedEvidenceUrl] Failed to resolve signed URL:', err);
+        if (!cancelled) setError(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  return { url, error };
+}
+
+// ─── Evidence Video ───────────────────────────────────────────────────────────
+// Tải cả file thành blob rồi phát qua object URL thay vì trỏ <video src> thẳng tới URL đã resolve.
+// Lý do thật sự (đã verify bằng ffprobe + tự parse EBML trên 1 file thật): Chrome's MediaRecorder
+// CÓ ghi Duration vào header .webm khi assemble Blob, nhưng ghi giá trị SAI — chỉ "1" đơn vị
+// TimecodeScale (1ms) dù data giải mã ra đủ 100% (150 frame ~10s), nên <video> đọc duration ra
+// 0:00 và bấm Play không chạy, dù file hoàn toàn không hỏng. EvidenceRecorder.ts giờ đã vá lỗi
+// này TRƯỚC khi upload cho các clip ghi MỚI, nhưng các clip cũ đã nằm sẵn trên Supabase từ trước
+// vẫn còn lỗi header — nên ở đây vá lại lần nữa bằng patchWebmDuration mỗi khi xem (dùng đúng
+// ~10s là thời lượng cố định của mọi clip evidence theo thiết kế: DEFAULT_PRE_EVENT_MS +
+// DEFAULT_POST_VIOLATION_MS trong EvidenceRecorder.ts).
+const EVIDENCE_CLIP_DURATION_MS = 10_000;
+
+function EvidenceVideo({ path }: { path: string }) {
+  const { url: signedUrl, error: resolveError } = useResolvedEvidenceUrl(path);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    if (!signedUrl) return;
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setBlobUrl(null);
+    setError(false);
+
+    fetch(signedUrl)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => patchWebmDuration(blob, EVIDENCE_CLIP_DURATION_MS).catch((err) => {
+        console.warn('[EvidenceVideo] patchWebmDuration failed, falling back to raw blob:', err);
+        return blob;
+      }))
+      .then((blob) => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setBlobUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [signedUrl]);
+
+  if (error || resolveError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-2">
+        <FiVideo size={32} className="text-muted" />
+        <p className="text-xs text-muted text-center px-4">Could not load the evidence video.</p>
+      </div>
+    );
+  }
+
+  if (!blobUrl) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-2">
+        <span className="w-6 h-6 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+        <p className="text-xs text-muted">Loading video…</p>
+      </div>
+    );
+  }
+
+  return <video src={blobUrl} controls className="w-full max-h-64 object-contain bg-black" />;
+}
+
+// ─── Evidence Image ───────────────────────────────────────────────────────────
+
+function EvidenceImage({ path }: { path: string }) {
+  const { url, error } = useResolvedEvidenceUrl(path);
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-2">
+        <FiVideo size={32} className="text-muted" />
+        <p className="text-xs text-muted text-center px-4">Could not load the evidence image.</p>
+      </div>
+    );
+  }
+
+  if (!url) {
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-2">
+        <span className="w-6 h-6 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+        <p className="text-xs text-muted">Loading image…</p>
+      </div>
+    );
+  }
+
+  return <img src={url} alt="Evidence" className="w-full max-h-64 object-contain bg-black" />;
 }
 
 // ─── Evidence Modal ───────────────────────────────────────────────────────────
@@ -77,7 +206,7 @@ function EvidenceModal({
   const isImage = log.evidencePath?.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) != null;
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
+    <div className="fixed inset-0 z-160 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
         className="relative z-10 bg-navy-card border border-border rounded-t-[20px] sm:rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh] overflow-hidden"
@@ -110,13 +239,9 @@ function EvidenceModal({
           <div className="bg-navy border border-border rounded-xl overflow-hidden">
             {log.evidencePath ? (
               isVideo ? (
-                <video
-                  src={log.evidencePath}
-                  controls
-                  className="w-full max-h-64 object-contain bg-black"
-                />
+                <EvidenceVideo path={log.evidencePath} />
               ) : isImage ? (
-                <img src={log.evidencePath} alt="Evidence" className="w-full max-h-64 object-contain bg-black" />
+                <EvidenceImage path={log.evidencePath} />
               ) : (
                 <div className="flex flex-col items-center justify-center py-10 gap-2">
                   <FiVideo size={32} className="text-muted" />
@@ -214,22 +339,139 @@ function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string;
   );
 }
 
+// ─── Participation Detail Modal (1 exam attempt = 1 card → list of its violations) ────
+
+interface ParticipationDetailModalProps {
+  group: ParticipationGroup;
+  participation: ApiExamParticipation | null | undefined;
+  examName: string | null;
+  reviewedLogIds: Set<string>;
+  onClose: () => void;
+  onViewLog: (log: ApiViolationLog) => void;
+  onDisqualify: () => void;
+  disqualifying: boolean;
+  alreadyDisqualified: boolean;
+}
+
+function ParticipationDetailModal({
+  group, participation, examName, reviewedLogIds,
+  onClose, onViewLog, onDisqualify, disqualifying, alreadyDisqualified,
+}: ParticipationDetailModalProps) {
+  const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
+  const status = participation?.status;
+  const canDisqualify = !alreadyDisqualified && status === 'Joined';
+  const statusLabel =
+    alreadyDisqualified ? '✅ Already Disqualified' :
+    status === 'Submitted' ? '📋 Student Already Submitted' :
+    status === 'Left'      ? '🚪 Student Left The Exam' :
+    status === 'Absent'    ? '❌ Student Was Absent' :
+    null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-150 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+      <div
+        className="relative z-10 bg-navy-card border border-border rounded-t-[20px] sm:rounded-[20px] w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh] sm:max-h-[85vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0">
+              <FiUser size={16} className="text-blue-bright" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="font-syne font-bold text-white-soft truncate">
+                {studentName ?? `Student …${group.participationId.slice(-6)}`}
+              </h2>
+              <p className="text-xs text-muted truncate">
+                {examName ?? '—'} · {group.logs.length} violation{group.logs.length !== 1 ? 's' : ''}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg text-muted hover:text-white-soft hover:bg-white/5 transition-colors cursor-pointer shrink-0">
+            <FiX size={18} />
+          </button>
+        </div>
+
+        {/* Violations list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar min-h-0">
+          {group.logs.map((log) => {
+            const viol = getViolationLabel(log.violationType);
+            const sev = severityConfig(log.severity);
+            const isReviewed = log.reviewedBy != null || reviewedLogIds.has(log.id);
+            return (
+              <button
+                key={log.id}
+                onClick={() => onViewLog(log)}
+                className="w-full text-left flex items-center gap-3 bg-navy/40 border border-border/40 hover:border-blue/40 rounded-xl px-3.5 py-3 transition-colors cursor-pointer"
+              >
+                <span className="text-xl shrink-0">{viol.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-sm text-white-soft font-medium">{viol.label}</p>
+                    {isReviewed && <FiCheckCircle size={11} className="text-green shrink-0" />}
+                  </div>
+                  <p className="text-[11px] text-muted flex items-center gap-1 mt-0.5">
+                    <FiClock size={10} /> {fmtTime(log.recordedAt ?? log.createdAt)}
+                  </p>
+                </div>
+                <span className={`shrink-0 inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-full border ${sev.cls}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
+                  {sev.label}
+                </span>
+                <FiEye size={14} className="text-muted shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-3 p-5 border-t border-border shrink-0">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer"
+          >
+            Close
+          </button>
+          <button
+            onClick={onDisqualify}
+            disabled={disqualifying || !canDisqualify}
+            title={!canDisqualify && !alreadyDisqualified ? 'Disqualify only works while the student is actively in the exam (status: Joined)' : undefined}
+            className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            {disqualifying ? (
+              <><span className="animate-spin">⏳</span> Disqualifying…</>
+            ) : statusLabel ? statusLabel : (
+              <><FiSlash size={14} /> Disqualify Student</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Confirm Disqualify Dialog ────────────────────────────────────────────────
 
 interface ConfirmDialogProps {
   log: ApiViolationLog;
+  violationCount: number;
   studentName: string | null;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }
 
-function ConfirmDialog({ log, studentName, onConfirm, onCancel }: ConfirmDialogProps) {
+function ConfirmDialog({ log, violationCount, studentName, onConfirm, onCancel }: ConfirmDialogProps) {
   const viol = getViolationLabel(log.violationType);
-  const defaultReason = `${viol.label} violation detected by AI proctoring`;
+  const defaultReason = violationCount > 1
+    ? `${violationCount} violations detected by AI proctoring (latest: ${viol.label})`
+    : `${viol.label} violation detected by AI proctoring`;
   const [reason, setReason] = useState(defaultReason);
 
   return createPortal(
-    <div className="fixed inset-0 z-60 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-170 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative z-10 bg-navy-card border border-red/40 rounded-[20px] w-full max-w-sm p-6 shadow-2xl">
         <div className="text-center mb-5">
@@ -242,7 +484,7 @@ function ConfirmDialog({ log, studentName, onConfirm, onCancel }: ConfirmDialogP
         </div>
         <div className="bg-navy border border-border rounded-xl p-3 mb-4 text-sm text-muted space-y-1">
           <p><span className="text-white-soft font-medium">Student:</span> {studentName ?? `…${log.participationId.slice(-8)}`}</p>
-          <p><span className="text-white-soft font-medium">Violation:</span> {viol.icon} {viol.label}</p>
+          <p><span className="text-white-soft font-medium">Violations:</span> {violationCount} (latest: {viol.icon} {viol.label})</p>
         </div>
         <div className="mb-5">
           <label className="text-[10px] font-bold text-muted uppercase tracking-wide block mb-1.5">
@@ -272,6 +514,75 @@ function ConfirmDialog({ log, studentName, onConfirm, onCancel }: ConfirmDialogP
   );
 }
 
+// ─── Participation Card ────────────────────────────────────────────────────────
+
+interface ParticipationCardProps {
+  group: ParticipationGroup;
+  participation: ApiExamParticipation | null | undefined;
+  examName: string | null;
+  isDisqualified: boolean;
+  reviewedLogIds: Set<string>;
+  onClick: () => void;
+}
+
+function ParticipationCard({ group, participation, examName, isDisqualified, reviewedLogIds, onClick }: ParticipationCardProps) {
+  const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
+  const severeCount = group.logs.filter((l) => l.severity === 'Severe').length;
+  const warningCount = group.logs.filter((l) => l.severity === 'Warning').length;
+  const reviewedCount = group.logs.filter((l) => l.reviewedBy != null || reviewedLogIds.has(l.id)).length;
+  const allReviewed = reviewedCount === group.logs.length;
+  const latest = group.logs[0];
+
+  return (
+    <button
+      onClick={onClick}
+      className="text-left w-full bg-navy-card border border-border rounded-2xl p-4 hover:border-blue/40 hover:bg-white/2 transition-all cursor-pointer"
+    >
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0">
+            <FiUser size={14} className="text-blue-bright" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-white-soft truncate">
+              {studentName ?? (participation === undefined ? 'Loading…' : `Student …${group.participationId.slice(-6)}`)}
+            </p>
+            {examName && <p className="text-[11px] text-blue-bright truncate mt-0.5">📝 {examName}</p>}
+          </div>
+        </div>
+        {isDisqualified && (
+          <span className="shrink-0 text-[9px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full">
+            Disqualified
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap mb-3">
+        {severeCount > 0 && (
+          <span className="text-[10px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full">
+            {severeCount} Severe
+          </span>
+        )}
+        {warningCount > 0 && (
+          <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-full">
+            {warningCount} Warning
+          </span>
+        )}
+        {allReviewed && (
+          <span className="flex items-center gap-1 text-[10px] font-bold text-green bg-green/10 border border-green/30 px-2 py-0.5 rounded-full">
+            <FiCheckCircle size={10} /> Reviewed
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted pt-3 border-t border-border/50">
+        <span>{group.logs.length} violation{group.logs.length !== 1 ? 's' : ''}</span>
+        <span className="flex items-center gap-1"><FiClock size={11} /> {fmtTime(latest.recordedAt ?? latest.createdAt)}</span>
+      </div>
+    </button>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ViolationReviewPage() {
@@ -291,8 +602,9 @@ export default function ViolationReviewPage() {
   // log IDs reviewed in this session (local optimistic state)
   const [reviewedLogIds, setReviewedLogIds] = useState<Set<string>>(new Set());
 
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<ApiViolationLog | null>(null);
-  const [confirmLog, setConfirmLog] = useState<{ log: ApiViolationLog } | null>(null);
+  const [confirmLog, setConfirmLog] = useState<{ log: ApiViolationLog; violationCount: number } | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(
     () => fetchViolationLogs({ page, pageSize: PAGE_SIZE }),
@@ -317,6 +629,30 @@ export default function ViolationReviewPage() {
     if (typeFilter !== 'all' && l.violationType !== typeFilter) return false;
     return true;
   });
+
+  // 1 bài thi (participation) = 1 nhóm, gom tất cả vi phạm của cùng 1 lượt thi lại với nhau
+  const groups: ParticipationGroup[] = useMemo(() => {
+    const map = new Map<string, ApiViolationLog[]>();
+    filtered.forEach((l) => {
+      const arr = map.get(l.participationId) ?? [];
+      arr.push(l);
+      map.set(l.participationId, arr);
+    });
+    return [...map.entries()]
+      .map(([participationId, groupLogs]) => ({
+        participationId,
+        logs: [...groupLogs].sort(
+          (a, b) => new Date(b.recordedAt ?? b.createdAt).getTime() - new Date(a.recordedAt ?? a.createdAt).getTime(),
+        ),
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.logs[0].recordedAt ?? b.logs[0].createdAt).getTime() -
+          new Date(a.logs[0].recordedAt ?? a.logs[0].createdAt).getTime(),
+      );
+  }, [filtered]);
+
+  const selectedGroup = groups.find((g) => g.participationId === selectedGroupId) ?? null;
 
   // Load participation info for visible logs
   useEffect(() => {
@@ -362,8 +698,13 @@ export default function ViolationReviewPage() {
   }, [reviewedLogIds, user?.id]);
 
   const handleDisqualify = useCallback((log: ApiViolationLog) => {
+    const group = groups.find((g) => g.participationId === log.participationId);
     setSelectedLog(null);
-    setConfirmLog({ log });
+    setConfirmLog({ log, violationCount: group?.logs.length ?? 1 });
+  }, [groups]);
+
+  const handleDisqualifyGroup = useCallback((group: ParticipationGroup) => {
+    setConfirmLog({ log: group.logs[0], violationCount: group.logs.length });
   }, []);
 
   const handleConfirmDisqualify = useCallback(async (reason: string) => {
@@ -458,11 +799,11 @@ export default function ViolationReviewPage() {
         })}
       </div>
 
-      {/* Content */}
+      {/* Content — 1 card = 1 exam attempt (participation), click để xem chi tiết */}
       {loading ? (
-        <div className="space-y-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="bg-navy-card border border-border rounded-2xl h-16 animate-pulse" />
+            <div key={i} className="bg-navy-card border border-border rounded-2xl h-32 animate-pulse" />
           ))}
         </div>
       ) : error ? (
@@ -471,145 +812,28 @@ export default function ViolationReviewPage() {
           <p className="text-red text-sm mb-3">{error}</p>
           <button onClick={reload} className="text-xs text-blue-bright underline cursor-pointer">Retry</button>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : groups.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">✅</p>
           <p className="text-muted text-sm">No violations found.</p>
         </div>
       ) : (
         <>
-          <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
-            {/* Table header */}
-            <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1.5fr_auto] gap-4 px-5 py-3 border-b border-border text-[10px] font-bold text-muted uppercase tracking-wider">
-              <span>Student</span>
-              <span>Violation Type</span>
-              <span>Severity</span>
-              <span>AI Score</span>
-              <span>Recorded At</span>
-              <span className="text-right">Actions</span>
-            </div>
-
-            {filtered.map((log, idx) => {
-              const viol = getViolationLabel(log.violationType);
-              const sev = severityConfig(log.severity);
-              const p = participationCache[log.participationId];
-              const studentName = p?.student?.fullName ?? p?.student?.email ?? null;
-              const isDisqualified = disqualifiedIds.has(log.participationId) || p?.status === 'Disqualified';
-              const isDisqualifying = disqualifyingId === log.participationId;
-              const canDisqualify = !isDisqualified && !isDisqualifying && p?.status === 'Joined';
-              const disqualifyTitle =
-                isDisqualifying              ? 'Processing…' :
-                isDisqualified               ? 'Already disqualified' :
-                p === undefined              ? 'Loading participation…' :
-                p === null                   ? 'Unable to load participation' :
-                p.status === 'Submitted'     ? 'Student already submitted — cannot disqualify' :
-                p.status === 'Left'          ? 'Student left the exam — cannot disqualify' :
-                p.status === 'Absent'        ? 'Student was absent — cannot disqualify' :
-                                               'Disqualify student';
-              const isReviewed = log.reviewedBy != null || reviewedLogIds.has(log.id);
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {groups.map((group) => {
+              const p = participationCache[group.participationId];
               const examSlot = p?.examSlotId ? examSlotCache[p.examSlotId] : null;
-              const examName = examSlot?.examName ?? null;
-
+              const isDisqualified = disqualifiedIds.has(group.participationId) || p?.status === 'Disqualified';
               return (
-                <div
-                  key={log.id}
-                  className={`grid grid-cols-[2fr_1.5fr_1fr_1fr_1.5fr_auto] gap-4 px-5 py-3.5 items-center transition-colors hover:bg-white/2 ${
-                    idx !== filtered.length - 1 ? 'border-b border-border/50' : ''
-                  }`}
-                >
-                  {/* Student */}
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0">
-                      <FiUser size={12} className="text-blue-bright" />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <p className="text-sm font-medium text-white-soft truncate">
-                          {studentName ?? (p === undefined ? 'Loading…' : `Student …${log.participationId.slice(-6)}`)}
-                        </p>
-                        {isReviewed && (
-                          <FiCheckCircle size={12} className="text-green shrink-0" title="Reviewed" />
-                        )}
-                      </div>
-                      <p className="text-[10px] text-muted font-mono truncate">
-                        {log.participationId.slice(0, 8)}…
-                      </p>
-                      {examName && (
-                        <p className="text-[10px] text-blue-bright truncate mt-0.5">
-                          📝 {examName}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Type */}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-base">{viol.icon}</span>
-                    <span className="text-sm text-white-soft">{viol.label}</span>
-                  </div>
-
-                  {/* Severity */}
-                  <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border w-fit ${sev.cls}`}>
-                    <span className={`w-1.5 h-1.5 rounded-full ${sev.dot}`} />
-                    {sev.label}
-                  </span>
-
-                  {/* AI Score */}
-                  <div>
-                    {log.aiConfidence != null && log.aiConfidence > 0 ? (
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-1.5 bg-navy rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-bright rounded-full"
-                            style={{ width: `${Math.round(log.aiConfidence * 100)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-white-soft font-mono shrink-0">
-                          {Math.round(log.aiConfidence * 100)}%
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-xs text-muted">—</span>
-                    )}
-                  </div>
-
-                  {/* Time */}
-                  <div className="flex items-center gap-1.5 text-xs text-muted">
-                    <FiClock size={11} />
-                    {fmtTime(log.recordedAt ?? log.createdAt)}
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 justify-end">
-                    <button
-                      onClick={() => void handleOpenEvidence(log)}
-                      title="View Evidence"
-                      className={`p-2 rounded-lg border transition-colors cursor-pointer ${
-                        isReviewed
-                          ? 'border-green/30 text-green hover:bg-green/10'
-                          : 'border-border text-muted hover:border-blue/40 hover:text-blue-bright'
-                      }`}
-                    >
-                      <FiEye size={14} />
-                    </button>
-                    <button
-                      onClick={() => handleDisqualify(log)}
-                      disabled={!canDisqualify}
-                      title={disqualifyTitle}
-                      className={`p-2 rounded-lg border transition-colors cursor-pointer ${
-                        !canDisqualify
-                          ? 'border-border text-muted opacity-40 cursor-not-allowed'
-                          : 'border-red/30 text-red hover:bg-red/10 hover:border-red/60'
-                      }`}
-                    >
-                      {isDisqualifying ? (
-                        <span className="text-xs animate-spin inline-block">⏳</span>
-                      ) : (
-                        <FiSlash size={14} />
-                      )}
-                    </button>
-                  </div>
-                </div>
+                <ParticipationCard
+                  key={group.participationId}
+                  group={group}
+                  participation={p}
+                  examName={examSlot?.examName ?? null}
+                  isDisqualified={isDisqualified}
+                  reviewedLogIds={reviewedLogIds}
+                  onClick={() => setSelectedGroupId(group.participationId)}
+                />
               );
             })}
           </div>
@@ -641,6 +865,27 @@ export default function ViolationReviewPage() {
         </>
       )}
 
+      {/* Participation Detail Modal */}
+      {selectedGroup && (
+        <ParticipationDetailModal
+          group={selectedGroup}
+          participation={participationCache[selectedGroup.participationId]}
+          examName={(() => {
+            const p = participationCache[selectedGroup.participationId];
+            return p?.examSlotId ? (examSlotCache[p.examSlotId]?.examName ?? null) : null;
+          })()}
+          reviewedLogIds={reviewedLogIds}
+          onClose={() => setSelectedGroupId(null)}
+          onViewLog={(log) => void handleOpenEvidence(log)}
+          onDisqualify={() => handleDisqualifyGroup(selectedGroup)}
+          disqualifying={disqualifyingId === selectedGroup.participationId}
+          alreadyDisqualified={
+            disqualifiedIds.has(selectedGroup.participationId) ||
+            participationCache[selectedGroup.participationId]?.status === 'Disqualified'
+          }
+        />
+      )}
+
       {/* Evidence Modal */}
       {selectedLog && (
         <EvidenceModal
@@ -666,6 +911,7 @@ export default function ViolationReviewPage() {
       {confirmLog && (
         <ConfirmDialog
           log={confirmLog.log}
+          violationCount={confirmLog.violationCount}
           studentName={
             participationCache[confirmLog.log.participationId]?.student?.fullName ??
             participationCache[confirmLog.log.participationId]?.student?.email ??

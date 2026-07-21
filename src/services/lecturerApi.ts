@@ -1,10 +1,8 @@
 /**
  * API Lecturer — attendance sessions, violation logs, exam participations.
- * Camera feeds giữ mock vì không có camera API thật.
  */
-import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams, mockApiResponse } from './apiClient';
+import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import { updateParticipationStatus, disqualifyParticipation } from './schoolAdminApi';
-import { MOCK_CAMERA_FEEDS } from './mockData/lecturerMockData';
 import { fetchExamSlots, fetchSchoolAdminClasses, mapApiClassToLecturerClass } from './schoolAdminApi';
 import type {
   ApiAttendanceRecord,
@@ -18,12 +16,9 @@ import type {
   AttendanceRecord,
   AttendanceSession,
   BiometricStatus,
-  CameraFeed,
   ExamSlot,
   LecturerClass,
   LecturerKpi,
-  ViolationAlert,
-  ViolationSeverity,
 } from '../types/lecturer';
 import { getInitialsFromName } from './authApi';
 
@@ -35,29 +30,6 @@ function mapAttendanceStatus(status: string): AttendanceRecord['status'] {
   if (s === 'late') return 'late';
   if (s === 'excused') return 'excused';
   return 'absent';
-}
-
-function mapViolationSeverity(severity: string): ViolationSeverity {
-  const s = severity.trim().toLowerCase();
-  if (s === 'high') return 'high';
-  if (s === 'medium') return 'medium';
-  return 'low';
-}
-
-function mapApiViolationLog(log: ApiViolationLog): ViolationAlert {
-  return {
-    id: log.id,
-    studentId: log.participationId,
-    studentName: 'Student',
-    classCode: '—',
-    type: log.violationType ?? 'Unknown',
-    severity: mapViolationSeverity(log.severity ?? 'low'),
-    timestamp: new Date(log.recordedAt ?? log.createdAt).toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
-    description: `${log.violationType} — AI confidence: ${log.aiConfidence != null ? `${Math.round(log.aiConfidence * 100)}%` : 'N/A'}`,
-  };
 }
 
 function mapApiAttendanceRecord(
@@ -224,22 +196,6 @@ export async function bulkUpdateAttendance(
 
 // ─── Violation Logs ───────────────────────────────────────────────────────
 
-/** GET /api/violation-logs */
-export async function fetchViolationAlerts(
-  params: ListQueryParams = {},
-): Promise<ViolationAlert[]> {
-  try {
-    const page = params.page ?? 1;
-    const pageSize = params.pageSize ?? 20;
-    const { data } = await apiGetPaginated<ApiViolationLog[]>(
-      `/api/violation-logs${buildQueryParams({ page, pageSize })}`,
-    );
-    return data.map(mapApiViolationLog);
-  } catch {
-    return [];
-  }
-}
-
 /** GET /api/violation-logs — raw paginated (giữ đủ evidencePath cho review page) */
 export async function fetchViolationLogs(
   params: ListQueryParams = {},
@@ -284,6 +240,20 @@ export async function reviewViolationLog(id: string, reviewedBy: string): Promis
   await apiPut(`/api/violation-logs/${id}`, { isReviewed: true, reviewedBy });
 }
 
+const EXAM_EVIDENCE_BUCKET = 'exam-evidence';
+
+/**
+ * POST /api/storage/signed-url — `evidencePath` trả về từ `/api/violation-logs` chỉ là raw object
+ * path trong bucket Supabase (BE không tự sign khi trả list), KHÔNG phải URL xem/tải được trực
+ * tiếp. Phải đổi qua endpoint này lấy signed URL thật rồi mới fetch/phát video hay hiển thị ảnh.
+ */
+export async function resolveEvidenceUrl(path: string): Promise<string> {
+  const result = await apiPost<{ signedUrl: string }>(
+    `/api/storage/signed-url${buildQueryParams({ bucket: EXAM_EVIDENCE_BUCKET, path })}`,
+  );
+  return result.signedUrl;
+}
+
 /** GET /api/exam-participations/{id} — lấy thông tin participation + student */
 export async function fetchParticipationById(id: string): Promise<ApiExamParticipation | null> {
   try {
@@ -304,13 +274,6 @@ export async function fetchParticipationById(id: string): Promise<ApiExamPartici
 }
 
 export { updateParticipationStatus, disqualifyParticipation };
-
-// ─── Camera Feeds (mock — không có camera API thật) ───────────────────────
-
-/** Camera feeds giữ mock vì backend không có real-time camera endpoint */
-export async function fetchCameraFeeds(): Promise<CameraFeed[]> {
-  return mockApiResponse([...MOCK_CAMERA_FEEDS]);
-}
 
 // ─── Unused exports giữ lại để không break imports ────────────────────────
 

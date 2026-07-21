@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag, FiShieldOff } from 'react-icons/fi';
 import { useAiProctoring } from '../../../ai/hooks/useAiProctoring';
-import type { ViolationType } from '../../../ai/types/proctoring';
+import type { CameraStatus, ViolationType } from '../../../ai/types/proctoring';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useExamTermination } from '../../../contexts/ExamTerminationContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -72,6 +72,49 @@ function FullscreenGateModal({ onEnter }: { onEnter: () => void }) {
         >
           Enter Fullscreen & Continue
         </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─── Camera Gate ────────────────────────────────────────────────────────────
+// Overlay (KHÔNG unmount cây UI thi bên dưới, giống FullscreenGateModal) — chặn hoàn toàn việc
+// trả lời/nộp bài khi camera không ở trạng thái 'ready' (chưa bật, bị chặn quyền, hoặc vừa
+// tắt/hỏng giữa chừng — xem CameraService.start's onEnded). Đây là điều kiện bắt buộc để thi:
+// không bật cam thì không được làm bài, chứ không chỉ hiện cảnh báo nhỏ ở góc màn hình như trước.
+
+function CameraGateModal({ status, onRestart }: { status: CameraStatus; onRestart: () => void }) {
+  const isRequesting = status === 'requesting';
+  return createPortal(
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-red/40 rounded-[20px] w-full max-w-sm p-7 text-center space-y-5">
+        <div className="w-14 h-14 rounded-2xl bg-red/10 border border-red/30 grid place-items-center mx-auto">
+          <FiCamera className="text-red text-2xl" />
+        </div>
+        <div>
+          <h2 className="font-syne font-bold text-white-soft text-xl mb-2">Camera Required</h2>
+          <p className="text-muted text-sm">
+            {status === 'blocked'
+              ? 'Camera access was denied. Enable camera permission in your browser and restart it to continue the exam.'
+              : status === 'error'
+                ? 'Your camera stopped unexpectedly. Restart it to continue the exam.'
+                : 'This exam requires your camera to stay on at all times. You cannot answer or submit while it is off.'}
+          </p>
+        </div>
+        {isRequesting ? (
+          <div className="flex items-center justify-center gap-2 text-muted text-xs">
+            <div className="w-3.5 h-3.5 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+            Requesting camera…
+          </div>
+        ) : (
+          <button
+            onClick={onRestart}
+            className="w-full py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
+          >
+            Restart Camera & Continue
+          </button>
+        )}
       </div>
     </div>,
     document.body,
@@ -744,8 +787,14 @@ export default function StudentExamTakingPage() {
         <TerminationModal reason={termination.reason} />
       )}
 
+      {/* Bắt buộc camera phải 'ready' mới được làm bài — ưu tiên hơn cả fullscreen gate vì không
+          có camera thì AI proctoring hoàn toàn vô nghĩa. Không unmount cây UI thi bên dưới. */}
+      {!termination.isExamTerminated && !submitted && cameraStatus !== 'ready' && (
+        <CameraGateModal status={cameraStatus} onRestart={() => void startProctoring()} />
+      )}
+
       {/* Overlay — không unmount cây UI thi bên dưới (giữ nguyên <video> để camera không bị đứt) */}
-      {!isFullscreen && !submitted && !termination.isExamTerminated && (
+      {!termination.isExamTerminated && !submitted && cameraStatus === 'ready' && !isFullscreen && (
         <FullscreenGateModal onEnter={() => void enterFullscreen()} />
       )}
 

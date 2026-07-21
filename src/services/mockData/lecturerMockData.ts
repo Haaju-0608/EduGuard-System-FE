@@ -1,7 +1,6 @@
 import type {
   AttendanceSession,
   BiometricRequest,
-  CameraFeed,
   LecturerClass,
   LecturerKpi,
   LecturerStudent,
@@ -348,22 +347,6 @@ export const MOCK_BIOMETRIC_REQUESTS: BiometricRequest[] = [
     status: 'rejected',
     note: 'Blurry photo, face not recognized',
   },
-];
-
-/** Dữ liệu giả — feed camera giám sát (placeholder cho video stream) */
-export const MOCK_CAMERA_FEEDS: CameraFeed[] = [
-  { id: 'cam-01', studentId: '21110001', studentName: 'Nguyen Van An', classCode: 'CS101', isOnline: true, hasViolation: false, lastActivity: '2s ago' },
-  { id: 'cam-02', studentId: '21110002', studentName: 'Tran Thi Binh', classCode: 'CS101', isOnline: true, hasViolation: true, lastActivity: '5s ago' },
-  { id: 'cam-03', studentId: '21110003', studentName: 'Le Hoang Cuong', classCode: 'CS201', isOnline: true, hasViolation: false, lastActivity: '1s ago' },
-  { id: 'cam-04', studentId: '21110005', studentName: 'Vo Minh Em', classCode: 'CS301', isOnline: false, hasViolation: false, lastActivity: 'Offline' },
-  { id: 'cam-05', studentId: '21110007', studentName: 'Dang Van Giang', classCode: 'CS101', isOnline: true, hasViolation: false, lastActivity: '3s ago' },
-  { id: 'cam-06', studentId: '21110009', studentName: 'Tran Van Ich', classCode: 'CS101', isOnline: true, hasViolation: true, lastActivity: '8s ago' },
-  { id: 'cam-07', studentId: '21110011', studentName: 'Pham Van Long', classCode: 'CS101', isOnline: true, hasViolation: false, lastActivity: '2s ago' },
-  { id: 'cam-08', studentId: '21110013', studentName: 'Hoang Van Nam', classCode: 'CS101', isOnline: true, hasViolation: false, lastActivity: '4s ago' },
-  { id: 'cam-09', studentId: '21110015', studentName: 'Tran Van Phuc', classCode: 'CS101', isOnline: true, hasViolation: false, lastActivity: '1s ago' },
-  { id: 'cam-10', studentId: '21110006', studentName: 'Hoang Thi Phuong', classCode: 'CS301', isOnline: true, hasViolation: false, lastActivity: '6s ago' },
-  { id: 'cam-11', studentId: '21110008', studentName: 'Nguyen Thi Hoa', classCode: 'CS401', isOnline: true, hasViolation: false, lastActivity: '2s ago' },
-  { id: 'cam-12', studentId: '21110020', studentName: 'Le Thi Vy', classCode: 'CS201', isOnline: true, hasViolation: true, lastActivity: '12s ago' },
 ];
 
 /** Dữ liệu giả — cảnh báo vi phạm */

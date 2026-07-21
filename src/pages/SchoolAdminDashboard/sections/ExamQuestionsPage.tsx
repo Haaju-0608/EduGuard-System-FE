@@ -155,18 +155,18 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
       className="fixed inset-0 z-200 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="bg-[#0f172a] border border-border rounded-3xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+      <div className="bg-navy-card border border-border rounded-[20px] shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
-          <h2 className="font-syne font-extrabold text-white-soft text-lg">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 className="font-syne font-bold text-white-soft text-lg">
             {isEdit ? 'Edit Question' : 'Add Question'}
           </h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-white-soft transition-colors cursor-pointer">
+          <button onClick={onClose} className="w-8 h-8 rounded-xl border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors bg-transparent">
             <FiX />
           </button>
         </div>
 
-        <div className="px-6 py-5 space-y-5">
+        <div className="p-6 space-y-4">
           {/* Question text */}
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question *</label>
@@ -175,7 +175,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
               value={text}
               onChange={(e) => setText(e.target.value)}
               placeholder="Enter question text..."
-              className="w-full bg-navy border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/40 transition-colors resize-none"
+              className="w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/50 transition-colors resize-none"
             />
           </div>
 
@@ -188,7 +188,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
               step="0.5"
               value={points}
               onChange={(e) => setPoints(Number(e.target.value))}
-              className="w-32 bg-navy border border-border rounded-xl px-4 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/40 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="w-32 bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
           </div>
 
@@ -197,7 +197,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
               Image URL <span className="normal-case font-normal">(optional — paste a link to an existing image; direct file upload isn't supported yet)</span>
             </label>
-            <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/40 transition-colors">
+            <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
               <FiImage className="text-muted shrink-0" />
               <input
                 type="text"
@@ -246,7 +246,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
                     value={opt.optionContent}
                     onChange={(e) => updateOptionText(opt.id, e.target.value)}
                     placeholder={`Option ${opt.optionLabel}`}
-                    className="flex-1 bg-navy border border-border rounded-xl px-3 py-2 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/40 transition-colors"
+                    className="flex-1 bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/50 transition-colors"
                   />
                   {opt.isCorrect && (
                     <span className="text-[10px] font-bold text-green shrink-0 w-14">✓ Correct</span>
@@ -269,16 +269,16 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
               </button>
             )}
           </div>
-        </div>
 
-        {/* Footer */}
-        <div className="flex gap-3 px-6 pb-6">
-          <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-border text-sm text-muted hover:text-white-soft transition-all cursor-pointer disabled:opacity-50">
-            Cancel
-          </button>
-          <button onClick={() => void handleSave()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer disabled:opacity-50">
-            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Question'}
-          </button>
+          {/* Actions */}
+          <div className="flex gap-3 pt-1">
+            <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent disabled:opacity-50">
+              Cancel
+            </button>
+            <button onClick={() => void handleSave()} disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none">
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Add Question'}
+            </button>
+          </div>
         </div>
       </div>
     </div>,
@@ -452,7 +452,7 @@ export default function ExamQuestionsPage() {
 
       {deleteTarget && createPortal(
         <div className="fixed inset-0 z-200 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-[#0f172a] border border-border rounded-[20px] shadow-2xl w-full max-w-sm p-6 space-y-4">
+          <div className="bg-navy-card border border-border rounded-[20px] shadow-2xl w-full max-w-sm p-6 space-y-4">
             <h3 className="font-syne font-bold text-white-soft">Delete Question?</h3>
             <p className="text-sm text-muted leading-relaxed">
               "{deleteTarget.questionContent.slice(0, 80)}{deleteTarget.questionContent.length > 80 ? '…' : ''}"

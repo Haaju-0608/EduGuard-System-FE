@@ -168,7 +168,14 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     // ── Camera ──
     try {
       setCameraStatus('requesting');
-      await cameraService.start(video);
+      await cameraService.start(video, {}, () => {
+        // Camera tự tắt ngoài ý muốn (rút webcam, app khác chiếm quyền, OS thu hồi permission
+        // giữa chừng...) — không phải do stop() chủ động gọi. Đưa cameraStatus về 'error' để UI
+        // (CameraGateModal) chặn thi lại ngay, và dừng luôn vòng lặp detect vì video không còn
+        // frame thật để phân tích nữa.
+        setCameraStatus('error');
+        stopLoop();
+      });
       engines.evidence.start(video);
       setCameraStatus('ready');
     } catch (err) {
