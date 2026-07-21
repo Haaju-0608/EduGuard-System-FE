@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiCheck, FiChevronDown, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import { FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
@@ -48,7 +48,9 @@ function StatusBadge({ status }: { status: ExamSlotStatus }) {
   );
 }
 
-// ─── Proctor Dropdown ─────────────────────────────────────────────────────
+// ─── Proctor Search ───────────────────────────────────────────────────────
+// Ô nhập trơn — không phải dropdown phải bấm mới mở. Gõ tới đâu, kết quả hiện ngay bên dưới tới
+// đó (không chiếm chỗ khi chưa gõ gì).
 
 function ProctorDropdown({
   lecturers,
@@ -59,74 +61,50 @@ function ProctorDropdown({
   selected: string;
   onChange: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered = lecturers.filter(
-    (l) => !search || l.name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()),
-  );
 
   const selectedLecturer = lecturers.find((l) => l.id === selected);
 
+  // Ô nhập hiện tên người đã chọn khi không gõ tìm gì mới; khi gõ thì hiện đúng chữ đang gõ.
+  const inputValue = search || selectedLecturer?.name || '';
+
+  const filtered = search.trim()
+    ? lecturers.filter(
+        (l) => l.name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()),
+      )
+    : [];
+
+  const selectLecturer = (id: string) => {
+    onChange(id);
+    setSearch('');
+  };
+
   return (
-    <div ref={ref} className="relative">
-      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-        Proctor{' '}
-        <span className="text-muted font-normal normal-case tracking-normal">— optional</span>
-      </label>
+    <div>
+      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Proctor *</label>
 
-      {/* Trigger */}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 text-sm transition-colors hover:border-blue-bright/40 outline-none"
-      >
-        {selectedLecturer ? (
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-full bg-blue/20 border border-blue/30 grid place-items-center shrink-0 text-[10px] font-bold text-blue-bright">
-              {selectedLecturer.name.slice(0, 2).toUpperCase()}
-            </div>
-            <span className="text-white-soft truncate">{selectedLecturer.name}</span>
-          </div>
-        ) : (
-          <span className="text-muted">Select a proctor...</span>
+      <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
+        <FiSearch className="text-muted text-sm shrink-0" />
+        <input
+          type="text"
+          placeholder="Search lecturer by name or email..."
+          value={inputValue}
+          onChange={(e) => { setSearch(e.target.value); if (selected) onChange(''); }}
+          className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+        />
+        {(selected || search) && (
+          <button
+            type="button"
+            onClick={() => { onChange(''); setSearch(''); }}
+            className="text-muted hover:text-white-soft transition-colors cursor-pointer bg-transparent border-none shrink-0"
+          >
+            <FiX className="text-xs" />
+          </button>
         )}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected && (
-            <span
-              onClick={(e) => { e.stopPropagation(); onChange(''); }}
-              className="text-muted hover:text-white-soft transition-colors cursor-pointer"
-            >
-              <FiX className="text-xs" />
-            </span>
-          )}
-          <FiChevronDown className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
-        </div>
-      </button>
+      </div>
 
-      {/* Dropdown panel */}
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-            <FiSearch className="text-muted text-sm shrink-0" />
-            <input
-              autoFocus
-              type="text"
-              placeholder="Search lecturer..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
-            />
-          </div>
+      {search.trim() && (
+        <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
           <div className="max-h-48 overflow-y-auto custom-scrollbar">
             {filtered.length === 0 ? (
               <p className="text-muted text-sm text-center py-4">No lecturers found</p>
@@ -137,7 +115,7 @@ function ProctorDropdown({
                   <button
                     key={lec.id}
                     type="button"
-                    onClick={() => { onChange(isSelected ? '' : lec.id); setOpen(false); setSearch(''); }}
+                    onClick={() => selectLecturer(isSelected ? '' : lec.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/30 last:border-0 ${
                       isSelected ? 'bg-cyan/10' : 'hover:bg-white/5'
                     }`}
@@ -189,6 +167,7 @@ function ExamFormModal({
   const toast = useToast();
   const [form, setForm] = useState<SlotForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [classSearch, setClassSearch] = useState('');
   const isEdit = !!target;
 
   useEffect(() => {
@@ -201,7 +180,13 @@ function ExamFormModal({
       durationMinutes: target.durationMinutes > 0 ? String(target.durationMinutes) : '',
       proctorId: target.proctorId ?? '',
     } : EMPTY_FORM);
+    setClassSearch('');
   }, [target]);
+
+  const classSearchQuery = classSearch.trim().toLowerCase();
+  const filteredClasses = classSearchQuery
+    ? classes.filter((c) => c.code.toLowerCase().includes(classSearchQuery) || c.name.toLowerCase().includes(classSearchQuery))
+    : [];
 
   const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
 
@@ -223,6 +208,10 @@ function ExamFormModal({
     }
     if (!isEdit && form.classIds.length === 0) {
       toast.warning('Required', 'Select at least one class.');
+      return;
+    }
+    if (!form.proctorId) {
+      toast.warning('Required', 'Select a proctor.');
       return;
     }
     setSaving(true);
@@ -278,33 +267,51 @@ function ExamFormModal({
                 Classes *{' '}
                 <span className="text-muted font-normal normal-case tracking-normal">— select one or more</span>
               </label>
-              <div className="bg-navy border border-border rounded-xl max-h-44 overflow-y-auto custom-scrollbar">
-                {classes.length === 0 ? (
-                  <p className="text-muted text-sm text-center py-4">No classes available</p>
-                ) : (
-                  classes.map((c) => {
-                    const checked = form.classIds.includes(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => toggleClass(c.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
-                          checked ? 'bg-blue/10' : 'hover:bg-white/5'
-                        }`}
-                      >
-                        <div className={`w-4 h-4 rounded border shrink-0 grid place-items-center transition-colors ${
-                          checked ? 'bg-blue border-blue' : 'border-border'
-                        }`}>
-                          {checked && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
-                        </div>
-                        <span className="text-[10px] font-bold text-muted font-mono">{c.code}</span>
-                        <span className="text-sm text-white-soft truncate">{c.name}</span>
-                      </button>
-                    );
-                  })
-                )}
+              <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
+                <FiSearch className="text-muted text-sm shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search class code or name..."
+                  value={classSearch}
+                  onChange={(e) => setClassSearch(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+                />
               </div>
+
+              {classSearchQuery && (
+                <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
+                  <div className="max-h-44 overflow-y-auto custom-scrollbar">
+                    {filteredClasses.length === 0 ? (
+                      <p className="text-muted text-sm text-center py-4">No classes match your search</p>
+                    ) : (
+                      filteredClasses.map((c) => {
+                        const checked = form.classIds.includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => toggleClass(c.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
+                              checked ? 'bg-blue/10' : 'hover:bg-white/5'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded border shrink-0 grid place-items-center transition-colors ${
+                              checked ? 'bg-blue border-blue' : 'border-border'
+                            }`}>
+                              {checked && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                            </div>
+                            <span className="text-[10px] font-bold text-muted font-mono">{c.code}</span>
+                            <span className="text-sm text-white-soft truncate">{c.name}</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+              {classes.length === 0 && (
+                <p className="text-muted text-sm mt-1.5">No classes available</p>
+              )}
               {form.classIds.length > 0 && (
                 <p className="text-xs text-cyan mt-1.5">{form.classIds.length} class{form.classIds.length > 1 ? 'es' : ''} selected</p>
               )}

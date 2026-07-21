@@ -2,11 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { FiAlertCircle, FiAward, FiCheckCircle, FiEdit2, FiLock, FiMail, FiPhone, FiSave, FiShield, FiUser, FiX } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
-import { updateMyProfile } from '../../../services/schoolAdminApi';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import { fetchInstitution, updateMyProfile } from '../../../services/schoolAdminApi';
 
 export default function ProfileDetailPage() {
   const { user, refreshProfile } = useAuth();
   const toast = useToast();
+
+  // GET /api/users/me không phải lúc nào cũng trả kèm institution.name (tuỳ role) — nếu thiếu
+  // thì tự fetch riêng theo institutionId, giống cách SchoolDashboardOverview.tsx đã làm.
+  const { data: institutionData } = useAsyncData(
+    () => (user?.institutionId && !user?.institutionName ? fetchInstitution(user.institutionId) : Promise.resolve(null)),
+    [user?.institutionId, user?.institutionName],
+  );
+  const institutionName = user?.institutionName ?? institutionData?.name ?? null;
 
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -207,7 +216,7 @@ export default function ProfileDetailPage() {
               <span className="text-muted">Institution:</span>
               {user?.institutionId
                 ? <span className="text-white-soft font-medium text-right max-w-[60%] truncate">
-                    {user.institutionName ?? `${user.institutionId.slice(0, 8)}…`}
+                    {institutionName ?? `${user.institutionId.slice(0, 8)}…`}
                   </span>
                 : <span className="text-muted italic">Not assigned</span>
               }

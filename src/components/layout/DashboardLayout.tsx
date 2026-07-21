@@ -1,4 +1,4 @@
-import React, { useState, ReactNode } from 'react';
+import React, { useEffect, useRef, useState, ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
@@ -30,6 +30,17 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
   const { unreadCount } = useNotifications();
   const location = useLocation();
   const navigate = useNavigate();
+  const mainRef = useRef<HTMLElement>(null);
+
+  // <main> là 1 DOM node cố định dùng chung cho mọi route (chỉ {children} bên trong đổi) nên
+  // scrollTop tự nhiên giữ nguyên khi chuyển tab — trang mới hiện ra ngay tại vị trí cuộn cũ của
+  // trang trước, nhìn như bị lỗi. Reset về đầu mỗi khi đổi route — cả <main> (desktop, ≥lg tự
+  // cuộn riêng) lẫn window (mobile, dưới breakpoint lg thì cả trang cuộn chung, <main> không có
+  // scrollbar riêng của nó).
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -194,7 +205,10 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
         </header>
 
         {/* Page Content */}
-        <main className={`flex-1 flex flex-col overflow-y-visible lg:overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}>
+        <main
+          ref={mainRef}
+          className={`flex-1 flex flex-col overflow-y-visible lg:overflow-y-auto p-6 custom-scrollbar relative z-0 min-h-0 ${campusMode ? 'lecture-main-campus' : ''}`}
+        >
           {campusMode && <CampusBackground />}
           <div className="relative z-[1] flex-1 flex flex-col min-h-0">{children}</div>
         </main>
