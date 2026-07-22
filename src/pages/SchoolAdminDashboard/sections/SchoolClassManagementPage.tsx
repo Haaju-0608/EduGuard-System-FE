@@ -341,6 +341,12 @@ function ClassFormModal({
     e.preventDefault();
     if (!form.courseName.trim()) { toast.warning('Required', 'Course name is required.'); return; }
     if (!form.lecturerId && !isEdit) { toast.warning('Required', 'Please select a lecturer.'); return; }
+    // BE (CreateClassDto) bắt buộc Semester + AcademicYear khi tạo mới — không check trước thì
+    // submit fail 400 dù form nhìn như hợp lệ (2 field này trước đây không đánh dấu required).
+    if (!isEdit && (!form.semester.trim() || !form.academicYear.trim())) {
+      toast.warning('Required', 'Semester and academic year are required.');
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -418,11 +424,11 @@ function ClassFormModal({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Spring 2025" className={inputCls} />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.academicYear} onChange={set('academicYear')} placeholder="e.g. 2024-2025" className={inputCls} />
             </div>
             <div>

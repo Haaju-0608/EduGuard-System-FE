@@ -7,6 +7,7 @@ import ReportsPage from './sections/ReportsPage';
 import CreditsPage from './sections/CreditsPage';
 import SettingsPage from './sections/SettingsPage';
 import InstitutionsPage from './sections/InstitutionsPage';
+
 const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/admin' },
   { icon: '🏫', label: 'Institutions', path: '/admin/institutions' },

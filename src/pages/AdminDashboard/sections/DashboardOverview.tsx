@@ -1,8 +1,9 @@
 import React from 'react';
-import { FiBriefcase, FiDollarSign, FiRefreshCw, FiUsers } from 'react-icons/fi';
+import { FiAlertTriangle, FiBriefcase, FiRefreshCw, FiUsers } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchInstitutions } from '../../../services/adminApi';
-import { fetchSchoolAdminBiometricRequests, fetchUsers } from '../../../services/schoolAdminApi';
+import { fetchUsers } from '../../../services/schoolAdminApi';
+import { billingModelLabel } from '../../../utils/billingModel';
 import { useNavigate } from 'react-router-dom';
 
 interface KpiCardProps {
@@ -52,23 +53,17 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
     () => fetchUsers({ page: 1, pageSize: 200 }),
     [],
   );
-  const { data: approvalRes, loading: loadingA, reload: reloadA } = useAsyncData(
-    () => fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 100 }),
-    [],
-  );
 
   const institutions = institutionRes?.items ?? [];
   const users = userRes?.items ?? [];
-  const approvals = approvalRes?.items ?? [];
 
   const activeInst = institutions.filter((i) => i.status?.toLowerCase() === 'active').length;
-  const pendingApprovals = approvals.filter((a) => a.status?.toLowerCase() === 'pending').length;
   const students = users.filter((u) => u.role?.toLowerCase() === 'student').length;
   const lecturers = users.filter((u) => ['lecturer', 'instructor'].includes(u.role?.toLowerCase())).length;
 
-  const loading = loadingI || loadingU || loadingA;
+  const loading = loadingI || loadingU;
 
-  function reloadAll() { reloadI(); reloadU(); reloadA(); }
+  function reloadAll() { reloadI(); reloadU(); }
 
   return (
     <div className="space-y-6">
@@ -88,7 +83,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
       </div>
 
       {/* KPI Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           label="Total Institutions"
           value={institutions.length}
@@ -110,20 +105,10 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
           onClick={() => onNavigate('/admin/users')}
         />
         <KpiCard
-          label="Pending Approvals"
-          value={pendingApprovals}
-          sub="Face re-registration"
-          icon="🪪"
-          color={pendingApprovals > 0 ? 'text-gold' : 'text-muted'}
-          bg={pendingApprovals > 0 ? 'bg-gold/10' : 'bg-white/5'}
-          loading={loadingA}
-          onClick={() => onNavigate('/admin/approvals')}
-        />
-        <KpiCard
           label="Suspended Institutions"
           value={institutions.filter((i) => i.status?.toLowerCase() === 'suspended').length}
           sub="Requires attention"
-          icon={<FiDollarSign />}
+          icon={<FiAlertTriangle />}
           color="text-red"
           bg="bg-red/10"
           loading={loadingI}
@@ -162,7 +147,7 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white-soft truncate">{inst.name ?? '—'}</p>
-                    <p className="text-[11px] text-muted">{inst.billingModel}</p>
+                    <p className="text-[11px] text-muted">{billingModelLabel(inst.billingModel)}</p>
                   </div>
                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                     inst.status?.toLowerCase() === 'active'
@@ -206,20 +191,6 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
                   </div>
                 );
               })}
-            </div>
-          )}
-
-          {/* Pending approvals alert */}
-          {pendingApprovals > 0 && !loadingA && (
-            <div
-              onClick={() => onNavigate('/admin/approvals')}
-              className="mt-4 flex items-center gap-3 bg-gold/5 border border-gold/25 rounded-xl px-4 py-3 cursor-pointer hover:bg-gold/10 transition-colors"
-            >
-              <span className="text-xl shrink-0">⚠️</span>
-              <div>
-                <p className="text-xs font-bold text-gold">{pendingApprovals} Pending Biometric Approval{pendingApprovals > 1 ? 's' : ''}</p>
-                <p className="text-[11px] text-muted">Click to review face registration requests</p>
-              </div>
             </div>
           )}
         </div>

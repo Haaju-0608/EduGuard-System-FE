@@ -32,7 +32,10 @@ export interface CreateInstitutionPayload {
   name: string;
   subDomain?: string;
   contactEmail?: string;
-  billingModel: 'PerUse' | 'Subscription';
+  // Khớp đúng tên enum thật của BE (Models/AppRole.cs: BillingModel.PayAsYouGo/Subscription,
+  // deserialize qua JsonStringEnumConverter) — gửi "PerUse" (tên cũ ở FE) sẽ bị BE từ chối 400
+  // vì không khớp tên enum member nào cả.
+  billingModel: 'PayAsYouGo' | 'Subscription';
   status?: 'Active' | 'Suspended' | 'Inactive';
 }
 
@@ -91,4 +94,126 @@ export async function createPricingConfig(
   payload: CreatePricingPayload,
 ): Promise<ApiPricingConfig> {
   return apiPost<ApiPricingConfig>('/api/pricing-configs', payload);
+}
+
+// ─── Reports (Controllers/ReportsController.cs) ────────────────────────────
+// Response shape khớp các anonymous object BE trả về (Services/ReportService.cs) — camelCase
+// theo convention JSON serialization chung của BE, bất kể tên property gốc trong C# là gì.
+
+export interface ReportFilters {
+  institutionId?: string | null;
+  from?: string | null;
+  to?: string | null;
+}
+
+export interface AttendanceReportItem {
+  id: string;
+  classId: string;
+  startTime: string;
+  endTime: string | null;
+  status: string;
+  totalRecognized: number;
+  totalStudents: number;
+  records: number;
+}
+export interface AttendanceReport {
+  filters: ReportFilters & { classId?: string | null };
+  summary: {
+    sessions: number;
+    completed: number;
+    totalRecognized: number;
+    averageRecognitionRate: number;
+  };
+  items: AttendanceReportItem[];
+}
+
+export interface ViolationReportItem {
+  violationId: string;
+  participationId: string;
+  examSlotId: string;
+  examName: string;
+  studentId: string;
+  studentName: string;
+  type: string;
+  severity: string;
+  aiConfidence: number | null;
+  evidencePath: string | null;
+  isReviewed: boolean;
+  recordedAt: string;
+}
+export interface ViolationReport {
+  filters: ReportFilters & { examSlotId?: string | null };
+  summary: {
+    total: number;
+    reviewed: number;
+    byType: { type: string; count: number }[];
+    bySeverity: { severity: string; count: number }[];
+  };
+  items: ViolationReportItem[];
+}
+
+export interface WalletReportItem {
+  id: string;
+  walletId: string;
+  amount: number;
+  type: string;
+  status: string;
+  description: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
+export interface WalletReport {
+  filters: ReportFilters & { walletId?: string | null };
+  summary: {
+    totalTransactions: number;
+    successAmount: number;
+    topUpAmount: number;
+    feeAmount: number;
+  };
+  items: WalletReportItem[];
+}
+
+export interface RevenueReportItem {
+  period: string;
+  topUpAmount: number;
+  attendanceFeeAmount: number;
+  proctoringFeeAmount: number;
+  serviceFeeAmount: number;
+}
+export interface RevenueReport {
+  filters: { from?: string | null; to?: string | null; groupBy: string };
+  summary: {
+    topUpAmount: number;
+    serviceFeeAmount: number;
+    transactionCount: number;
+  };
+  items: RevenueReportItem[];
+}
+
+/** GET /api/reports/attendance */
+export async function fetchAttendanceReport(
+  params: { institutionId?: string; classId?: string; from?: string; to?: string } = {},
+): Promise<AttendanceReport> {
+  return apiGet<AttendanceReport>(`/api/reports/attendance${buildQueryParams(params)}`);
+}
+
+/** GET /api/reports/violations */
+export async function fetchViolationReport(
+  params: { institutionId?: string; examSlotId?: string; from?: string; to?: string } = {},
+): Promise<ViolationReport> {
+  return apiGet<ViolationReport>(`/api/reports/violations${buildQueryParams(params)}`);
+}
+
+/** GET /api/reports/wallet — SuperAdmin/SchoolAdmin */
+export async function fetchWalletReport(
+  params: { institutionId?: string; walletId?: string; from?: string; to?: string } = {},
+): Promise<WalletReport> {
+  return apiGet<WalletReport>(`/api/reports/wallet${buildQueryParams(params)}`);
+}
+
+/** GET /api/reports/revenue — SuperAdmin only */
+export async function fetchRevenueReport(
+  params: { from?: string; to?: string; groupBy?: 'day' | 'month' } = {},
+): Promise<RevenueReport> {
+  return apiGet<RevenueReport>(`/api/reports/revenue${buildQueryParams(params)}`);
 }

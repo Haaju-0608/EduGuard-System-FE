@@ -4,7 +4,7 @@ import SchoolDashboardOverview from './sections/SchoolDashboardOverview';
 import SchoolStudentManagementPage from './sections/SchoolStudentManagementPage';
 import LecturerManagementPage from './sections/LecturerManagementPage';
 import SchoolClassManagementPage from './sections/SchoolClassManagementPage';
-import BiometricApprovalPage from '../LecturerDashboard/sections/BiometricApprovalPage';
+import BiometricApprovalPage from './sections/BiometricApprovalPage';
 import WalletPage from './sections/WalletPage';
 import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';

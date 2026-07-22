@@ -409,8 +409,18 @@ function mapApiBiometricRequest(
   };
 }
 
-/** POST /api/storage/signed-url — lấy signed URL để hiển thị ảnh khuôn mặt */
+/**
+ * POST /api/storage/signed-url — lấy signed URL để hiển thị ảnh khuôn mặt.
+ *
+ * BE's Front/Left/RightImageUrl chỉ là passthrough thẳng cột path trong DB (Helpers/AcademicMapper.cs),
+ * không hề ký sẵn. Giá trị cột đó đã đổi qua thời gian: trước đây là path cục bộ kiểu
+ * "uploads/biometrics/xxx.jpg" (không khớp bucket Supabase "biometric-faces"), còn từ bản cập nhật
+ * AI service (BiometricRequestService.cs) thì lưu THẲNG URL đầy đủ trả về từ FastAPI AI
+ * (`aiResponse.AvatarUrl`, có thể ở project Supabase khác). Ký lại 1 URL đã đầy đủ như path thô sẽ
+ * fail — nên tự nhận diện: nếu đã là URL http(s) thì dùng thẳng, chỉ ký khi thực sự là bare path.
+ */
 export async function fetchSignedFaceUrl(path: string): Promise<string | null> {
+  if (/^https?:\/\//i.test(path)) return path;
   try {
     const res = await apiPost<{ signedUrl?: string }>(
       `/api/storage/signed-url?bucket=biometric-faces&path=${encodeURIComponent(path)}&expiresInSeconds=3600`,
@@ -958,8 +968,10 @@ export async function fetchStudentAttendanceHistory(
     apiGetPaginated<ApiAttendanceRecord[]>(
       `/api/attendance-records${buildQueryParams({ studentId, page: 1, pageSize: 200 })}`,
     ).catch(() => ({ data: [] as ApiAttendanceRecord[], pagination: EMPTY_PAGINATION })),
+    // expand=class — không gửi thì session.class luôn null, className rơi về "Unknown class"
+    // dù data thật vẫn tồn tại (BE chỉ populate navigation property khi có tham số này).
     apiGetPaginated<ApiAttendanceSession[]>(
-      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200 })}`,
+      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200, expand: 'class' })}`,
     ).catch(() => ({ data: [] as ApiAttendanceSession[], pagination: EMPTY_PAGINATION })),
   ]);
 
@@ -1001,7 +1013,7 @@ export async function fetchAttendanceSessions(
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
   const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page, pageSize })}`,
+    `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
 }

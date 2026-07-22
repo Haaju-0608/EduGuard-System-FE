@@ -175,7 +175,14 @@ export default function LecturerManagementPage() {
   }, [lecturers, search]);
 
   const handleAdd = async () => {
-    if (!form.fullName || !form.email || !form.password) return;
+    if (!form.fullName || !form.email || !form.password) {
+      toast.warning('Required', 'Full name, email and password are required.');
+      return;
+    }
+    if (form.password.length < 6) {
+      toast.warning('Invalid', 'Password must be at least 6 characters.');
+      return;
+    }
     setSubmitting(true);
     try {
       await createUser({

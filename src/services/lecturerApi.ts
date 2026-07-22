@@ -86,8 +86,10 @@ export async function fetchLecturerKpis(): Promise<LecturerKpi[]> {
 export async function fetchActiveAttendanceSession(
   classId?: string,
 ): Promise<AttendanceSession | null> {
+  // expand=class — BE chỉ populate session.class khi có tham số này (Helpers/AcademicMapper.cs),
+  // không gửi thì className luôn rơi về "Unknown" dù data thật vẫn tồn tại.
   const { data } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50 })}`,
+    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50, expand: 'class' })}`,
   );
 
   const active = data.find(
@@ -128,7 +130,7 @@ export async function fetchAttendanceSessions(
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
   const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page, pageSize })}`,
+    `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
 }
@@ -140,8 +142,9 @@ async function buildAttendanceSession(session: ApiAttendanceSession): Promise<At
 
   let records: AttendanceRecord[] = [];
   try {
+    // expand=student — không gửi thì record.student luôn null, tên hiện "Unknown" dù có data thật.
     const recRes = await apiGetPaginated<ApiAttendanceRecord[]>(
-      `/api/attendance-records${buildQueryParams({ page: 1, pageSize: 200 })}`,
+      `/api/attendance-records${buildQueryParams({ page: 1, pageSize: 200, expand: 'student' })}`,
     );
     records = recRes.data
       .filter((r) => r.sessionId === session.id)

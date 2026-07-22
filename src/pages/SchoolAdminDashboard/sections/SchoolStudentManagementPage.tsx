@@ -58,6 +58,15 @@ function StudentFormModal({
       toast.warning('Required', 'Password is required for new students.');
       return;
     }
+    if (!isEdit && form.password.trim().length < 6) {
+      toast.warning('Invalid', 'Password must be at least 6 characters.');
+      return;
+    }
+    // BE bắt buộc studentCode khi tạo role Student (CreateUserDto.Validate() throw nếu thiếu).
+    if (!isEdit && !form.studentCode.trim()) {
+      toast.warning('Required', 'Student code is required.');
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -118,7 +127,7 @@ function StudentFormModal({
           )}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student Code</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student Code{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
             </div>
             <div>

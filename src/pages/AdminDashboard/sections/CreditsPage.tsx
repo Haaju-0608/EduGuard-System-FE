@@ -3,6 +3,7 @@ import { FiRefreshCw } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchInstitutions, fetchPricingConfigs } from '../../../services/adminApi';
 import { fetchWallet } from '../../../services/schoolAdminApi';
+import { billingModelLabel } from '../../../utils/billingModel';
 import type { ApiInstitution, ApiPricingConfig } from '../../../types/api';
 
 type ServiceType = 'Attendance' | 'Proctoring' | 'BiometricRegistration';
@@ -29,7 +30,7 @@ function InstitutionWalletCard({ inst }: { inst: ApiInstitution }) {
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-bold text-white-soft truncate">{inst.name}</p>
-          <p className="text-[11px] text-muted">{inst.billingModel}</p>
+          <p className="text-[11px] text-muted">{billingModelLabel(inst.billingModel)}</p>
         </div>
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${inst.status?.toLowerCase() === 'active' ? 'text-green bg-green/10 border-green/25' : 'text-red bg-red/10 border-red/25'}`}>
           {inst.status}

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FiCheck, FiChevronDown } from 'react-icons/fi';
 
@@ -33,14 +33,19 @@ export default function CustomSelect({
 
   const selectedLabel = options.find((o) => o.value === value)?.label ?? placeholder;
 
-  const calcPos = () => {
+  // `listHeight` mặc định giả định MAX_LIST_HEIGHT (240px) — dùng để quyết định lật lên hay
+  // không TRƯỚC khi list kịp render (chưa đo được chiều cao thật). Sau khi render xong, effect
+  // bên dưới đo chiều cao THẬT rồi gọi lại hàm này với giá trị chính xác — quan trọng cho list
+  // ít lựa chọn (vd 2 option) vì lúc đó list ngắn hơn 240px rất nhiều, nếu cứ trừ nguyên 240px
+  // khi lật lên thì nó bị đẩy lên cao hơn hẳn vị trí đúng, đè lên các field khác phía trên.
+  const calcPos = (listHeight = MAX_LIST_HEIGHT) => {
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const spaceBelow = window.innerHeight - rect.bottom;
-    const flipUp = spaceBelow < MAX_LIST_HEIGHT && rect.top > MAX_LIST_HEIGHT;
+    const flipUp = spaceBelow < listHeight && rect.top > listHeight;
     return {
       top: flipUp
-        ? rect.top + window.scrollY - MAX_LIST_HEIGHT - 4
+        ? rect.top + window.scrollY - listHeight - 4
         : rect.bottom + window.scrollY + 4,
       left: rect.left + window.scrollX,
       width: Math.max(rect.width, 160),
@@ -85,6 +90,16 @@ export default function CustomSelect({
     window.addEventListener('scroll', update, true);
     window.addEventListener('resize', update);
     return () => { window.removeEventListener('scroll', update, true); window.removeEventListener('resize', update); };
+  }, [open]);
+
+  // Đo chiều cao THẬT của list ngay sau khi render (useLayoutEffect để sửa trước khi vẽ lên màn
+  // hình, tránh nháy vị trí) rồi tính lại vị trí lật lên cho đúng — xem giải thích ở calcPos.
+  useLayoutEffect(() => {
+    if (!open || !listRef.current) return;
+    const actualHeight = listRef.current.getBoundingClientRect().height;
+    const p = calcPos(actualHeight);
+    if (p) setPos(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // ── Trigger style ──────────────────────────────────────────────────────
