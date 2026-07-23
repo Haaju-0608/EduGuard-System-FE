@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiArrowLeft, FiEdit2, FiImage, FiPlus, FiTrash2, FiX } from 'react-icons/fi';
+import { FiArrowLeft, FiEdit2, FiImage, FiMusic, FiPlus, FiTrash2, FiX } from 'react-icons/fi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -18,8 +18,17 @@ import type { ApiExamQuestion, ApiQuestionOption } from '../../../types/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-/** BE hiện chỉ validate MaxLength(30), chưa có enum cố định — tạm hardcode 1 loại duy nhất */
-const QUESTION_TYPE = 'MCQ';
+/** BE chỉ validate MaxLength(30), không có enum cố định — nhưng chấm điểm tự động chỉ
+ *  phân biệt đúng 2 nhánh: có options + type !== "Essay" (auto-grade) vs còn lại (manual).
+ *  MCQ/Listening/Reading đều auto-grade bằng options; chỉ Essay là chấm tay. */
+type QuestionType = 'MCQ' | 'Listening' | 'Reading' | 'Essay';
+
+const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
+  { value: 'MCQ', label: 'Multiple Choice' },
+  { value: 'Listening', label: 'Listening' },
+  { value: 'Reading', label: 'Reading' },
+  { value: 'Essay', label: 'Essay (manual grading)' },
+];
 
 interface EditableOption {
   /** id thật từ BE nếu đã tồn tại, id tạm (client-side) nếu mới thêm chưa lưu */
@@ -58,10 +67,15 @@ interface ModalProps {
 
 function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: ModalProps) {
   const toast = useToast();
+  const [questionType, setQuestionType] = useState<QuestionType>(() => {
+    const match = QUESTION_TYPES.find((t) => t.value.toLowerCase() === initial?.questionType.toLowerCase());
+    return match?.value ?? 'MCQ';
+  });
   const [text, setText] = useState(initial?.questionContent ?? '');
   const [points, setPoints] = useState(initial?.points ?? 1);
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? '');
   const [imageError, setImageError] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(initial?.audioUrl ?? '');
   const [options, setOptions] = useState<EditableOption[]>(() =>
     initial
       ? initial.options.map((o) => ({
@@ -91,48 +105,55 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
     });
   };
 
+  const isEssay = questionType === 'Essay';
+
   const handleSave = async () => {
     if (!text.trim()) { toast.warning('Required', 'Enter question text.'); return; }
-    if (options.some((o) => !o.optionContent.trim())) { toast.warning('Required', 'All options must be filled in.'); return; }
-    if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
+    if (!isEssay) {
+      if (options.some((o) => !o.optionContent.trim())) { toast.warning('Required', 'All options must be filled in.'); return; }
+      if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
+    }
     if (points < 0) { toast.warning('Invalid', 'Points must be 0 or more.'); return; }
 
     setSaving(true);
     try {
       if (isEdit && initial) {
         await updateExamQuestion(initial.id, {
-          questionType: QUESTION_TYPE,
+          questionType,
           questionContent: text.trim(),
           imageUrl: imageUrl.trim() || null,
+          audioUrl: audioUrl.trim() || null,
           points,
           displayOrder: initial.displayOrder,
         });
 
-        // Diff options: xoá option cũ bị bỏ, tạo option mới, cập nhật option còn lại
+        // Diff options: xoá option cũ bị bỏ, tạo option mới, cập nhật option còn lại.
+        // Essay không có options → xoá hết options cũ (nếu question trước đó là MCQ).
         const originalIds = new Set(initial.options.map((o) => o.id));
-        const currentExistingIds = new Set(options.filter((o) => !o.isNew).map((o) => o.id));
+        const currentExistingIds = isEssay ? new Set<string>() : new Set(options.filter((o) => !o.isNew).map((o) => o.id));
         const removedIds = [...originalIds].filter((id) => !currentExistingIds.has(id));
 
         await Promise.all([
           ...removedIds.map((id) => deleteQuestionOption(id)),
-          ...options.map((o) => {
+          ...(isEssay ? [] : options.map((o) => {
             const payload = { optionLabel: o.optionLabel, optionContent: o.optionContent.trim(), isCorrect: o.isCorrect };
             return o.isNew
               ? createQuestionOption(initial.id, payload)
               : updateQuestionOption(o.id, payload);
-          }),
+          })),
         ]);
 
         toast.success('Updated', 'Question updated.');
       } else {
         await createExamQuestion({
           examSlotId: examId,
-          questionType: QUESTION_TYPE,
+          questionType,
           questionContent: text.trim(),
           imageUrl: imageUrl.trim() || null,
+          audioUrl: audioUrl.trim() || null,
           points,
           displayOrder,
-          options: options.map((o) => ({
+          options: isEssay ? [] : options.map((o) => ({
             optionLabel: o.optionLabel,
             optionContent: o.optionContent.trim(),
             isCorrect: o.isCorrect,
@@ -167,6 +188,32 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Question type */}
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question Type</label>
+            <div className="grid grid-cols-2 gap-2">
+              {QUESTION_TYPES.map(({ value, label }) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setQuestionType(value)}
+                  className={`py-2 rounded-xl text-sm font-semibold border transition-colors cursor-pointer ${
+                    questionType === value
+                      ? 'border-blue-bright/50 bg-blue-bright/10 text-blue-bright'
+                      : 'border-border text-muted hover:border-blue-bright/30'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {isEssay && (
+              <p className="mt-1.5 text-[11px] text-muted">
+                Student answers will be graded manually — no answer options needed here.
+              </p>
+            )}
+          </div>
+
           {/* Question text */}
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question *</label>
@@ -181,7 +228,9 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
 
           {/* Points */}
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Points</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+              Max Points <span className="normal-case font-normal">{isEssay ? '(the ceiling a lecturer can award when grading this answer manually)' : "(awarded automatically when the student's answer is correct)"}</span>
+            </label>
             <input
               type="number"
               min={0}
@@ -220,7 +269,28 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
             )}
           </div>
 
+          {/* Audio URL */}
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+              Audio URL <span className="normal-case font-normal">(optional — for Listening questions; paste a link to an audio file)</span>
+            </label>
+            <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
+              <FiMusic className="text-muted shrink-0" />
+              <input
+                type="text"
+                value={audioUrl}
+                onChange={(e) => setAudioUrl(e.target.value)}
+                placeholder="https://..."
+                className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+              />
+            </div>
+            {audioUrl.trim() && (
+              <audio controls src={audioUrl.trim()} className="mt-2 w-full h-10" />
+            )}
+          </div>
+
           {/* Options */}
+          {!isEssay && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-[10px] font-bold text-muted uppercase tracking-wider">
@@ -269,6 +339,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
               </button>
             )}
           </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">
@@ -394,6 +465,22 @@ export default function ExamQuestionsPage() {
                   <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full">
                     {q.points} pt{q.points !== 1 ? 's' : ''}
                   </span>
+                  {(() => {
+                    const type = q.questionType.toLowerCase();
+                    if (type === 'essay') {
+                      return (
+                        <span className="text-[10px] font-bold text-cyan bg-cyan/10 border border-cyan/25 px-2 py-0.5 rounded-full">
+                          Essay · manual grading
+                        </span>
+                      );
+                    }
+                    const label = QUESTION_TYPES.find((t) => t.value.toLowerCase() === type)?.label ?? q.questionType;
+                    return (
+                      <span className="text-[10px] font-bold text-blue-bright bg-blue-bright/10 border border-blue-bright/25 px-2 py-0.5 rounded-full">
+                        {label}
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button onClick={() => { setEditing(q); setModal('edit'); }} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-blue-bright transition-colors cursor-pointer">
@@ -415,6 +502,13 @@ export default function ExamQuestionsPage() {
                 />
               )}
 
+              {q.audioUrl && (
+                <audio controls src={q.audioUrl} className="w-full h-10 mb-4" />
+              )}
+
+              {q.questionType.toLowerCase() === 'essay' ? (
+                <p className="text-xs text-muted italic">Free-text answer — graded manually after submission.</p>
+              ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {q.options.map((opt: ApiQuestionOption) => (
                   <div
@@ -435,6 +529,7 @@ export default function ExamQuestionsPage() {
                   </div>
                 ))}
               </div>
+              )}
             </div>
           ))}
         </div>

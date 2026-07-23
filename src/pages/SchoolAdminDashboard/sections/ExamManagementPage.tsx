@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
@@ -10,12 +10,35 @@ import {
   CreateExamSlotPayload,
   createExamSlot,
   deleteExamSlot,
+  fetchClassEnrollmentsWithStudents,
   fetchExamSlots,
   fetchLecturers,
   fetchSchoolAdminClasses,
+  sendExamCreatedEmail,
+  sendExamReminderEmail,
   updateExamSlot,
 } from '../../../services/schoolAdminApi';
 import type { ExamSlot, ExamSlotStatus, LecturerClass, LecturerStudent } from '../../../types/lecturer';
+
+/** Báo mail "exam-created" cho toàn bộ sinh viên trong các lớp vừa tạo đề — chạy nền, không chặn
+ *  UI và không làm hỏng flow tạo đề nếu gửi mail lỗi (BE /api/email-test/* không tự tra dữ liệu
+ *  thật nên phải loop gửi từng người). */
+async function notifyStudentsExamCreated(classIds: string[], examName: string, examTime: string) {
+  try {
+    const enrollmentLists = await Promise.all(classIds.map((id) => fetchClassEnrollmentsWithStudents(id)));
+    const students = enrollmentLists.flat()
+      .map((e) => e.student)
+      .filter((s): s is NonNullable<typeof s> => !!s?.email);
+    await Promise.all(
+      students.map((s) =>
+        sendExamCreatedEmail({ email: s.email, studentName: s.fullName?.trim() || s.email, examName, examTime })
+          .catch(() => undefined),
+      ),
+    );
+  } catch {
+    // Gửi mail thông báo là phụ — không throw ra ngoài, tránh làm hỏng cảm giác "tạo đề thành công".
+  }
+}
 
 function fmtDT(iso: string) {
   return new Date(iso).toLocaleString('en-GB', {
@@ -185,7 +208,7 @@ function ExamFormModal({
 
   const classSearchQuery = classSearch.trim().toLowerCase();
   const filteredClasses = classSearchQuery
-    ? classes.filter((c) => c.code.toLowerCase().includes(classSearchQuery) || c.name.toLowerCase().includes(classSearchQuery))
+    ? classes.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
     : [];
 
   const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
@@ -231,6 +254,7 @@ function ExamFormModal({
           form.classIds.map((classId) => createExamSlot({ classId, ...base })),
         );
         toast.success('Created', `${form.classIds.length} exam slot${form.classIds.length > 1 ? 's' : ''} created.`);
+        void notifyStudentsExamCreated(form.classIds, base.examName, base.startTime);
       }
       onSaved(); onClose();
     } catch (err) {
@@ -313,7 +337,29 @@ function ExamFormModal({
                 <p className="text-muted text-sm mt-1.5">No classes available</p>
               )}
               {form.classIds.length > 0 && (
-                <p className="text-xs text-cyan mt-1.5">{form.classIds.length} class{form.classIds.length > 1 ? 'es' : ''} selected</p>
+                <div className="mt-1.5">
+                  <p className="text-xs text-cyan mb-1.5">{form.classIds.length} class{form.classIds.length > 1 ? 'es' : ''} selected</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.classIds.map((id) => {
+                      const c = classes.find((cl) => cl.id === id);
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 bg-blue/10 border border-blue/30 rounded-full pl-2.5 pr-1.5 py-1 text-xs text-white-soft"
+                        >
+                          {c ? `${c.code} — ${c.name}` : id}
+                          <button
+                            type="button"
+                            onClick={() => toggleClass(id)}
+                            className="w-4 h-4 rounded-full grid place-items-center text-muted hover:text-red hover:bg-red/10 transition-colors cursor-pointer bg-transparent border-none"
+                          >
+                            <FiX size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -352,7 +398,7 @@ function ExamFormModal({
               value={form.durationMinutes}
               onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))}
               placeholder="e.g. 90"
-              className={inp}
+              className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             />
           </div>
 
@@ -400,6 +446,7 @@ export default function ExamManagementPage() {
   const [editTarget, setEditTarget] = useState<ExamSlot | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExamSlot | null>(null);
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
   const { data: slotsData, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 200 });
@@ -446,6 +493,33 @@ export default function ExamManagementPage() {
   const navigate = useNavigate();
   const openCreate = () => { setEditTarget(null); setShowForm(true); };
   const openEdit   = (slot: ExamSlot) => { setEditTarget(slot); setShowForm(true); };
+
+  const handleSendReminder = async (slot: ExamSlot) => {
+    setSendingReminderId(slot.id);
+    try {
+      const enrollments = await fetchClassEnrollmentsWithStudents(slot.classId);
+      const students = enrollments.map((e) => e.student).filter((s): s is NonNullable<typeof s> => !!s?.email);
+      if (students.length === 0) {
+        toast.warning('No students', 'This class has no enrolled students to notify.');
+        return;
+      }
+      await Promise.all(
+        students.map((s) =>
+          sendExamReminderEmail({
+            email: s.email,
+            studentName: s.fullName?.trim() || s.email,
+            examName: slot.examName,
+            examTime: slot.startTime,
+          }).catch(() => undefined),
+        ),
+      );
+      toast.success('Reminder sent', `Notified ${students.length} student${students.length > 1 ? 's' : ''}.`);
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to send reminder.');
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
 
   const kpis = [
     { label: 'Total',     value: slots.length,                                       color: 'text-blue-bright' },
@@ -574,6 +648,16 @@ export default function ExamManagementPage() {
                   >
                     <FiFileText className="text-xs" /> Questions
                   </button>
+                  {(slot.status === 'scheduled' || slot.status === 'ongoing') && (
+                    <button
+                      onClick={() => void handleSendReminder(slot)}
+                      disabled={sendingReminderId === slot.id}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg border border-gold/30 text-gold text-xs font-semibold cursor-pointer hover:bg-gold/10 transition-all bg-transparent disabled:opacity-50"
+                      title="Email a reminder to all enrolled students"
+                    >
+                      <FiBell className="text-xs" /> {sendingReminderId === slot.id ? 'Sending…' : 'Remind'}
+                    </button>
+                  )}
                   <button
                     onClick={() => openEdit(slot)}
                     className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"

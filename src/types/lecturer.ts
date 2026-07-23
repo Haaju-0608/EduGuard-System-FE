@@ -82,6 +82,7 @@ export interface BiometricRequest {
   id: string;
   studentId: string;
   studentName: string;
+  studentEmail: string;
   classCode: string;
   submittedAt: string;
   photoUrl: string;

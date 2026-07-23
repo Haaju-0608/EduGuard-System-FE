@@ -7,8 +7,6 @@ import type { PaginatedApiResponse, PaginationMeta } from '../types/api';
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? '';
 
-const DEFAULT_DELAY_MS = 400;
-
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /** Envelope response chuẩn từ backend EduGuard */
@@ -207,15 +205,4 @@ export async function apiGetPaginated<T>(
     data: envelope.data,
     pagination: envelope.pagination,
   };
-}
-
-/** Mô phỏng độ trễ gọi API — dùng cho mock */
-export async function simulateNetworkDelay(ms = DEFAULT_DELAY_MS): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Wrapper trả về dữ liệu sau khi mô phỏng delay — dùng cho mock API */
-export async function mockApiResponse<T>(data: T, delayMs = DEFAULT_DELAY_MS): Promise<T> {
-  await simulateNetworkDelay(delayMs);
-  return data;
 }

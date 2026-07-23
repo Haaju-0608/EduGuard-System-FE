@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
+import { FiCalendar, FiClock, FiEdit3, FiFileText, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import {
@@ -15,7 +15,7 @@ import {
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchExamSlots } from '../../../services/schoolAdminApi';
+import { fetchExamQuestions, fetchExamSlots } from '../../../services/schoolAdminApi';
 import type { ExamSlot, ExamSlotStatus } from '../../../types/lecturer';
 
 function formatDateTime(iso: string): string {
@@ -39,9 +39,22 @@ function ExamStatusBadge({ status }: { status: ExamSlotStatus }) {
 function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
   const navigate = useNavigate();
 
+  // "Grade Essays" chỉ có ý nghĩa khi đề thi thực sự có câu Essay — tránh hiện nút gây hiểu nhầm
+  // trên đề chỉ toàn MCQ (BE tự chấm hết, không có gì để chấm tay).
+  const { data: questionsData } = useAsyncData(
+    () => fetchExamQuestions(slot.id, { pageSize: 200 }),
+    [slot.id],
+  );
+  const hasEssayQuestions = (questionsData?.items ?? []).some((q) => q.questionType.toLowerCase() === 'essay');
+
   const handleViewQuestions = () => {
     localStorage.setItem(`examName_${slot.id}`, slot.examName);
     navigate(`/lecture/exams/${slot.id}/questions`);
+  };
+
+  const handleGradeEssays = () => {
+    localStorage.setItem(`examName_${slot.id}`, slot.examName);
+    navigate(`/lecture/exams/${slot.id}/grading`);
   };
 
   return (
@@ -71,13 +84,21 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-border/50">
+        <div className="mt-4 pt-4 border-t border-border/50 flex gap-2">
           <button
             onClick={handleViewQuestions}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-cyan/30 text-cyan text-sm font-semibold cursor-pointer hover:bg-cyan/10 transition-colors bg-transparent"
+            className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border border-cyan/30 text-cyan text-sm font-semibold cursor-pointer hover:bg-cyan/10 transition-colors bg-transparent"
           >
-            <FiFileText className="text-sm" /> View Questions
+            <FiFileText className="text-sm" /> Questions
           </button>
+          {hasEssayQuestions && (
+            <button
+              onClick={handleGradeEssays}
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/10 transition-colors bg-transparent"
+            >
+              <FiEdit3 className="text-sm" /> Grade Essays
+            </button>
+          )}
         </div>
       </UniCard>
     </AnimateIn>

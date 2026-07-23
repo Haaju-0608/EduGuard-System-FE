@@ -20,7 +20,13 @@ import {
   StudentAvatar,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import { deductAttendance, fetchSchoolAdminClassesSimple, fetchWallet } from '../../../services/schoolAdminApi';
+import {
+  deductAttendance,
+  fetchClassEnrollmentsWithStudents,
+  fetchSchoolAdminClassesSimple,
+  fetchWallet,
+  sendAttendanceStartedEmail,
+} from '../../../services/schoolAdminApi';
 import {
   endAttendanceSession,
   fetchActiveAttendanceSession,
@@ -28,6 +34,23 @@ import {
 } from '../../../services/lecturerApi';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerClass } from '../../../types/lecturer';
+
+/** Báo mail "attendance-started" cho toàn bộ sinh viên trong lớp — chạy nền, không chặn UI và
+ *  không làm hỏng flow mở điểm danh nếu gửi mail lỗi. */
+async function notifyStudentsAttendanceStarted(classId: string, className: string) {
+  try {
+    const enrollments = await fetchClassEnrollmentsWithStudents(classId);
+    const students = enrollments.map((e) => e.student).filter((s): s is NonNullable<typeof s> => !!s?.email);
+    await Promise.all(
+      students.map((s) =>
+        sendAttendanceStartedEmail({ email: s.email, studentName: s.fullName?.trim() || s.email, className })
+          .catch(() => undefined),
+      ),
+    );
+  } catch {
+    // Gửi mail thông báo là phụ — không throw ra ngoài.
+  }
+}
 
 /** Badge trạng thái điểm danh */
 function AttendanceBadge({ status }: { status: AttendanceStatus }) {
@@ -115,6 +138,7 @@ export default function AttendanceSessionPage() {
       setSession(newSession);
       const cls = classes.find((c) => c.id === selectedClassId);
       toast.success('Attendance started', cls ? `${cls.code} — ${cls.name}` : 'Attendance session opened.');
+      void notifyStudentsAttendanceStarted(selectedClassId, cls?.name ?? 'your class');
 
       // Deduct wallet credits nếu institution có wallet
       if (user?.institutionId) {

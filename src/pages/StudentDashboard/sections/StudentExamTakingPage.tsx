@@ -319,7 +319,8 @@ export default function StudentExamTakingPage() {
   const maxScore = questions.reduce((sum, q) => sum + q.points, 0);
 
   const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  // MCQ lưu optionId đã chọn; Essay lưu answerText người dùng gõ (chấm tay sau khi nộp).
+  const [answers, setAnswers] = useState<Record<string, { optionId?: string; answerText?: string }>>({});
   const [showSubmit, setShowSubmit] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -365,6 +366,14 @@ export default function StudentExamTakingPage() {
       // (nếu có) sẽ tự cập nhật isFullscreen.
     }
   }, []);
+
+  // Bài thi đã nộp (submit thường, auto-submit hết giờ, hay bị terminate) — tự thoát fullscreen
+  // để trả lại UI bình thường cho ResultScreen, không bắt học sinh tự bấm Esc.
+  useEffect(() => {
+    if (submitted && document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined);
+    }
+  }, [submitted]);
 
   // Tạo / lấy ExamParticipation → gọi /join → start proctoring
   useEffect(() => {
@@ -454,7 +463,11 @@ export default function StudentExamTakingPage() {
     setSubmitError(null);
 
     const pid = participationIdRef.current;
-    const answerList = Object.entries(answersRef.current).map(([questionId, optionId]) => ({ questionId, optionId }));
+    const answerList = Object.entries(answersRef.current).map(([questionId, val]) => ({
+      questionId,
+      optionId: val.optionId,
+      answerText: val.answerText,
+    }));
 
     try {
       const record = await submitStudentExamRecord({
@@ -496,7 +509,16 @@ export default function StudentExamTakingPage() {
   }, []);
 
   const handleAnswer = (optId: string) => {
-    setAnswers((prev) => ({ ...prev, [questions[current].id]: optId }));
+    setAnswers((prev) => ({ ...prev, [questions[current].id]: { optionId: optId } }));
+  };
+
+  const handleAnswerText = (text: string) => {
+    setAnswers((prev) => ({ ...prev, [questions[current].id]: { answerText: text } }));
+  };
+
+  const isAnswered = (questionId: string) => {
+    const a = answers[questionId];
+    return !!a && (!!a.optionId || !!a.answerText?.trim());
   };
 
   if (loadingQuestions) {
@@ -522,7 +544,7 @@ export default function StudentExamTakingPage() {
     );
   }
 
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = questions.filter((ques) => isAnswered(ques.id)).length;
 
   if (submitted) {
     return (
@@ -593,36 +615,52 @@ export default function StudentExamTakingPage() {
                 {q.imageUrl && (
                   <img src={q.imageUrl} alt="Question" className="max-w-full max-h-56 rounded-xl border border-border object-contain" />
                 )}
+                {q.audioUrl && (
+                  <audio controls src={q.audioUrl} className="w-full h-10" />
+                )}
               </div>
             </div>
 
-            {/* Options */}
-            <div className="space-y-2">
-              {q.options.map((opt) => {
-                const isSelected = answers[q.id] === opt.id;
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={() => handleAnswer(opt.id)}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left cursor-pointer transition-all group ${
-                      isSelected
-                        ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
-                        : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
-                    }`}
-                  >
-                    <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
-                      isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
-                    }`}>
-                      {opt.optionLabel}
-                    </div>
-                    <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
-                      {opt.optionContent}
-                    </span>
-                    {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
+            {/* Options (MCQ) or free-text answer (Essay) */}
+            {q.questionType.toLowerCase() === 'essay' ? (
+              <div className="space-y-1.5">
+                <textarea
+                  rows={8}
+                  value={answers[q.id]?.answerText ?? ''}
+                  onChange={(e) => handleAnswerText(e.target.value)}
+                  placeholder="Type your answer here..."
+                  className="w-full bg-navy/40 border border-border rounded-xl px-4 py-3 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/50 transition-colors resize-none"
+                />
+                <p className="text-[11px] text-muted">This is an essay question — your answer will be graded manually.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {q.options.map((opt) => {
+                  const isSelected = answers[q.id]?.optionId === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => handleAnswer(opt.id)}
+                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left cursor-pointer transition-all group ${
+                        isSelected
+                          ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
+                          : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
+                        isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
+                      }`}>
+                        {opt.optionLabel}
+                      </div>
+                      <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
+                        {opt.optionContent}
+                      </span>
+                      {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Navigation — pinned to bottom */}
@@ -694,7 +732,7 @@ export default function StudentExamTakingPage() {
             <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Questions</p>
             <div className="grid grid-cols-4 gap-1.5">
               {questions.map((ques, i) => {
-                const isAnswered = !!answers[ques.id];
+                const answered = isAnswered(ques.id);
                 const isCurrent = i === current;
                 return (
                   <button
@@ -703,7 +741,7 @@ export default function StudentExamTakingPage() {
                     className={`w-full aspect-square rounded-lg text-xs font-bold cursor-pointer transition-all border ${
                       isCurrent
                         ? 'bg-blue border-blue-bright text-white shadow-[0_0_8px_rgba(99,179,237,0.3)]'
-                        : isAnswered
+                        : answered
                           ? 'bg-green/10 border-green/30 text-green'
                           : 'bg-transparent border-border text-muted hover:border-blue-bright/40'
                     }`}

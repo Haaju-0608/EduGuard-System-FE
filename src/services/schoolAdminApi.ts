@@ -400,6 +400,7 @@ function mapApiBiometricRequest(
     studentId:
       studentCode && studentCode !== 'none' ? studentCode : (item.studentId ?? '').slice(0, 8).toUpperCase(),
     studentName: student?.fullName?.trim() || student?.email || 'Unknown student',
+    studentEmail: student?.email ?? '',
     classCode: '—',
     submittedAt: formatBiometricDate(item.createdAt),
     photoUrl: '',
@@ -654,6 +655,23 @@ export async function fetchClassEnrollments(classId: string): Promise<ApiEnrollm
   return apiGet<ApiEnrollment[]>(`/api/classes/${classId}/enrollments`);
 }
 
+/** Giống fetchClassEnrollments nhưng đảm bảo mỗi enrollment có sẵn `.student` — BE không phải
+ *  lúc nào cũng trả kèm, nên phải tự GET /api/users/{id} bù cho các enrollment còn thiếu. */
+export async function fetchClassEnrollmentsWithStudents(classId: string): Promise<ApiEnrollment[]> {
+  const enrollments = await fetchClassEnrollments(classId);
+  return Promise.all(
+    enrollments.map(async (e) => {
+      if (e.student) return e;
+      try {
+        const user = await apiGet<ApiUser>(`/api/users/${e.studentId}`);
+        return { ...e, student: user };
+      } catch {
+        return e;
+      }
+    }),
+  );
+}
+
 // ─── Wallet ───────────────────────────────────────────────────────────────
 
 /** GET /api/wallets/institution/{institutionId} */
@@ -868,7 +886,7 @@ export async function deleteQuestionOption(optionId: string): Promise<void> {
 
 export interface SubmitStudentExamRecordPayload {
   examSlotId: string;
-  answers: Array<{ questionId: string; optionId?: string; selectedOption?: string }>;
+  answers: Array<{ questionId: string; optionId?: string; selectedOption?: string; answerText?: string }>;
   durationSeconds?: number;
 }
 
@@ -894,6 +912,29 @@ export async function fetchStudentExamRecords(
     })}`,
   );
   return { items: data, pagination };
+}
+
+/** GET /api/student-exam-records/{id} */
+export async function fetchStudentExamRecordById(id: string): Promise<ApiStudentExamRecord> {
+  return apiGet<ApiStudentExamRecord>(`/api/student-exam-records/${id}`);
+}
+
+export interface UpdateStudentExamRecordPayload {
+  endedAt: string | null;
+  examRecord: string | null;
+  finalScore: number | null;
+  submittedAt: string | null;
+  durationSeconds: number | null;
+  status: string;
+}
+
+/** PUT /api/student-exam-records/{id} — chỉ Lecturer/SchoolAdmin/SuperAdmin. Đây là update toàn bộ
+ *  record (không phải patch) — BE ghi đè nguyên finalScore + examRecord, không tự tính lại gì cả. */
+export async function updateStudentExamRecord(
+  id: string,
+  payload: UpdateStudentExamRecordPayload,
+): Promise<ApiStudentExamRecord> {
+  return apiPut<ApiStudentExamRecord>(`/api/student-exam-records/${id}`, payload);
 }
 
 // ─── Transactions Deduct ─────────────────────────────────────────────────
@@ -1016,4 +1057,42 @@ export async function fetchAttendanceSessions(
     `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
+}
+
+// ─── Notification Emails ───────────────────────────────────────────────────
+// BE's /api/email-test/* — chỉ [Authorize] (mọi role đăng nhập đều gọi được), nhận đúng 1 người
+// nhận/lần, không tự tra dữ liệu thật nên FE phải tự truyền email/tên/nội dung. Gửi lỗi không nên
+// chặn hành động chính (approve/reject/tạo đề/điểm danh) nên luôn bọc try/catch ở nơi gọi.
+
+/** POST /api/email-test/biometric-approved */
+export async function sendBiometricApprovedEmail(payload: { email: string; studentName: string }): Promise<void> {
+  await apiPost<null>('/api/email-test/biometric-approved', payload);
+}
+
+/** POST /api/email-test/biometric-rejected */
+export async function sendBiometricRejectedEmail(
+  payload: { email: string; studentName: string; reason: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/biometric-rejected', payload);
+}
+
+/** POST /api/email-test/exam-created */
+export async function sendExamCreatedEmail(
+  payload: { email: string; studentName: string; examName: string; examTime: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/exam-created', payload);
+}
+
+/** POST /api/email-test/exam-reminder */
+export async function sendExamReminderEmail(
+  payload: { email: string; studentName: string; examName: string; examTime: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/exam-reminder', payload);
+}
+
+/** POST /api/email-test/attendance-started */
+export async function sendAttendanceStartedEmail(
+  payload: { email: string; studentName: string; className: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/attendance-started', payload);
 }

@@ -16,6 +16,8 @@ import {
   fetchSchoolAdminBiometricRequests,
   fetchSignedFaceUrl,
   rejectBiometricRequest,
+  sendBiometricApprovedEmail,
+  sendBiometricRejectedEmail,
 } from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
@@ -386,9 +388,15 @@ export default function BiometricApprovalPage() {
       if (status === 'approved') {
         await approveBiometricRequest(requestId, reason);
         toast.success('Approved', target ? `${target.studentName} — photo verified` : 'Approved.');
+        if (target?.studentEmail) {
+          sendBiometricApprovedEmail({ email: target.studentEmail, studentName: target.studentName }).catch(() => undefined);
+        }
       } else {
         await rejectBiometricRequest(requestId, reason);
         toast.success('Rejected', target ? `${target.studentName} — photo rejected` : 'Rejected.');
+        if (target?.studentEmail) {
+          sendBiometricRejectedEmail({ email: target.studentEmail, studentName: target.studentName, reason }).catch(() => undefined);
+        }
       }
       await reload();
     } catch (e) {

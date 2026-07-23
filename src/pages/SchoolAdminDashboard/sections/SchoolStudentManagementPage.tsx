@@ -289,10 +289,14 @@ export default function SchoolStudentManagementPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white-soft truncate">{s.name ?? '—'}</p>
-                    <p className="text-[11px] text-muted truncate">
-                      {s.studentId && <span className="mr-2 font-mono">{s.studentId}</span>}
-                      {s.email}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {s.studentId && (
+                        <span className="text-[10px] font-mono text-cyan bg-cyan/10 border border-cyan/20 px-1.5 py-0.5 rounded-md shrink-0">
+                          {s.studentId}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted truncate">{s.email}</span>
+                    </div>
                   </div>
                   <StatusBadge status={s.status === 'active' ? 'Active' : s.status === 'inactive' ? 'Inactive' : 'Pending'} />
                   <div className="flex gap-1.5 shrink-0">

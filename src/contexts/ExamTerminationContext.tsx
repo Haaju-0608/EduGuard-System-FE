@@ -6,7 +6,7 @@ import { useAuth } from './AuthContext';
 import { useHubConnection, useHubEvent } from '../hooks/useHubConnection';
 import { HubRoute } from '../services/realtimeClient';
 import { fetchExamParticipationStatus } from '../services/schoolAdminApi';
-import type { BrowserViolationDetectedEventPayload, ExamTerminatedEventPayload } from '../types/termination';
+import type { BrowserViolationDetectedEventPayload, DisqualifiedEventPayload, ExamTerminatedEventPayload } from '../types/termination';
 
 interface ExamTerminationContextType {
   isExamTerminated: boolean;
@@ -101,6 +101,18 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     applyTerminated({
       reason: payload.reason ?? null,
       recordedAt: payload.terminatedAt ?? new Date().toISOString(),
+    });
+  });
+
+  // Lecturer đình chỉ (disqualify) thủ công từ trang review violation — bắn event riêng
+  // "Disqualified" (khác "ExamTerminated" ở trên, vốn chỉ dành cho auto-terminate do 3-strike
+  // browser violation). Không lắng nghe event này thì học sinh bị disqualify tay sẽ không bị
+  // đá ra ngay — vẫn làm bài bình thường cho tới khi F5/reconnect hoặc bấm Submit bị BE từ chối.
+  useHubEvent<DisqualifiedEventPayload>(examHub, 'Disqualified', (payload) => {
+    if (!payload || payload.participationId !== participationIdRef.current) return;
+    applyTerminated({
+      reason: payload.reason ?? null,
+      recordedAt: payload.disqualifiedAt ?? new Date().toISOString(),
     });
   });
 

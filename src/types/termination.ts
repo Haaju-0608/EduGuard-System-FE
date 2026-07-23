@@ -39,6 +39,19 @@ export interface ExamTerminatedEventPayload {
   terminatedAt: string | null;
 }
 
+/** Payload event "Disqualified" bắn qua SignalR hub Exams — khi Lecturer đình chỉ thủ công từ
+ *  trang review violation (khác "ExamTerminated", vốn chỉ bắn khi tự động terminate do 3-strike
+ *  browser violation — xem Services/ExamWorkflowService.cs DisqualifyAsync) */
+export interface DisqualifiedEventPayload {
+  participationId: string;
+  examSlotId: string;
+  examName: string | null;
+  studentId: string;
+  fullName: string | null;
+  reason: string | null;
+  disqualifiedAt: string | null;
+}
+
 /** Payload event "BrowserViolationDetected" bắn qua SignalR hub Exams — bắn ở MỌI lần report, kể cả chưa terminate */
 export interface BrowserViolationDetectedEventPayload {
   participationId: string;
