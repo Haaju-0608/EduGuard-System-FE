@@ -7,15 +7,13 @@ import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   fetchExamQuestions,
   fetchStudentExamRecords,
-  updateStudentExamRecord,
+  gradeStudentExamRecord,
 } from '../../../services/schoolAdminApi';
 import { parseExamRecord, type ParsedExamRecord } from '../../../utils/examRecord';
 import type { ApiExamQuestion, ApiStudentExamRecord } from '../../../types/api';
 
-// Chấm điểm ở trang này nghĩa là: parse chuỗi JSON ExamRecord ra (xem
-// Services/StudentExamRecordService.cs BuildSubmissionRecord), sửa awardedPoints cho câu Essay,
-// tính lại finalScore, rồi PUT nguyên bản ghi lên qua updateStudentExamRecord — BE không có
-// endpoint chấm tay riêng.
+// Chấm điểm ở trang này gọi PUT /api/student-exam-records/{id}/manual-grade — BE tự validate
+// (chỉ câu Essay/needsManualMarking, không vượt max points) và tự tính lại finalScore/status.
 
 // ─── Grade modal ────────────────────────────────────────────────────────────
 
@@ -43,22 +41,11 @@ function GradeModal({
   const handleSave = async () => {
     setSaving(true);
     try {
-      const updatedAnswers = parsed.answers.map((a) =>
-        a.needsManualMarking
-          ? { ...a, awardedPoints: scores[a.questionId] ?? a.awardedPoints, needsManualMarking: false }
-          : a,
-      );
-      const finalScore = updatedAnswers.reduce((sum, a) => sum + a.awardedPoints, 0);
-      const requiresManualMarking = updatedAnswers.some((a) => a.needsManualMarking);
-      const newExamRecord = JSON.stringify({ ...parsed, finalScore, requiresManualMarking, answers: updatedAnswers });
-
-      await updateStudentExamRecord(record.id, {
-        endedAt: record.endedAt,
-        examRecord: newExamRecord,
-        finalScore,
-        submittedAt: record.submittedAt,
-        durationSeconds: record.durationSeconds,
-        status: requiresManualMarking ? record.status : 'Marked',
+      await gradeStudentExamRecord(record.id, {
+        grades: essayAnswers.map((a) => ({
+          questionId: a.questionId,
+          awardedPoints: scores[a.questionId] ?? a.awardedPoints,
+        })),
       });
       toast.success('Saved', 'Grades submitted.');
       onSaved();

@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FiCheck, FiClock, FiShield, FiUser, FiX, FiChevronRight, FiImage } from 'react-icons/fi';
 import {
@@ -16,26 +16,30 @@ import {
   fetchSchoolAdminBiometricRequests,
   fetchSignedFaceUrl,
   rejectBiometricRequest,
-  sendBiometricApprovedEmail,
-  sendBiometricRejectedEmail,
 } from '../../../services/schoolAdminApi';
 import type { BiometricRequest, BiometricStatus } from '../../../types/lecturer';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface StudentGroup {
-  studentId: string;
-  studentName: string;
-  requests: BiometricRequest[];
-  overallStatus: BiometricStatus;
-}
+// 1 request = 1 lần nộp gồm cả 3 ảnh (front/left/right) với 1 status chung cho cả bộ 3 — không
+// còn là 3 request riêng biệt như trước, nên không cần group-by-student / tính overallStatus nữa.
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function computeOverallStatus(reqs: BiometricRequest[]): BiometricStatus {
-  if (reqs.some((r) => r.status === 'pending')) return 'pending';
-  if (reqs.every((r) => r.status === 'approved')) return 'approved';
-  return 'rejected';
+/** Resolve 1 URL ảnh — tự nhận diện URL Supabase đầy đủ (dùng thẳng) vs bare path cũ (ký lại qua
+ *  /api/storage/signed-url). undefined = đang ký, null = không có / lỗi. */
+function useResolvedFaceUrl(rawUrl: string | null): string | null | undefined {
+  const isDirectUrl = !!rawUrl && /^https?:\/\//i.test(rawUrl);
+  const [resolved, setResolved] = useState<string | null | undefined>(isDirectUrl ? rawUrl : undefined);
+
+  useEffect(() => {
+    if (!rawUrl) { setResolved(null); return; }
+    if (/^https?:\/\//i.test(rawUrl)) { setResolved(rawUrl); return; }
+    let cancelled = false;
+    setResolved(undefined);
+    fetchSignedFaceUrl(rawUrl).then((url) => { if (!cancelled) setResolved(url); });
+    return () => { cancelled = true; };
+  }, [rawUrl]);
+
+  return resolved;
 }
 
 function BiometricStatusBadge({ status }: { status: BiometricStatus }) {
@@ -52,19 +56,10 @@ function BiometricStatusBadge({ status }: { status: BiometricStatus }) {
 
 // ─── Student Card ─────────────────────────────────────────────────────────────
 
-function StudentCard({
-  group,
-  previewUrls,
-  onClick,
-}: {
-  group: StudentGroup;
-  previewUrls: (string | null | undefined)[];
-  onClick: () => void;
-}) {
-  const pendingCount  = group.requests.filter((r) => r.status === 'pending').length;
-  const approvedCount = group.requests.filter((r) => r.status === 'approved').length;
-  const rejectedCount = group.requests.filter((r) => r.status === 'rejected').length;
-  const firstUrl = previewUrls.find((u) => u) ?? null;
+function StudentCard({ request, onClick }: { request: BiometricRequest; onClick: () => void }) {
+  const previewRaw = request.frontImageUrl ?? request.leftImageUrl ?? request.rightImageUrl;
+  const previewUrl = useResolvedFaceUrl(previewRaw);
+  const photoCount = [request.frontImageUrl, request.leftImageUrl, request.rightImageUrl].filter(Boolean).length;
 
   return (
     <div
@@ -76,15 +71,15 @@ function StudentCard({
     >
       {/* Photo preview area */}
       <div className="bio-id-photo">
-        {firstUrl ? (
+        {previewUrl ? (
           <img
-            src={firstUrl}
-            alt={group.studentName}
+            src={previewUrl}
+            alt={request.studentName}
             className="absolute inset-0 w-full h-full object-cover"
           />
         ) : (
           <div className="bio-face-frame">
-            {previewUrls.some((u) => u === undefined) ? (
+            {previewUrl === undefined ? (
               <div className="w-10 h-10 rounded-full border-2 border-blue-bright/30 border-t-blue-bright animate-spin" />
             ) : (
               <FiUser className="text-4xl text-blue-bright/50" />
@@ -94,7 +89,7 @@ function StudentCard({
 
         {/* Status badge */}
         <div className="absolute top-3 right-3">
-          <BiometricStatusBadge status={group.overallStatus} />
+          <BiometricStatusBadge status={request.status} />
         </div>
 
         {/* ID Verify badge */}
@@ -102,25 +97,10 @@ function StudentCard({
           <FiShield className="text-[10px]" /> ID Verify
         </div>
 
-        {/* Photo count indicators */}
-        <div className="absolute bottom-12 right-3 flex gap-1">
-          {group.requests.map((req, i) => (
-            <div
-              key={req.id}
-              title={`Photo ${i + 1}: ${req.status}`}
-              className={`w-2 h-2 rounded-full border ${
-                req.status === 'approved' ? 'bg-green border-green/50' :
-                req.status === 'rejected' ? 'bg-red border-red/50' :
-                'bg-gold border-gold/50'
-              }`}
-            />
-          ))}
-        </div>
-
         {/* Name overlay */}
         <div className="absolute bottom-0 inset-x-0 p-4 bio-id-overlay">
-          <p className="font-syne font-bold text-white-soft">{group.studentName}</p>
-          <p className="text-[11px] text-muted font-mono mt-0.5">Student ID: {group.studentId}</p>
+          <p className="font-syne font-bold text-white-soft">{request.studentName}</p>
+          <p className="text-[11px] text-muted font-mono mt-0.5">Student ID: {request.studentId}</p>
         </div>
       </div>
 
@@ -128,10 +108,7 @@ function StudentCard({
       <div className="p-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-[10px] font-bold">
           <FiImage size={11} className="text-muted" />
-          <span className="text-muted">{group.requests.length} photo{group.requests.length !== 1 ? 's' : ''}</span>
-          {pendingCount > 0  && <span className="text-gold">· {pendingCount} pending</span>}
-          {approvedCount > 0 && <span className="text-green">· {approvedCount} approved</span>}
-          {rejectedCount > 0 && <span className="text-red">· {rejectedCount} rejected</span>}
+          <span className="text-muted">{photoCount} photo{photoCount !== 1 ? 's' : ''}</span>
         </div>
         <FiChevronRight size={14} className="text-muted group-hover:text-blue-bright transition-colors" />
       </div>
@@ -141,38 +118,62 @@ function StudentCard({
 
 // ─── Student Detail Modal ─────────────────────────────────────────────────────
 
+function PhotoTile({ label, rawUrl }: { label: string; rawUrl: string | null }) {
+  const url = useResolvedFaceUrl(rawUrl);
+  const [hasError, setHasError] = useState(false);
+  const showImg = url && !hasError;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="relative aspect-square rounded-xl overflow-hidden bg-navy border border-border">
+        {showImg ? (
+          <img
+            src={url}
+            alt={label}
+            className="w-full h-full object-cover"
+            onError={() => setHasError(true)}
+          />
+        ) : url === undefined ? (
+          <div className="w-full h-full flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-blue-bright/30 border-t-blue-bright animate-spin" />
+          </div>
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+            <FiUser size={24} className="text-muted" />
+            <p className="text-[9px] text-muted">No image</p>
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] font-bold text-white-soft text-center">{label}</p>
+    </div>
+  );
+}
+
 function StudentDetailModal({
-  group,
-  signedUrls,
+  request,
   onClose,
   onReview,
   reviewing,
 }: {
-  group: StudentGroup;
-  signedUrls: Record<string, string | null | undefined>;
+  request: BiometricRequest;
   onClose: () => void;
   onReview: (id: string, status: 'approved' | 'rejected', reason: string) => Promise<void>;
   reviewing: string | null;
 }) {
   const [reason, setReason] = useState('');
-  const [imgErrors, setImgErrors] = useState<Record<string, boolean>>({});
   const toast = useToast();
 
-  const pendingRequests = group.requests.filter((r) => r.status === 'pending');
-  const isReviewing = pendingRequests.some((r) => reviewing === r.id);
+  const isPending = request.status === 'pending';
+  const isBusy = reviewing === request.id;
 
-  const handleBulkAction = useCallback(async (status: 'approved' | 'rejected') => {
+  const handleAction = async (status: 'approved' | 'rejected') => {
     if (!reason.trim()) {
       toast.warning('Reason required', 'Please enter a reason before reviewing.');
       return;
     }
-    for (const req of pendingRequests) {
-      await onReview(req.id, status, reason);
-    }
+    await onReview(request.id, status, reason);
     onClose();
-  }, [reason, pendingRequests, onReview, toast, onClose]);
-
-  const photoLabels = ['Left', 'Center', 'Right'];
+  };
 
   return createPortal(
     <div
@@ -191,12 +192,12 @@ function StudentDetailModal({
               <FiUser size={16} className="text-blue-bright" />
             </div>
             <div>
-              <h2 className="font-syne font-bold text-white-soft">{group.studentName}</h2>
-              <p className="text-xs text-muted font-mono">Student ID: {group.studentId}</p>
+              <h2 className="font-syne font-bold text-white-soft">{request.studentName}</h2>
+              <p className="text-xs text-muted font-mono">Student ID: {request.studentId}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <BiometricStatusBadge status={group.overallStatus} />
+            <BiometricStatusBadge status={request.status} />
             <button
               onClick={onClose}
               className="p-2 rounded-lg text-muted hover:text-white-soft hover:bg-white/5 transition-colors cursor-pointer"
@@ -208,66 +209,24 @@ function StudentDetailModal({
 
         {/* Photos grid */}
         <div className="overflow-y-auto p-5 custom-scrollbar">
-          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-3">
-            Submitted Photos ({group.requests.length})
-          </p>
+          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-3">Submitted Photos</p>
           <div className="grid grid-cols-3 gap-3">
-            {group.requests.map((req, idx) => {
-              const url = signedUrls[req.id];
-              const hasError = imgErrors[req.id];
-              const showImg = url && !hasError;
-
-              return (
-                <div key={req.id} className="flex flex-col gap-2">
-                  <div className="relative aspect-square rounded-xl overflow-hidden bg-navy border border-border">
-                    {showImg ? (
-                      <img
-                        src={url}
-                        alt={`Photo ${idx + 1}`}
-                        className="w-full h-full object-cover"
-                        onError={() => setImgErrors((prev) => ({ ...prev, [req.id]: true }))}
-                      />
-                    ) : url === undefined ? (
-                      <div className="w-full h-full flex items-center justify-center">
-                        <div className="w-8 h-8 rounded-full border-2 border-blue-bright/30 border-t-blue-bright animate-spin" />
-                      </div>
-                    ) : (
-                      <div className="w-full h-full flex flex-col items-center justify-center gap-1">
-                        <FiUser size={24} className="text-muted" />
-                        <p className="text-[9px] text-muted">No image</p>
-                      </div>
-                    )}
-
-                    {/* Status dot overlay */}
-                    <div className="absolute top-2 right-2">
-                      <div className={`w-2.5 h-2.5 rounded-full border ${
-                        req.status === 'approved' ? 'bg-green border-green/50' :
-                        req.status === 'rejected' ? 'bg-red border-red/50' :
-                        'bg-gold border-gold/50 animate-pulse'
-                      }`} />
-                    </div>
-                  </div>
-
-                  <div className="text-center">
-                    <p className="text-[10px] font-bold text-white-soft">
-                      {photoLabels[idx] ?? `Photo ${idx + 1}`}
-                    </p>
-                    <BiometricStatusBadge status={req.status} />
-                    {req.note && req.status !== 'pending' && (
-                      <p className="text-[9px] text-muted mt-1 leading-tight line-clamp-2">{req.note}</p>
-                    )}
-                    <p className="text-[9px] text-muted mt-1 flex items-center justify-center gap-1">
-                      <FiClock size={8} /> {req.submittedAt}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
+            <PhotoTile label="Front" rawUrl={request.frontImageUrl} />
+            <PhotoTile label="Left" rawUrl={request.leftImageUrl} />
+            <PhotoTile label="Right" rawUrl={request.rightImageUrl} />
           </div>
+          {request.note && request.status !== 'pending' && (
+            <p className="text-xs text-muted mt-4 leading-relaxed">
+              <span className="font-bold text-white-soft/80">Review note: </span>{request.note}
+            </p>
+          )}
+          <p className="text-[10px] text-muted mt-3 flex items-center gap-1">
+            <FiClock size={10} /> Submitted {request.submittedAt}
+          </p>
         </div>
 
-        {/* Footer — only shown if there are pending requests */}
-        {pendingRequests.length > 0 && (
+        {/* Footer — only shown while pending */}
+        {isPending && (
           <div className="border-t border-border p-5 shrink-0 space-y-3">
             <textarea
               value={reason}
@@ -279,21 +238,21 @@ function StudentDetailModal({
             <div className="flex gap-3">
               <button
                 type="button"
-                onClick={() => void handleBulkAction('approved')}
-                disabled={isReviewing}
+                onClick={() => void handleAction('approved')}
+                disabled={isBusy}
                 className="flex-1 flex items-center justify-center gap-2 bio-btn-approve text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
               >
                 <FiCheck />
-                Approve All ({pendingRequests.length})
+                Approve
               </button>
               <button
                 type="button"
-                onClick={() => void handleBulkAction('rejected')}
-                disabled={isReviewing}
+                onClick={() => void handleAction('rejected')}
+                disabled={isBusy}
                 className="flex-1 flex items-center justify-center gap-2 bio-btn-reject text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
               >
                 <FiX />
-                Reject All ({pendingRequests.length})
+                Reject
               </button>
             </div>
           </div>
@@ -310,8 +269,7 @@ export default function BiometricApprovalPage() {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing]   = useState<string | null>(null);
-  const [selectedGroup, setSelectedGroup] = useState<StudentGroup | null>(null);
-  const [signedUrls, setSignedUrls] = useState<Record<string, string | null | undefined>>({});
+  const [selectedRequest, setSelectedRequest] = useState<BiometricRequest | null>(null);
   const toast = useToast();
 
   const institutionId = user?.institutionId ?? undefined;
@@ -324,56 +282,21 @@ export default function BiometricApprovalPage() {
 
   const requests = data ?? [];
 
-  // Group by studentId → one entry per student
-  const allGroups = useMemo<StudentGroup[]>(() => {
-    const map = new Map<string, BiometricRequest[]>();
-    for (const req of requests) {
-      const key = req.studentId;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(req);
-    }
-    return Array.from(map.entries()).map(([studentId, reqs]) => ({
-      studentId,
-      studentName: reqs[0].studentName,
-      // Sort by submittedAt so Left/Center/Right order is preserved
-      requests: [...reqs].sort((a, b) => a.submittedAt.localeCompare(b.submittedAt)),
-      overallStatus: computeOverallStatus(reqs),
-    }));
-  }, [requests]);
+  // Filter by status
+  const filteredRequests = useMemo(() => {
+    if (statusFilter === 'all') return requests;
+    return requests.filter((r) => r.status === statusFilter);
+  }, [requests, statusFilter]);
 
-  // Filter groups by status
-  const filteredGroups = useMemo(() => {
-    if (statusFilter === 'all') return allGroups;
-    return allGroups.filter((g) => g.overallStatus === statusFilter);
-  }, [allGroups, statusFilter]);
-
-  // Counts for filter pills (per student group)
+  // Counts for filter pills
   const counts = useMemo(() => ({
-    pending:  allGroups.filter((g) => g.overallStatus === 'pending').length,
-    approved: allGroups.filter((g) => g.overallStatus === 'approved').length,
-    rejected: allGroups.filter((g) => g.overallStatus === 'rejected').length,
-    all:      allGroups.length,
-  }), [allGroups]);
+    pending:  requests.filter((r) => r.status === 'pending').length,
+    approved: requests.filter((r) => r.status === 'approved').length,
+    rejected: requests.filter((r) => r.status === 'rejected').length,
+    all:      requests.length,
+  }), [requests]);
 
-  // Fetch signed URLs for all requests in visible groups
-  useEffect(() => {
-    const allVisible = filteredGroups.flatMap((g) => g.requests);
-    const missing = allVisible.filter(
-      (r) => r.faceImagePath && !(r.id in signedUrls),
-    );
-    if (missing.length === 0) return;
-    setSignedUrls((prev) => {
-      const next = { ...prev };
-      missing.forEach((r) => { next[r.id] = undefined; });
-      return next;
-    });
-    missing.forEach(async (r) => {
-      const url = await fetchSignedFaceUrl(r.faceImagePath!);
-      setSignedUrls((prev) => ({ ...prev, [r.id]: url }));
-    });
-  }, [filteredGroups]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const handleReview = useCallback(async (
+  const handleReview = async (
     requestId: string,
     status: 'approved' | 'rejected',
     reason: string,
@@ -387,16 +310,10 @@ export default function BiometricApprovalPage() {
     try {
       if (status === 'approved') {
         await approveBiometricRequest(requestId, reason);
-        toast.success('Approved', target ? `${target.studentName} — photo verified` : 'Approved.');
-        if (target?.studentEmail) {
-          sendBiometricApprovedEmail({ email: target.studentEmail, studentName: target.studentName }).catch(() => undefined);
-        }
+        toast.success('Approved', target ? `${target.studentName} — photos verified` : 'Approved.');
       } else {
         await rejectBiometricRequest(requestId, reason);
-        toast.success('Rejected', target ? `${target.studentName} — photo rejected` : 'Rejected.');
-        if (target?.studentEmail) {
-          sendBiometricRejectedEmail({ email: target.studentEmail, studentName: target.studentName, reason }).catch(() => undefined);
-        }
+        toast.success('Rejected', target ? `${target.studentName} — photos rejected` : 'Rejected.');
       }
       await reload();
     } catch (e) {
@@ -405,14 +322,7 @@ export default function BiometricApprovalPage() {
     } finally {
       setReviewing(null);
     }
-  }, [requests, toast, reload]);
-
-  // KPI counts (raw request level for stats)
-  const rawCounts = useMemo(() => ({
-    pending:  requests.filter((r) => r.status === 'pending').length,
-    approved: requests.filter((r) => r.status === 'approved').length,
-    rejected: requests.filter((r) => r.status === 'rejected').length,
-  }), [requests]);
+  };
 
   return (
     <PageShell>
@@ -421,10 +331,10 @@ export default function BiometricApprovalPage() {
         title="Biometric Verification"
         subtitle="Verify student face photos registered before they join attendance sessions and proctored exams."
         stats={[
-          { label: 'Pending',  value: String(rawCounts.pending),  icon: '⏳' },
-          { label: 'Approved', value: String(rawCounts.approved), icon: '✅' },
-          { label: 'Rejected', value: String(rawCounts.rejected), icon: '❌' },
-          { label: 'Total',    value: String(requests.length),    icon: '🔐' },
+          { label: 'Pending',  value: String(counts.pending),  icon: '⏳' },
+          { label: 'Approved', value: String(counts.approved), icon: '✅' },
+          { label: 'Rejected', value: String(counts.rejected), icon: '❌' },
+          { label: 'Total',    value: String(counts.all),      icon: '🔐' },
         ]}
       />
 
@@ -452,7 +362,7 @@ export default function BiometricApprovalPage() {
           description={error}
           onRetry={reload}
         />
-      ) : filteredGroups.length === 0 ? (
+      ) : filteredRequests.length === 0 ? (
         <EmptyState
           icon="🔐"
           title="No requests"
@@ -460,23 +370,18 @@ export default function BiometricApprovalPage() {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {filteredGroups.map((group, i) => (
-            <div key={group.studentId} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
-              <StudentCard
-                group={group}
-                previewUrls={group.requests.map((r) => signedUrls[r.id])}
-                onClick={() => setSelectedGroup(group)}
-              />
+          {filteredRequests.map((request, i) => (
+            <div key={request.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
+              <StudentCard request={request} onClick={() => setSelectedRequest(request)} />
             </div>
           ))}
         </div>
       )}
 
-      {selectedGroup && (
+      {selectedRequest && (
         <StudentDetailModal
-          group={selectedGroup}
-          signedUrls={signedUrls}
-          onClose={() => setSelectedGroup(null)}
+          request={selectedRequest}
+          onClose={() => setSelectedRequest(null)}
           onReview={handleReview}
           reviewing={reviewing}
         />

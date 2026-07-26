@@ -39,6 +39,7 @@ function mapApiAttendanceRecord(
   return {
     id: record.id,
     studentId: record.student?.studentCode || record.studentId.slice(0, 8),
+    rawStudentId: record.studentId,
     name,
     classCode: '—',
     status: mapAttendanceStatus(record.status),
@@ -121,6 +122,29 @@ export async function endAttendanceSession(
     endTime: new Date().toISOString(),
   });
   return { success: true };
+}
+
+const STATUS_TO_BE: Record<AttendanceRecord['status'], string> = {
+  present: 'Present',
+  absent: 'Absent',
+  late: 'Late',
+  excused: 'Excused',
+};
+
+/** POST /api/attendance-records — Lecturer/SchoolAdmin/SuperAdmin tự điểm danh tay cho 1 sinh viên
+ *  (vd sinh viên bị bỏ sót khi điểm danh bằng AI trên app di động). */
+export async function createAttendanceRecord(
+  sessionId: string,
+  studentId: string,
+  status: AttendanceRecord['status'],
+): Promise<AttendanceRecord> {
+  const record = await apiPost<ApiAttendanceRecord>('/api/attendance-records', {
+    sessionId,
+    studentId,
+    status: STATUS_TO_BE[status],
+    method: 'Manual',
+  });
+  return mapApiAttendanceRecord(record);
 }
 
 /** GET /api/attendance-sessions — danh sách tất cả sessions */

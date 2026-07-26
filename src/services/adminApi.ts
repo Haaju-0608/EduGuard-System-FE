@@ -32,10 +32,9 @@ export interface CreateInstitutionPayload {
   name: string;
   subDomain?: string;
   contactEmail?: string;
-  // Khớp đúng tên enum thật của BE (Models/AppRole.cs: BillingModel.PayAsYouGo/Subscription,
-  // deserialize qua JsonStringEnumConverter) — gửi "PerUse" (tên cũ ở FE) sẽ bị BE từ chối 400
-  // vì không khớp tên enum member nào cả.
-  billingModel: 'PayAsYouGo' | 'Subscription';
+  // Khớp đúng tên enum thật của BE (Models/AppRole.cs: BillingModel.Monthly/Yearly, deserialize
+  // qua JsonStringEnumConverter) — gửi tên khác sẽ bị BE từ chối 400 vì không khớp enum member nào.
+  billingModel: 'Monthly' | 'Yearly';
   status?: 'Active' | 'Suspended' | 'Inactive';
 }
 
@@ -67,6 +66,13 @@ export async function suspendInstitution(id: string): Promise<ApiInstitution> {
 /** Activate: PUT /api/institutions/{id} với status=Active */
 export async function activateInstitution(id: string): Promise<ApiInstitution> {
   return apiPut<ApiInstitution>(`/api/institutions/${id}`, { status: 'Active' });
+}
+
+/** POST /api/institutions/{id}/renew-subscription — chỉ SchoolAdmin. Gia hạn subscriptionExpiresAt
+ *  thêm 1 tháng/năm tuỳ billingModel, tự un-suspend nếu đang Suspended. Không trả institution mới
+ *  trong response — phải tự fetchInstitutionById lại sau khi gọi. */
+export async function renewInstitutionSubscription(id: string): Promise<void> {
+  await apiPost<null>(`/api/institutions/${id}/renew-subscription`, {});
 }
 
 // ─── Pricing Configs ──────────────────────────────────────────────────────

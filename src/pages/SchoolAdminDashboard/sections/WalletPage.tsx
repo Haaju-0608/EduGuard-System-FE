@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiAlertCircle, FiArrowUpRight, FiCheckCircle, FiClock, FiCreditCard, FiRefreshCw, FiTrendingDown } from 'react-icons/fi';
+import { FiAlertCircle, FiArrowUpRight, FiCalendar, FiCheckCircle, FiClock, FiCreditCard, FiRefreshCw, FiRepeat, FiTrendingDown } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
+import { fetchInstitutionById, renewInstitutionSubscription } from '../../../services/adminApi';
 import { fetchWallet, fetchWalletTransactions, topUpWallet } from '../../../services/schoolAdminApi';
-import type { ApiTransaction, ApiWallet } from '../../../types/api';
+import { billingModelLabel } from '../../../utils/billingModel';
+import type { ApiInstitution, ApiTransaction, ApiWallet } from '../../../types/api';
 
 const TOP_UP_PACKAGES = [
   { amount: 100000,  label: '100,000',  price: '100.000 ₫',  sessions: '~20 sessions',  popular: false },
@@ -28,8 +30,39 @@ export default function WalletPage() {
   const [showTopUp, setShowTopUp] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState(500000);
   const [submitting, setSubmitting] = useState(false);
+  const [institution, setInstitution] = useState<ApiInstitution | null>(null);
+  const [loadingInstitution, setLoadingInstitution] = useState(true);
+  const [renewing, setRenewing] = useState(false);
 
   const institutionId = user?.institutionId ?? '';
+
+  async function loadInstitution() {
+    if (!institutionId) { setLoadingInstitution(false); return; }
+    setLoadingInstitution(true);
+    try {
+      setInstitution(await fetchInstitutionById(institutionId));
+    } catch {
+      // Không chặn phần wallet nếu load institution lỗi
+    } finally {
+      setLoadingInstitution(false);
+    }
+  }
+
+  useEffect(() => { loadInstitution(); }, [institutionId]);
+
+  const handleRenewSubscription = async () => {
+    if (!institutionId) return;
+    setRenewing(true);
+    try {
+      await renewInstitutionSubscription(institutionId);
+      toast.success('Renewed', 'Subscription renewed successfully.');
+      await loadInstitution();
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to renew subscription.');
+    } finally {
+      setRenewing(false);
+    }
+  };
 
   async function loadWallet() {
     if (!institutionId) {
@@ -138,6 +171,44 @@ export default function WalletPage() {
           </button>
         </div>
       )}
+
+      {/* Subscription Card */}
+      {!loadingInstitution && institution && (() => {
+        const isSuspended = institution.status.toLowerCase() === 'suspended';
+        const expiresAt = institution.subscriptionExpiresAt ? new Date(institution.subscriptionExpiresAt) : null;
+        const daysLeft = expiresAt ? Math.ceil((expiresAt.getTime() - Date.now()) / 86_400_000) : null;
+        const isExpiringSoon = !isSuspended && daysLeft !== null && daysLeft <= 7;
+        const tone = isSuspended
+          ? { box: 'bg-red/5 border-red/30', text: 'text-red', chip: 'bg-red/10 border-red/30 text-red hover:bg-red/20' }
+          : isExpiringSoon
+            ? { box: 'bg-gold/5 border-gold/30', text: 'text-gold', chip: 'bg-gold/10 border-gold/30 text-gold hover:bg-gold/20' }
+            : { box: 'bg-green/5 border-green/30', text: 'text-green', chip: 'bg-green/10 border-green/30 text-green hover:bg-green/20' };
+        return (
+          <div className={`flex items-start gap-3 rounded-2xl px-5 py-4 flex-wrap border ${tone.box}`}>
+            <FiCalendar className={`text-xl shrink-0 mt-0.5 ${tone.text}`} />
+            <div className="flex-1 min-w-[200px]">
+              <p className={`text-sm font-bold ${tone.text}`}>
+                {isSuspended ? 'Subscription Suspended' : isExpiringSoon ? 'Subscription Expiring Soon' : 'Subscription Active'}
+              </p>
+              <p className="text-xs text-muted mt-0.5">
+                {billingModelLabel(institution.billingModel)} plan
+                {expiresAt && (
+                  <> — {isSuspended ? 'expired' : 'renews'} <strong className="text-white-soft">{expiresAt.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</strong>
+                  {!isSuspended && daysLeft !== null && daysLeft >= 0 && ` (${daysLeft} day${daysLeft !== 1 ? 's' : ''} left)`}</>
+                )}
+              </p>
+            </div>
+            <button
+              onClick={() => void handleRenewSubscription()}
+              disabled={renewing}
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50 ${tone.chip}`}
+            >
+              <FiRepeat className={renewing ? 'animate-spin' : ''} size={12} />
+              {renewing ? 'Renewing…' : 'Renew Subscription'}
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Balance Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

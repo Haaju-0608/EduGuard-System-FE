@@ -43,7 +43,9 @@ export default function StudentExamVerifyPage() {
     try { return JSON.parse(localStorage.getItem(`studentExam_${examId}`) ?? '{}'); } catch { return {}; }
   })();
 
-  // Lấy ảnh sinh trắc học đã được duyệt của sinh viên khi component mount
+  // Lấy ảnh sinh trắc học đã được SchoolAdmin duyệt của sinh viên khi component mount — bắt buộc
+  // phải có ảnh đã approve mới cho vào thi (fail closed), không còn bypass bằng face-presence-only
+  // như lúc BE chưa nối AI trích vector nữa (pipeline approve biometric giờ đã hoạt động thật).
   useEffect(() => {
     if (!user?.id) return;
     fetchMyApprovedBiometricPhoto(user.id)
@@ -53,17 +55,13 @@ export default function StudentExamVerifyPage() {
           setHasRefPhoto(true);
           setStep('idle');
         } else {
-          // TẠM THỜI: bỏ qua chặn "no-biometric" (BE chưa nối AI trích vector nên chưa có ảnh duyệt)
-          // → cho qua bằng face-presence check để test được exam-taking page.
-          // Revert: đổi lại thành setHasRefPhoto(false); setStep('no-biometric');
           setHasRefPhoto(false);
-          setStep('idle');
+          setStep('no-biometric');
         }
       })
       .catch(() => {
-        // Không có quyền gọi API (bị chặn theo role) → chuyển sang chỉ kiểm tra có mặt người hay không
         setHasRefPhoto(false);
-        setStep('idle');
+        setStep('no-biometric');
       });
   }, [user?.id]);
 

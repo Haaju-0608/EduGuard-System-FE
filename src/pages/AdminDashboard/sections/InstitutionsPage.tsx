@@ -38,9 +38,8 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
-// Giá trị phải khớp đúng tên enum thật của BE (BillingModel.PayAsYouGo/Subscription) — nhãn hiển
-// thị "Per Use" vẫn giữ nguyên cho người dùng, chỉ đổi value gửi đi.
-type BillingModel = 'PayAsYouGo' | 'Subscription';
+// Giá trị phải khớp đúng tên enum thật của BE (BillingModel.Monthly/Yearly).
+type BillingModel = 'Monthly' | 'Yearly';
 
 interface FormData {
   name: string;
@@ -49,7 +48,7 @@ interface FormData {
   billingModel: BillingModel;
 }
 
-const EMPTY: FormData = { name: '', subDomain: '', contactEmail: '', billingModel: 'PayAsYouGo' };
+const EMPTY: FormData = { name: '', subDomain: '', contactEmail: '', billingModel: 'Monthly' };
 
 function InstitutionFormModal({
   target, onClose, onSaved,
@@ -68,7 +67,7 @@ function InstitutionFormModal({
       name: target.name ?? '',
       subDomain: target.subDomain ?? '',
       contactEmail: target.contactEmail ?? '',
-      billingModel: (target.billingModel as BillingModel) ?? 'PayAsYouGo',
+      billingModel: (target.billingModel as BillingModel) ?? 'Monthly',
     } : EMPTY);
   }, [target]);
 
@@ -138,7 +137,7 @@ function InstitutionFormModal({
             <CustomSelect
               value={form.billingModel}
               onChange={(v) => setForm((f) => ({ ...f, billingModel: v as typeof f.billingModel }))}
-              options={[{value:'PayAsYouGo',label:'Pay As You Go'},{value:'Subscription',label:'Subscription'}]}
+              options={[{value:'Monthly',label:'Monthly'},{value:'Yearly',label:'Yearly'}]}
               className="w-full"
             />
           </div>
@@ -302,6 +301,11 @@ export default function InstitutionsPage() {
                       {inst.subDomain && <span className="font-mono">.{inst.subDomain}</span>}
                       <span className="bg-navy px-1.5 py-0.5 rounded text-[10px]">{billingModelLabel(inst.billingModel)}</span>
                       <span>Since {fmt(inst.createdAt)}</span>
+                      {inst.subscriptionExpiresAt && (
+                        <span className={new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'text-red' : ''}>
+                          {new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'Expired' : 'Expires'} {fmt(inst.subscriptionExpiresAt)}
+                        </span>
+                      )}
                     </div>
                   </div>
 

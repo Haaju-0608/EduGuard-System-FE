@@ -403,8 +403,9 @@ function mapApiBiometricRequest(
     studentEmail: student?.email ?? '',
     classCode: '—',
     submittedAt: formatBiometricDate(item.createdAt),
-    photoUrl: '',
-    faceImagePath: item.faceImageUrl ?? null,
+    frontImageUrl: item.frontImageUrl ?? null,
+    leftImageUrl: item.leftImageUrl ?? null,
+    rightImageUrl: item.rightImageUrl ?? null,
     status: mapBiometricStatus(item.status),
     note: item.reason?.trim() || undefined,
   };
@@ -479,8 +480,9 @@ export async function rejectBiometricRequest(requestId: string, reason: string):
 }
 
 /**
- * Lấy signed URL ảnh biometric approved của student (dùng cho verify trước khi thi).
- * Ưu tiên ảnh "center" nếu có; không thì lấy ảnh mới nhất.
+ * Lấy URL ảnh biometric approved của student (dùng cho verify trước khi thi) — mỗi student giờ chỉ
+ * có tối đa 1 request đang approved tại 1 thời điểm (1 request = 1 lần nộp cả bộ 3 ảnh), nên chỉ cần
+ * lấy request approved mới nhất, dùng thẳng faceImageUrl (đã là URL Supabase đầy đủ).
  * Trả null nếu chưa có biometric approved hoặc BE không cho phép.
  */
 export async function fetchMyApprovedBiometricPhoto(studentUuid: string): Promise<string | null> {
@@ -490,20 +492,12 @@ export async function fetchMyApprovedBiometricPhoto(studentUuid: string): Promis
     );
 
     const approved = res.data
-      .filter(
-        (r) =>
-          r.studentId === studentUuid &&
-          r.status?.toLowerCase() === 'approved' &&
-          r.faceImageUrl,
-      )
+      .filter((r) => r.studentId === studentUuid && r.status?.toLowerCase() === 'approved' && r.faceImageUrl)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     if (approved.length === 0) return null;
 
-    const centerPhoto = approved.find((r) => r.faceImageUrl?.toLowerCase().includes('center'));
-    const target = centerPhoto ?? approved[0];
-
-    return await fetchSignedFaceUrl(target.faceImageUrl!);
+    return await fetchSignedFaceUrl(approved[0].faceImageUrl!);
   } catch {
     return null;
   }
@@ -914,27 +908,18 @@ export async function fetchStudentExamRecords(
   return { items: data, pagination };
 }
 
-/** GET /api/student-exam-records/{id} */
-export async function fetchStudentExamRecordById(id: string): Promise<ApiStudentExamRecord> {
-  return apiGet<ApiStudentExamRecord>(`/api/student-exam-records/${id}`);
+export interface GradeStudentExamRecordPayload {
+  grades: Array<{ questionId: string; awardedPoints: number }>;
 }
 
-export interface UpdateStudentExamRecordPayload {
-  endedAt: string | null;
-  examRecord: string | null;
-  finalScore: number | null;
-  submittedAt: string | null;
-  durationSeconds: number | null;
-  status: string;
-}
-
-/** PUT /api/student-exam-records/{id} — chỉ Lecturer/SchoolAdmin/SuperAdmin. Đây là update toàn bộ
- *  record (không phải patch) — BE ghi đè nguyên finalScore + examRecord, không tự tính lại gì cả. */
-export async function updateStudentExamRecord(
+/** PUT /api/student-exam-records/{id}/manual-grade — Lecturer/SchoolAdmin/SuperAdmin. BE tự validate
+ *  (chỉ cho chấm câu Essay/needsManualMarking, không vượt max points, không câu trùng/lạ) và tự tính
+ *  lại finalScore/status — không cần FE tự parse/build lại ExamRecord JSON như trước nữa. */
+export async function gradeStudentExamRecord(
   id: string,
-  payload: UpdateStudentExamRecordPayload,
+  payload: GradeStudentExamRecordPayload,
 ): Promise<ApiStudentExamRecord> {
-  return apiPut<ApiStudentExamRecord>(`/api/student-exam-records/${id}`, payload);
+  return apiPut<ApiStudentExamRecord>(`/api/student-exam-records/${id}/manual-grade`, payload);
 }
 
 // ─── Transactions Deduct ─────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import {
   FiPlay,
   FiRefreshCw,
   FiStopCircle,
+  FiUserPlus,
   FiUsers,
   FiXCircle,
 } from 'react-icons/fi';
@@ -28,12 +29,21 @@ import {
   sendAttendanceStartedEmail,
 } from '../../../services/schoolAdminApi';
 import {
+  createAttendanceRecord,
   endAttendanceSession,
   fetchActiveAttendanceSession,
   startAttendanceSession,
 } from '../../../services/lecturerApi';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerClass } from '../../../types/lecturer';
+import type { ApiEnrollment } from '../../../types/api';
+
+const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
+  { value: 'present', label: 'Present' },
+  { value: 'late', label: 'Late' },
+  { value: 'excused', label: 'Excused' },
+  { value: 'absent', label: 'Absent' },
+];
 
 /** Báo mail "attendance-started" cho toàn bộ sinh viên trong lớp — chạy nền, không chặn UI và
  *  không làm hỏng flow mở điểm danh nếu gửi mail lỗi. */
@@ -105,6 +115,21 @@ export default function AttendanceSessionPage() {
   const [filter, setFilter] = useState<AttendanceStatus | 'all'>('all');
   const toast = useToast();
 
+  // Danh sách sinh viên của lớp đang điểm danh — dùng để tìm ai chưa có record nào (AI trên app
+  // mobile bỏ sót, hoặc chưa dùng AI) để giảng viên tự điểm danh tay bù vào.
+  const [roster, setRoster] = useState<ApiEnrollment[]>([]);
+  const [loadingRoster, setLoadingRoster] = useState(false);
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!session) { setRoster([]); return; }
+    setLoadingRoster(true);
+    fetchClassEnrollmentsWithStudents(session.classId)
+      .then(setRoster)
+      .catch(() => setRoster([]))
+      .finally(() => setLoadingRoster(false));
+  }, [session?.id, session?.classId]);
+
   /** Tải danh sách lớp và phiên điểm danh hiện tại */
   const loadData = async () => {
     setLoading(true);
@@ -175,6 +200,27 @@ export default function AttendanceSessionPage() {
       setActionLoading(false);
     }
   };
+
+  /** Điểm danh tay cho 1 sinh viên bị bỏ sót (chưa có record nào trong session) */
+  const handleMarkAttendance = async (studentId: string, status: AttendanceStatus) => {
+    if (!session) return;
+    setMarkingId(studentId);
+    try {
+      await createAttendanceRecord(session.id, studentId, status);
+      const refreshed = await fetchActiveAttendanceSession(session.classId);
+      setSession(refreshed);
+      toast.success('Marked', `Attendance recorded as ${status}.`);
+    } catch (err) {
+      toast.error('Failed to mark attendance', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setMarkingId(null);
+    }
+  };
+
+  const recordedStudentIds = new Set((session?.records ?? []).map((r) => r.rawStudentId));
+  const missingStudents = roster.filter(
+    (e) => e.student && !recordedStudentIds.has(e.studentId),
+  );
 
   const filteredRecords: AttendanceRecord[] = session
     ? filter === 'all' ? session.records : session.records.filter((r) => r.status === filter)
@@ -255,6 +301,56 @@ export default function AttendanceSessionPage() {
               <span className="text-xs text-muted">📍 Room {session.room} · 🕐 {session.startTime}</span>
             </div>
             <SessionStats session={session} />
+
+            {/* Điểm danh tay bù cho sinh viên chưa có record — điểm danh chính bằng AI thực hiện
+                trên app di động, web chỉ xem kết quả + bù thủ công cho ai bị bỏ sót. */}
+            <div className="mt-6 pt-6 border-t border-border/60">
+              <SectionTitle
+                icon={<FiUserPlus className="text-gold" />}
+                title="Add Manual Attendance"
+                subtitle="Students below have no attendance record yet for this session — mark them manually if the mobile app missed them."
+              />
+
+              {loadingRoster ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 2 }).map((_, i) => (
+                    <div key={i} className="h-12 bg-white/5 rounded-xl animate-pulse" />
+                  ))}
+                </div>
+              ) : missingStudents.length === 0 ? (
+                <p className="text-sm text-muted">
+                  {roster.length === 0 ? 'No enrolled students found for this class.' : 'Every enrolled student already has an attendance record. 🎉'}
+                </p>
+              ) : (
+                <div className="space-y-2 max-h-[320px] overflow-y-auto custom-scrollbar">
+                  {missingStudents.map((e) => {
+                    const name = e.student?.fullName?.trim() || e.student?.email || 'Unknown student';
+                    const isBusy = markingId === e.studentId;
+                    return (
+                      <div key={e.studentId} className="roster-item">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
+                          <p className="text-[10px] text-muted font-mono">{e.student?.studentCode ?? e.studentId.slice(0, 8)}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {STATUS_OPTIONS.map((opt) => (
+                            <button
+                              key={opt.value}
+                              onClick={() => void handleMarkAttendance(e.studentId, opt.value)}
+                              disabled={isBusy}
+                              title={`Mark ${opt.label}`}
+                              className="px-2.5 py-1.5 rounded-lg border border-border text-[10px] font-bold text-muted hover:text-white-soft hover:border-blue-bright/40 transition-all cursor-pointer bg-transparent disabled:opacity-40"
+                            >
+                              {opt.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </UniCard>
