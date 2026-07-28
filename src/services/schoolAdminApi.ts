@@ -11,8 +11,11 @@ import type {
   ApiClass,
   ApiEnrollment,
   ApiExamParticipation,
+  ApiExamQuestion,
   ApiExamSlot,
   ApiInstitution,
+  ApiQuestionOption,
+  ApiStudentExamRecord,
   ApiTransaction,
   ApiUser,
   ApiWallet,
@@ -35,6 +38,7 @@ import type {
   StudentStatus,
 } from '../types/lecturer';
 import { getFacultyByCourseCode } from '../utils/facultyTheme';
+import type { BrowserViolationResponse, BrowserViolationType, ExamParticipationStatusResponse } from '../types/termination';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -226,9 +230,7 @@ async function tryFetchEnrollments(
       `/api/enrollments${buildQueryParams({ page, pageSize })}`,
     );
     return { items: data, pagination };
-  } catch (e) {
-    // Enrollments là dữ liệu phụ — bất kỳ lỗi nào cũng trả rỗng, không crash page
-    console.warn('[tryFetchEnrollments]', e instanceof Error ? e.message : e);
+  } catch {
     return { items: [], pagination: EMPTY_PAGINATION };
   }
 }
@@ -257,8 +259,9 @@ export async function fetchSchoolAdminClasses(
 
 /** GET /api/users (Student) — kèm lớp từ enrollment nếu có quyền */
 export async function fetchSchoolAdminStudents(
-  params: ListQueryParams = {},
+  params: ListQueryParams & { institutionId?: string } = {},
 ): Promise<PagedResult<LecturerStudent>> {
+  const { institutionId } = params;
   const [userRes, classRes, enrollmentRes] = await Promise.all([
     fetchApiUsersRaw(params),
     fetchApiClassesRaw({ page: 1, pageSize: DEFAULT_PAGE_SIZE }),
@@ -268,9 +271,11 @@ export async function fetchSchoolAdminStudents(
   const classItems = classRes.data.map(mapApiClassToLecturerClass);
   const classMap = new Map(classItems.map((cls) => [cls.id, cls]));
 
+  // Filter client-side theo institution — backend /api/users chưa scope theo institution
   const students = applyEnrollmentsToStudents(
     userRes.data
       .filter((user) => user.role.trim().toLowerCase() === 'student')
+      .filter((user) => !institutionId || user.institutionId === institutionId)
       .map(mapApiUserToLecturerStudent),
     enrollmentRes.items,
     classMap,
@@ -319,7 +324,7 @@ export interface CreateExamSlotPayload {
   endTime: string;
   expectedDurationMinutes?: number;
   status?: 'Scheduled' | 'InProgress' | 'Completed' | 'Cancelled';
-  proctorId?: string;
+  lecturerId?: string;
 }
 
 /** POST /api/exam-slots */
@@ -338,10 +343,10 @@ export async function deleteExamSlot(id: string): Promise<void> {
 }
 
 /** Tổng hợp dashboard */
-export async function fetchSchoolAdminOverviewStats() {
+export async function fetchSchoolAdminOverviewStats(institutionId?: string) {
   const [classRes, students, exams] = await Promise.all([
     fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
-    fetchSchoolAdminStudents({ page: 1, pageSize: 50 }),
+    fetchSchoolAdminStudents({ page: 1, pageSize: 50, institutionId }),
     fetchExamSlots({ page: 1, pageSize: 50 }),
   ]);
 
@@ -395,17 +400,29 @@ function mapApiBiometricRequest(
     studentId:
       studentCode && studentCode !== 'none' ? studentCode : (item.studentId ?? '').slice(0, 8).toUpperCase(),
     studentName: student?.fullName?.trim() || student?.email || 'Unknown student',
+    studentEmail: student?.email ?? '',
     classCode: '—',
     submittedAt: formatBiometricDate(item.createdAt),
-    photoUrl: '',
-    faceImagePath: item.faceImageUrl ?? null,
+    frontImageUrl: item.frontImageUrl ?? null,
+    leftImageUrl: item.leftImageUrl ?? null,
+    rightImageUrl: item.rightImageUrl ?? null,
     status: mapBiometricStatus(item.status),
     note: item.reason?.trim() || undefined,
   };
 }
 
-/** POST /api/storage/signed-url — lấy signed URL để hiển thị ảnh khuôn mặt */
+/**
+ * POST /api/storage/signed-url — lấy signed URL để hiển thị ảnh khuôn mặt.
+ *
+ * BE's Front/Left/RightImageUrl chỉ là passthrough thẳng cột path trong DB (Helpers/AcademicMapper.cs),
+ * không hề ký sẵn. Giá trị cột đó đã đổi qua thời gian: trước đây là path cục bộ kiểu
+ * "uploads/biometrics/xxx.jpg" (không khớp bucket Supabase "biometric-faces"), còn từ bản cập nhật
+ * AI service (BiometricRequestService.cs) thì lưu THẲNG URL đầy đủ trả về từ FastAPI AI
+ * (`aiResponse.AvatarUrl`, có thể ở project Supabase khác). Ký lại 1 URL đã đầy đủ như path thô sẽ
+ * fail — nên tự nhận diện: nếu đã là URL http(s) thì dùng thẳng, chỉ ký khi thực sự là bare path.
+ */
 export async function fetchSignedFaceUrl(path: string): Promise<string | null> {
+  if (/^https?:\/\//i.test(path)) return path;
   try {
     const res = await apiPost<{ signedUrl?: string }>(
       `/api/storage/signed-url?bucket=biometric-faces&path=${encodeURIComponent(path)}&expiresInSeconds=3600`,
@@ -462,6 +479,30 @@ export async function rejectBiometricRequest(requestId: string, reason: string):
   await apiPost<null>(`/api/biometric-requests/${requestId}/reject`, { reason: reason.trim() });
 }
 
+/**
+ * Lấy URL ảnh biometric approved của student (dùng cho verify trước khi thi) — mỗi student giờ chỉ
+ * có tối đa 1 request đang approved tại 1 thời điểm (1 request = 1 lần nộp cả bộ 3 ảnh), nên chỉ cần
+ * lấy request approved mới nhất, dùng thẳng faceImageUrl (đã là URL Supabase đầy đủ).
+ * Trả null nếu chưa có biometric approved hoặc BE không cho phép.
+ */
+export async function fetchMyApprovedBiometricPhoto(studentUuid: string): Promise<string | null> {
+  try {
+    const res = await apiGetPaginated<ApiBiometricRequest[]>(
+      `/api/biometric-requests${buildQueryParams({ page: 1, pageSize: 50 })}`,
+    );
+
+    const approved = res.data
+      .filter((r) => r.studentId === studentUuid && r.status?.toLowerCase() === 'approved' && r.faceImageUrl)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    if (approved.length === 0) return null;
+
+    return await fetchSignedFaceUrl(approved[0].faceImageUrl!);
+  } catch {
+    return null;
+  }
+}
+
 // ─── User CRUD ────────────────────────────────────────────────────────────
 
 /** GET /api/users — tất cả users (admin scope) */
@@ -480,7 +521,7 @@ export interface CreateUserPayload {
   email: string;
   password: string;
   fullName: string;
-  role: 'student' | 'lecturer' | 'schooladmin';
+  role: 'Student' | 'Lecturer' | 'SchoolAdmin';
   studentCode?: string | null;
   institutionId?: string | null;
   phone?: string | null;
@@ -506,15 +547,18 @@ export async function deleteUser(id: string): Promise<void> {
 
 /** GET /api/users?role=lecturer — danh sách giảng viên */
 export async function fetchLecturers(
-  params: ListQueryParams = {},
+  params: ListQueryParams & { institutionId?: string } = {},
 ): Promise<PagedResult<LecturerStudent>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
+  const { institutionId } = params;
   const { data, pagination } = await apiGetPaginated<ApiUser[]>(
     `/api/users${buildQueryParams({ page, pageSize })}`,
   );
+  // Filter client-side theo institution — backend /api/users chưa scope theo institution
   const lecturers = data
     .filter((u) => ['lecturer', 'instructor', 'teacher'].includes(u.role.trim().toLowerCase()))
+    .filter((u) => !institutionId || u.institutionId === institutionId)
     .map(mapApiUserToLecturerStudent);
   return { items: lecturers, pagination: { ...pagination, totalItems: lecturers.length } };
 }
@@ -554,42 +598,31 @@ export async function deleteClass(id: string): Promise<void> {
 
 /**
  * Fetch exam slots cho student hiện tại.
- * Flow: GET /api/classes/my-classes → classIds
- *       → GET /api/exam-slots/class/{classId} (parallel)
+ * Flow: GET /api/classes/my-classes → với mỗi lớp GET /api/exam-slots/class/{classId}
+ * Trả về tất cả exam slots (scheduled + ongoing + completed).
  */
 export async function fetchStudentExamSlots(_studentId: string): Promise<ExamSlot[]> {
-  // 1. Lấy danh sách lớp của student qua JWT
-  const myClasses = await apiGet<ApiClass[]>('/api/classes/my-classes').catch(
-    () => [] as ApiClass[],
-  );
-
+  const myClasses = await apiGet<ApiClass[]>('/api/classes/my-classes').catch(() => [] as ApiClass[]);
   if (myClasses.length === 0) return [];
 
-  // 2. Build classMap
   const classMap = new Map<string, LecturerClass>(
     myClasses.map((cls) => [cls.id, mapApiClassToLecturerClass(cls)]),
   );
 
-  const classIds = myClasses.map((cls) => cls.id);
-
-  // 3. Fetch exam slots cho từng class song song
   const slotArrays = await Promise.all(
-    classIds.map((classId) =>
-      apiGet<ApiExamSlot[]>(`/api/exam-slots/class/${classId}`).catch(
-        () => [] as ApiExamSlot[],
-      ),
+    myClasses.map((cls) =>
+      apiGet<ApiExamSlot[]>(`/api/exam-slots/class/${cls.id}`).catch(() => [] as ApiExamSlot[]),
     ),
   );
 
-  // 4. Gộp, deduplicate theo id
   const seen = new Set<string>();
-  return slotArrays
-    .flat()
+  return slotArrays.flat()
     .filter((slot) => {
       if (seen.has(slot.id)) return false;
       seen.add(slot.id);
       return true;
     })
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())
     .map((slot) => mapApiExamSlot(slot, classMap));
 }
 
@@ -614,6 +647,23 @@ export async function deleteEnrollment(
 /** GET /api/classes/{classId}/enrollments */
 export async function fetchClassEnrollments(classId: string): Promise<ApiEnrollment[]> {
   return apiGet<ApiEnrollment[]>(`/api/classes/${classId}/enrollments`);
+}
+
+/** Giống fetchClassEnrollments nhưng đảm bảo mỗi enrollment có sẵn `.student` — BE không phải
+ *  lúc nào cũng trả kèm, nên phải tự GET /api/users/{id} bù cho các enrollment còn thiếu. */
+export async function fetchClassEnrollmentsWithStudents(classId: string): Promise<ApiEnrollment[]> {
+  const enrollments = await fetchClassEnrollments(classId);
+  return Promise.all(
+    enrollments.map(async (e) => {
+      if (e.student) return e;
+      try {
+        const user = await apiGet<ApiUser>(`/api/users/${e.studentId}`);
+        return { ...e, student: user };
+      } catch {
+        return e;
+      }
+    }),
+  );
 }
 
 // ─── Wallet ───────────────────────────────────────────────────────────────
@@ -669,12 +719,68 @@ export async function createExamParticipation(payload: {
   return apiPost<ApiExamParticipation>('/api/exam-participations', payload);
 }
 
+/** POST /api/exam-participations/{id}/join — student vào phòng thi, BE ghi actualStart + status=Joined */
+export async function joinExamParticipation(participationId: string): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/join`);
+}
+
+/** POST /api/exam-participations/{id}/heartbeat — ping định kỳ để báo student còn online */
+export async function sendExamHeartbeat(participationId: string): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/heartbeat`, {
+    clientTime: new Date().toISOString(),
+  });
+}
+
+/** POST /api/exam-participations/{id}/submit — nộp bài, BE ghi actualEnd + status=Submitted */
+export async function submitExamParticipation(
+  participationId: string,
+  recordingVideoPath?: string,
+): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/submit`, {
+    recordingVideoPath: recordingVideoPath ?? null,
+  });
+}
+
+/** POST /api/exam-participations/{id}/leave — student thoát giữa chừng, BE set status=Left */
+export async function leaveExamParticipation(participationId: string, reason?: string): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/leave`, {
+    reason: reason ?? null,
+  });
+}
+
 /** PUT /api/exam-participations/{id}/status — cập nhật trạng thái (dùng cho Submitted, Left...) */
 export async function updateParticipationStatus(
   participationId: string,
   status: ParticipationStatus,
 ): Promise<void> {
   await apiPut(`/api/exam-participations/${participationId}/status`, { status });
+}
+
+/**
+ * GET /api/exam-participations/{id}/status — trạng thái realtime của participation, dùng để:
+ * (1) check ngay khi vào trang thi / F5 / mất-rồi-có-mạng-lại, không đợi SignalR;
+ * (2) biết bài thi đã bị terminate (disqualify do vi phạm trình duyệt) hay chưa.
+ * Response shape khớp ExamParticipationStatusResponseDto (BE).
+ */
+export async function fetchExamParticipationStatus(
+  participationId: string,
+): Promise<ExamParticipationStatusResponse> {
+  return apiGet<ExamParticipationStatusResponse>(`/api/exam-participations/${participationId}/status`);
+}
+
+/**
+ * POST /api/browser-violations — báo cáo hành vi rời khỏi màn hình thi (đổi tab, mất focus cửa
+ * sổ, thoát fullscreen). BE tự đếm dồn và quyết định khi nào terminate participation (>=3 lần).
+ * Response trả về examTerminated ngay lập tức — không cần đợi SignalR mới biết vừa bị terminate.
+ */
+export async function reportBrowserViolation(payload: {
+  participationId: string;
+  violationType: BrowserViolationType;
+}): Promise<BrowserViolationResponse> {
+  return apiPost<BrowserViolationResponse>('/api/browser-violations', {
+    participationId: payload.participationId,
+    violationType: payload.violationType,
+  });
 }
 
 /** POST /api/exam-participations/{id}/disqualify — đình chỉ student */
@@ -685,9 +791,135 @@ export async function disqualifyParticipation(
   await apiPost(`/api/exam-participations/${participationId}/disqualify`, { reason });
 }
 
-/** DELETE /api/exam-participations/{examSlotId} — xóa tham gia */
-export async function deleteExamParticipation(examSlotId: string): Promise<void> {
-  await apiDelete(`/api/exam-participations/${examSlotId}`);
+/** DELETE /api/exam-participations/{participationId} — xóa tham gia */
+export async function deleteExamParticipation(participationId: string): Promise<void> {
+  await apiDelete(`/api/exam-participations/${participationId}`);
+}
+
+// ─── Exam Questions ─────────────────────────────────────────────────────
+
+export interface CreateQuestionOptionPayload {
+  optionLabel: string;
+  optionContent: string;
+  isCorrect: boolean;
+}
+
+export interface CreateExamQuestionPayload {
+  examSlotId: string;
+  questionType: string;
+  questionContent: string;
+  audioUrl?: string | null;
+  imageUrl?: string | null;
+  points: number;
+  displayOrder: number;
+  options?: CreateQuestionOptionPayload[];
+}
+
+export interface UpdateExamQuestionPayload {
+  questionType: string;
+  questionContent: string;
+  audioUrl?: string | null;
+  imageUrl?: string | null;
+  points: number;
+  displayOrder: number;
+}
+
+/** GET /api/exam-questions?examSlotId=... — Student không thấy isCorrect (BE trả null) */
+export async function fetchExamQuestions(
+  examSlotId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiExamQuestion>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiExamQuestion[]>(
+    `/api/exam-questions${buildQueryParams({ examSlotId, page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
+/** POST /api/exam-questions — có thể kèm luôn options trong 1 request */
+export async function createExamQuestion(payload: CreateExamQuestionPayload): Promise<ApiExamQuestion> {
+  return apiPost<ApiExamQuestion>('/api/exam-questions', payload);
+}
+
+/** PUT /api/exam-questions/{id} — chỉ sửa field câu hỏi, không sửa options */
+export async function updateExamQuestion(
+  id: string,
+  payload: UpdateExamQuestionPayload,
+): Promise<ApiExamQuestion> {
+  return apiPut<ApiExamQuestion>(`/api/exam-questions/${id}`, payload);
+}
+
+/** DELETE /api/exam-questions/{id} */
+export async function deleteExamQuestion(id: string): Promise<void> {
+  await apiDelete(`/api/exam-questions/${id}`);
+}
+
+/** POST /api/exam-questions/{questionId}/options */
+export async function createQuestionOption(
+  questionId: string,
+  payload: CreateQuestionOptionPayload,
+): Promise<ApiQuestionOption> {
+  return apiPost<ApiQuestionOption>(`/api/exam-questions/${questionId}/options`, payload);
+}
+
+/** PUT /api/exam-questions/options/{optionId} */
+export async function updateQuestionOption(
+  optionId: string,
+  payload: CreateQuestionOptionPayload,
+): Promise<ApiQuestionOption> {
+  return apiPut<ApiQuestionOption>(`/api/exam-questions/options/${optionId}`, payload);
+}
+
+/** DELETE /api/exam-questions/options/{optionId} */
+export async function deleteQuestionOption(optionId: string): Promise<void> {
+  await apiDelete(`/api/exam-questions/options/${optionId}`);
+}
+
+// ─── Student Exam Records (nộp bài + chấm điểm) ──────────────────────────
+
+export interface SubmitStudentExamRecordPayload {
+  examSlotId: string;
+  answers: Array<{ questionId: string; optionId?: string; selectedOption?: string; answerText?: string }>;
+  durationSeconds?: number;
+}
+
+/** POST /api/student-exam-records/submit — BE tự chấm điểm, trả finalScore */
+export async function submitStudentExamRecord(
+  payload: SubmitStudentExamRecordPayload,
+): Promise<ApiStudentExamRecord> {
+  return apiPost<ApiStudentExamRecord>('/api/student-exam-records/submit', payload);
+}
+
+/** GET /api/student-exam-records?studentId=&examSlotId= — xem điểm đã nộp */
+export async function fetchStudentExamRecords(
+  params: ListQueryParams & { studentId?: string; examSlotId?: string } = {},
+): Promise<PagedResult<ApiStudentExamRecord>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiStudentExamRecord[]>(
+    `/api/student-exam-records${buildQueryParams({
+      studentId: params.studentId,
+      examSlotId: params.examSlotId,
+      page,
+      pageSize,
+    })}`,
+  );
+  return { items: data, pagination };
+}
+
+export interface GradeStudentExamRecordPayload {
+  grades: Array<{ questionId: string; awardedPoints: number }>;
+}
+
+/** PUT /api/student-exam-records/{id}/manual-grade — Lecturer/SchoolAdmin/SuperAdmin. BE tự validate
+ *  (chỉ cho chấm câu Essay/needsManualMarking, không vượt max points, không câu trùng/lạ) và tự tính
+ *  lại finalScore/status — không cần FE tự parse/build lại ExamRecord JSON như trước nữa. */
+export async function gradeStudentExamRecord(
+  id: string,
+  payload: GradeStudentExamRecordPayload,
+): Promise<ApiStudentExamRecord> {
+  return apiPut<ApiStudentExamRecord>(`/api/student-exam-records/${id}/manual-grade`, payload);
 }
 
 // ─── Transactions Deduct ─────────────────────────────────────────────────
@@ -762,8 +994,10 @@ export async function fetchStudentAttendanceHistory(
     apiGetPaginated<ApiAttendanceRecord[]>(
       `/api/attendance-records${buildQueryParams({ studentId, page: 1, pageSize: 200 })}`,
     ).catch(() => ({ data: [] as ApiAttendanceRecord[], pagination: EMPTY_PAGINATION })),
+    // expand=class — không gửi thì session.class luôn null, className rơi về "Unknown class"
+    // dù data thật vẫn tồn tại (BE chỉ populate navigation property khi có tham số này).
     apiGetPaginated<ApiAttendanceSession[]>(
-      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200 })}`,
+      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200, expand: 'class' })}`,
     ).catch(() => ({ data: [] as ApiAttendanceSession[], pagination: EMPTY_PAGINATION })),
   ]);
 
@@ -805,7 +1039,45 @@ export async function fetchAttendanceSessions(
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
   const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page, pageSize })}`,
+    `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
+}
+
+// ─── Notification Emails ───────────────────────────────────────────────────
+// BE's /api/email-test/* — chỉ [Authorize] (mọi role đăng nhập đều gọi được), nhận đúng 1 người
+// nhận/lần, không tự tra dữ liệu thật nên FE phải tự truyền email/tên/nội dung. Gửi lỗi không nên
+// chặn hành động chính (approve/reject/tạo đề/điểm danh) nên luôn bọc try/catch ở nơi gọi.
+
+/** POST /api/email-test/biometric-approved */
+export async function sendBiometricApprovedEmail(payload: { email: string; studentName: string }): Promise<void> {
+  await apiPost<null>('/api/email-test/biometric-approved', payload);
+}
+
+/** POST /api/email-test/biometric-rejected */
+export async function sendBiometricRejectedEmail(
+  payload: { email: string; studentName: string; reason: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/biometric-rejected', payload);
+}
+
+/** POST /api/email-test/exam-created */
+export async function sendExamCreatedEmail(
+  payload: { email: string; studentName: string; examName: string; examTime: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/exam-created', payload);
+}
+
+/** POST /api/email-test/exam-reminder */
+export async function sendExamReminderEmail(
+  payload: { email: string; studentName: string; examName: string; examTime: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/exam-reminder', payload);
+}
+
+/** POST /api/email-test/attendance-started */
+export async function sendAttendanceStartedEmail(
+  payload: { email: string; studentName: string; className: string },
+): Promise<void> {
+  await apiPost<null>('/api/email-test/attendance-started', payload);
 }

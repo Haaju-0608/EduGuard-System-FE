@@ -85,17 +85,24 @@ export interface ApiExamSlot {
 }
 
 /** Biometric request từ GET /api/biometric-requests */
+/** 1 request = 1 student submission chứa cả 3 ảnh (front/left/right), 1 status chung cho cả bộ 3 —
+ *  không còn là 3 dòng riêng biệt như trước (xem Models/BiometricRequest.cs). frontImageUrl/
+ *  leftImageUrl/rightImageUrl là URL Supabase đầy đủ, dùng thẳng được trong <img src>, không cần
+ *  ký lại qua /api/storage/signed-url. faceImageUrl là ảnh đại diện, chỉ có sau khi approved. */
 export interface ApiBiometricRequest {
   id: string;
   studentId: string;
   approvedBy: string | null;
   reason: string | null;
   status: string;
+  frontImageUrl: string | null;
+  leftImageUrl: string | null;
+  rightImageUrl: string | null;
+  faceImageUrl: string | null;
   reviewedAt: string | null;
   createdAt: string;
   student: ApiUser | null;
   approver: ApiUser | null;
-  faceImageUrl?: string | null;
 }
 
 /** Wallet từ GET /api/wallets/institution/{institutionId} */
@@ -171,10 +178,10 @@ export interface ApiInstitution {
   name: string | null;
   subDomain: string | null;
   contactEmail: string | null;
+  subscriptionExpiresAt: string | null;
   billingModel: string;
   status: string;
   createdAt: string;
-  updatedAt: string;
 }
 
 /** Pricing config từ GET /api/pricing-configs */
@@ -199,6 +206,47 @@ export interface ApiExamParticipation {
   disqualifiedReason: string | null;
   joinedAt: string | null;
   student: ApiUser | null;
+}
+
+/** Option của 1 câu hỏi trắc nghiệm — GET /api/exam-questions */
+export interface ApiQuestionOption {
+  id: string;
+  questionId: string;
+  optionLabel: string;
+  optionContent: string;
+  /** null khi role Student gọi — BE không lộ đáp án đúng cho student */
+  isCorrect: boolean | null;
+}
+
+/** Câu hỏi thi từ GET /api/exam-questions */
+export interface ApiExamQuestion {
+  id: string;
+  examSlotId: string;
+  examName: string | null;
+  questionType: string;
+  questionContent: string;
+  audioUrl: string | null;
+  imageUrl: string | null;
+  points: number;
+  displayOrder: number;
+  createdAt: string;
+  options: ApiQuestionOption[];
+}
+
+/** Kết quả bài thi từ POST /api/student-exam-records/submit */
+export interface ApiStudentExamRecord {
+  id: string;
+  examSlotId: string;
+  examName: string | null;
+  studentId: string;
+  studentName: string | null;
+  createdAt: string;
+  endedAt: string | null;
+  examRecord: string | null;
+  finalScore: number | null;
+  submittedAt: string | null;
+  durationSeconds: number | null;
+  status: string;
 }
 
 /** Deduct attendance request */

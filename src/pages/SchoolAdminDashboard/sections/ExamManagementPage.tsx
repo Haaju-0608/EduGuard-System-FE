@@ -1,20 +1,44 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiCheck, FiChevronDown, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   CreateExamSlotPayload,
   createExamSlot,
   deleteExamSlot,
+  fetchClassEnrollmentsWithStudents,
   fetchExamSlots,
   fetchLecturers,
   fetchSchoolAdminClasses,
+  sendExamCreatedEmail,
+  sendExamReminderEmail,
   updateExamSlot,
 } from '../../../services/schoolAdminApi';
 import type { ExamSlot, ExamSlotStatus, LecturerClass, LecturerStudent } from '../../../types/lecturer';
+
+/** Báo mail "exam-created" cho toàn bộ sinh viên trong các lớp vừa tạo đề — chạy nền, không chặn
+ *  UI và không làm hỏng flow tạo đề nếu gửi mail lỗi (BE /api/email-test/* không tự tra dữ liệu
+ *  thật nên phải loop gửi từng người). */
+async function notifyStudentsExamCreated(classIds: string[], examName: string, examTime: string) {
+  try {
+    const enrollmentLists = await Promise.all(classIds.map((id) => fetchClassEnrollmentsWithStudents(id)));
+    const students = enrollmentLists.flat()
+      .map((e) => e.student)
+      .filter((s): s is NonNullable<typeof s> => !!s?.email);
+    await Promise.all(
+      students.map((s) =>
+        sendExamCreatedEmail({ email: s.email, studentName: s.fullName?.trim() || s.email, examName, examTime })
+          .catch(() => undefined),
+      ),
+    );
+  } catch {
+    // Gửi mail thông báo là phụ — không throw ra ngoài, tránh làm hỏng cảm giác "tạo đề thành công".
+  }
+}
 
 function fmtDT(iso: string) {
   return new Date(iso).toLocaleString('en-GB', {
@@ -47,7 +71,9 @@ function StatusBadge({ status }: { status: ExamSlotStatus }) {
   );
 }
 
-// ─── Proctor Dropdown ─────────────────────────────────────────────────────
+// ─── Proctor Search ───────────────────────────────────────────────────────
+// Ô nhập trơn — không phải dropdown phải bấm mới mở. Gõ tới đâu, kết quả hiện ngay bên dưới tới
+// đó (không chiếm chỗ khi chưa gõ gì).
 
 function ProctorDropdown({
   lecturers,
@@ -58,75 +84,51 @@ function ProctorDropdown({
   selected: string;
   onChange: (id: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const filtered = lecturers.filter(
-    (l) => !search || l.name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()),
-  );
 
   const selectedLecturer = lecturers.find((l) => l.id === selected);
 
+  // Ô nhập hiện tên người đã chọn khi không gõ tìm gì mới; khi gõ thì hiện đúng chữ đang gõ.
+  const inputValue = search || selectedLecturer?.name || '';
+
+  const filtered = search.trim()
+    ? lecturers.filter(
+        (l) => l.name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()),
+      )
+    : [];
+
+  const selectLecturer = (id: string) => {
+    onChange(id);
+    setSearch('');
+  };
+
   return (
-    <div ref={ref} className="relative">
-      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-        Proctor (Giám thị){' '}
-        <span className="text-muted font-normal normal-case tracking-normal">— optional</span>
-      </label>
+    <div>
+      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Proctor *</label>
 
-      {/* Trigger */}
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className="w-full flex items-center justify-between gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 text-sm transition-colors hover:border-blue-bright/40 outline-none"
-      >
-        {selectedLecturer ? (
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-full bg-blue/20 border border-blue/30 grid place-items-center shrink-0 text-[10px] font-bold text-blue-bright">
-              {selectedLecturer.name.slice(0, 2).toUpperCase()}
-            </div>
-            <span className="text-white-soft truncate">{selectedLecturer.name}</span>
-          </div>
-        ) : (
-          <span className="text-muted">Select a proctor...</span>
+      <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
+        <FiSearch className="text-muted text-sm shrink-0" />
+        <input
+          type="text"
+          placeholder="Search lecturer by name or email..."
+          value={inputValue}
+          onChange={(e) => { setSearch(e.target.value); if (selected) onChange(''); }}
+          className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+        />
+        {(selected || search) && (
+          <button
+            type="button"
+            onClick={() => { onChange(''); setSearch(''); }}
+            className="text-muted hover:text-white-soft transition-colors cursor-pointer bg-transparent border-none shrink-0"
+          >
+            <FiX className="text-xs" />
+          </button>
         )}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {selected && (
-            <span
-              onClick={(e) => { e.stopPropagation(); onChange(''); }}
-              className="text-muted hover:text-white-soft transition-colors cursor-pointer"
-            >
-              <FiX className="text-xs" />
-            </span>
-          )}
-          <FiChevronDown className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
-        </div>
-      </button>
+      </div>
 
-      {/* Dropdown panel */}
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-            <FiSearch className="text-muted text-sm shrink-0" />
-            <input
-              autoFocus
-              type="text"
-              placeholder="Search lecturer..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
-            />
-          </div>
-          <div className="max-h-48 overflow-y-auto">
+      {search.trim() && (
+        <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
+          <div className="max-h-48 overflow-y-auto custom-scrollbar">
             {filtered.length === 0 ? (
               <p className="text-muted text-sm text-center py-4">No lecturers found</p>
             ) : (
@@ -136,7 +138,7 @@ function ProctorDropdown({
                   <button
                     key={lec.id}
                     type="button"
-                    onClick={() => { onChange(isSelected ? '' : lec.id); setOpen(false); setSearch(''); }}
+                    onClick={() => selectLecturer(isSelected ? '' : lec.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/30 last:border-0 ${
                       isSelected ? 'bg-cyan/10' : 'hover:bg-white/5'
                     }`}
@@ -188,6 +190,7 @@ function ExamFormModal({
   const toast = useToast();
   const [form, setForm] = useState<SlotForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [classSearch, setClassSearch] = useState('');
   const isEdit = !!target;
 
   useEffect(() => {
@@ -200,7 +203,13 @@ function ExamFormModal({
       durationMinutes: target.durationMinutes > 0 ? String(target.durationMinutes) : '',
       proctorId: target.proctorId ?? '',
     } : EMPTY_FORM);
+    setClassSearch('');
   }, [target]);
+
+  const classSearchQuery = classSearch.trim().toLowerCase();
+  const filteredClasses = classSearchQuery
+    ? classes.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
+    : [];
 
   const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
 
@@ -224,6 +233,10 @@ function ExamFormModal({
       toast.warning('Required', 'Select at least one class.');
       return;
     }
+    if (!form.proctorId) {
+      toast.warning('Required', 'Select a proctor.');
+      return;
+    }
     setSaving(true);
     try {
       const base: Omit<CreateExamSlotPayload, 'classId'> = {
@@ -231,7 +244,7 @@ function ExamFormModal({
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString(),
         expectedDurationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
-        proctorId: form.proctorId || undefined,
+        lecturerId: form.proctorId || undefined,
       };
       if (isEdit) {
         await updateExamSlot(target!.id, { classId: form.classId, ...base });
@@ -241,6 +254,7 @@ function ExamFormModal({
           form.classIds.map((classId) => createExamSlot({ classId, ...base })),
         );
         toast.success('Created', `${form.classIds.length} exam slot${form.classIds.length > 1 ? 's' : ''} created.`);
+        void notifyStudentsExamCreated(form.classIds, base.examName, base.startTime);
       }
       onSaved(); onClose();
     } catch (err) {
@@ -260,7 +274,7 @@ function ExamFormModal({
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar min-h-0">
           {/* Class selector */}
           {isEdit ? (
             <div>
@@ -277,35 +291,75 @@ function ExamFormModal({
                 Classes *{' '}
                 <span className="text-muted font-normal normal-case tracking-normal">— select one or more</span>
               </label>
-              <div className="bg-navy border border-border rounded-xl max-h-44 overflow-y-auto">
-                {classes.length === 0 ? (
-                  <p className="text-muted text-sm text-center py-4">No classes available</p>
-                ) : (
-                  classes.map((c) => {
-                    const checked = form.classIds.includes(c.id);
-                    return (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => toggleClass(c.id)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
-                          checked ? 'bg-blue/10' : 'hover:bg-white/5'
-                        }`}
-                      >
-                        <div className={`w-4 h-4 rounded border shrink-0 grid place-items-center transition-colors ${
-                          checked ? 'bg-blue border-blue' : 'border-border'
-                        }`}>
-                          {checked && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
-                        </div>
-                        <span className="text-[10px] font-bold text-muted font-mono">{c.code}</span>
-                        <span className="text-sm text-white-soft truncate">{c.name}</span>
-                      </button>
-                    );
-                  })
-                )}
+              <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
+                <FiSearch className="text-muted text-sm shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search class code or name..."
+                  value={classSearch}
+                  onChange={(e) => setClassSearch(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+                />
               </div>
+
+              {classSearchQuery && (
+                <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
+                  <div className="max-h-44 overflow-y-auto custom-scrollbar">
+                    {filteredClasses.length === 0 ? (
+                      <p className="text-muted text-sm text-center py-4">No classes match your search</p>
+                    ) : (
+                      filteredClasses.map((c) => {
+                        const checked = form.classIds.includes(c.id);
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => toggleClass(c.id)}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
+                              checked ? 'bg-blue/10' : 'hover:bg-white/5'
+                            }`}
+                          >
+                            <div className={`w-4 h-4 rounded border shrink-0 grid place-items-center transition-colors ${
+                              checked ? 'bg-blue border-blue' : 'border-border'
+                            }`}>
+                              {checked && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+                            </div>
+                            <span className="text-[10px] font-bold text-muted font-mono">{c.code}</span>
+                            <span className="text-sm text-white-soft truncate">{c.name}</span>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+              {classes.length === 0 && (
+                <p className="text-muted text-sm mt-1.5">No classes available</p>
+              )}
               {form.classIds.length > 0 && (
-                <p className="text-xs text-cyan mt-1.5">{form.classIds.length} class{form.classIds.length > 1 ? 'es' : ''} selected</p>
+                <div className="mt-1.5">
+                  <p className="text-xs text-cyan mb-1.5">{form.classIds.length} class{form.classIds.length > 1 ? 'es' : ''} selected</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {form.classIds.map((id) => {
+                      const c = classes.find((cl) => cl.id === id);
+                      return (
+                        <span
+                          key={id}
+                          className="inline-flex items-center gap-1.5 bg-blue/10 border border-blue/30 rounded-full pl-2.5 pr-1.5 py-1 text-xs text-white-soft"
+                        >
+                          {c ? `${c.code} — ${c.name}` : id}
+                          <button
+                            type="button"
+                            onClick={() => toggleClass(id)}
+                            className="w-4 h-4 rounded-full grid place-items-center text-muted hover:text-red hover:bg-red/10 transition-colors cursor-pointer bg-transparent border-none"
+                          >
+                            <FiX size={10} />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -344,7 +398,7 @@ function ExamFormModal({
               value={form.durationMinutes}
               onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))}
               placeholder="e.g. 90"
-              className={inp}
+              className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             />
           </div>
 
@@ -384,6 +438,7 @@ const STATUS_OPTIONS: { value: ExamSlotStatus | 'all'; label: string }[] = [
 ];
 
 export default function ExamManagementPage() {
+  const { user } = useAuth();
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
@@ -391,6 +446,7 @@ export default function ExamManagementPage() {
   const [editTarget, setEditTarget] = useState<ExamSlot | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExamSlot | null>(null);
+  const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
   const { data: slotsData, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 200 });
@@ -403,9 +459,9 @@ export default function ExamManagementPage() {
   }, []);
 
   const { data: lecturersData } = useAsyncData(async () => {
-    const result = await fetchLecturers({ page: 1, pageSize: 200 });
+    const result = await fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined });
     return result.items;
-  }, []);
+  }, [user?.institutionId]);
 
   const classes: LecturerClass[] = classesData ?? [];
   const lecturers: LecturerStudent[] = lecturersData ?? [];
@@ -437,6 +493,33 @@ export default function ExamManagementPage() {
   const navigate = useNavigate();
   const openCreate = () => { setEditTarget(null); setShowForm(true); };
   const openEdit   = (slot: ExamSlot) => { setEditTarget(slot); setShowForm(true); };
+
+  const handleSendReminder = async (slot: ExamSlot) => {
+    setSendingReminderId(slot.id);
+    try {
+      const enrollments = await fetchClassEnrollmentsWithStudents(slot.classId);
+      const students = enrollments.map((e) => e.student).filter((s): s is NonNullable<typeof s> => !!s?.email);
+      if (students.length === 0) {
+        toast.warning('No students', 'This class has no enrolled students to notify.');
+        return;
+      }
+      await Promise.all(
+        students.map((s) =>
+          sendExamReminderEmail({
+            email: s.email,
+            studentName: s.fullName?.trim() || s.email,
+            examName: slot.examName,
+            examTime: slot.startTime,
+          }).catch(() => undefined),
+        ),
+      );
+      toast.success('Reminder sent', `Notified ${students.length} student${students.length > 1 ? 's' : ''}.`);
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to send reminder.');
+    } finally {
+      setSendingReminderId(null);
+    }
+  };
 
   const kpis = [
     { label: 'Total',     value: slots.length,                                       color: 'text-blue-bright' },
@@ -565,6 +648,16 @@ export default function ExamManagementPage() {
                   >
                     <FiFileText className="text-xs" /> Questions
                   </button>
+                  {(slot.status === 'scheduled' || slot.status === 'ongoing') && (
+                    <button
+                      onClick={() => void handleSendReminder(slot)}
+                      disabled={sendingReminderId === slot.id}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg border border-gold/30 text-gold text-xs font-semibold cursor-pointer hover:bg-gold/10 transition-all bg-transparent disabled:opacity-50"
+                      title="Email a reminder to all enrolled students"
+                    >
+                      <FiBell className="text-xs" /> {sendingReminderId === slot.id ? 'Sending…' : 'Remind'}
+                    </button>
+                  )}
                   <button
                     onClick={() => openEdit(slot)}
                     className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"

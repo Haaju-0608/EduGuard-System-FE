@@ -71,6 +71,10 @@ function UserFormModal({
     e.preventDefault();
     if (!form.fullName.trim() || !form.email.trim()) { toast.warning('Required', 'Name and email are required.'); return; }
     if (!isEdit && !form.password.trim()) { toast.warning('Required', 'Password is required for new users.'); return; }
+    if (!isEdit && form.password.trim().length < 6) { toast.warning('Invalid', 'Password must be at least 6 characters.'); return; }
+    // BE bắt buộc studentCode khi role = Student (CreateUserDto.Validate() throw nếu thiếu) —
+    // FE phải chặn trước, không thì submit fail 400 dù form nhìn như hợp lệ.
+    if (form.role === 'Student' && !form.studentCode.trim()) { toast.warning('Required', 'Student code is required for Student accounts.'); return; }
     setSaving(true);
     try {
       if (isEdit) {
@@ -87,7 +91,7 @@ function UserFormModal({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          role: form.role.toLowerCase() as 'student' | 'lecturer' | 'schooladmin',
+          role: form.role as 'Student' | 'Lecturer' | 'SchoolAdmin',
           studentCode: form.studentCode.trim() || null,
           phone: form.phone.trim() || null,
           institutionId: form.institutionId || null,
@@ -139,7 +143,9 @@ function UserFormModal({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student / Staff Code</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+                Student / Staff Code{form.role === 'Student' && <span className="text-gold ml-1">*</span>}
+              </label>
               <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
             </div>
             <div className="col-span-2">
@@ -183,6 +189,7 @@ export default function UserManagementPage() {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
+  const [institutionFilter, setInstitutionFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -198,14 +205,22 @@ export default function UserManagementPage() {
   );
   const users: ApiUser[] = data?.items ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
+  const institutionNameById = new Map(institutions.map((inst) => [inst.id, inst.name ?? inst.id]));
 
-  const roles = ['all', ...Array.from(new Set(users.map((u) => u.role))).sort()];
+  // Ẩn SuperAdmin khỏi filter — không phải role có thể tạo/gán qua UI này (chỉ tồn tại do seed
+  // sẵn ở BE), hiện ra dễ gây hiểu lầm là tạo/lọc được role này qua đây.
+  const roles = ['all', ...Array.from(new Set(users.map((u) => u.role))).filter((r) => r?.toLowerCase() !== 'superadmin').sort()];
+  const institutionOptions = [
+    { value: 'all', label: 'All Institutions' },
+    ...institutions.map((inst) => ({ value: inst.id, label: inst.name ?? inst.id })),
+  ];
 
   const filtered = users.filter((u) => {
     const matchRole = roleFilter === 'all' || u.role === roleFilter;
+    const matchInstitution = institutionFilter === 'all' || u.institutionId === institutionFilter;
     const q = search.toLowerCase();
     const matchSearch = !q || (u.fullName ?? '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.studentCode ?? '').toLowerCase().includes(q);
-    return matchRole && matchSearch;
+    return matchRole && matchInstitution && matchSearch;
   });
 
   const confirmDeleteUser = async () => {
@@ -260,6 +275,11 @@ export default function UserManagementPage() {
           onChange={setRoleFilter}
           options={roles.map((r) => ({value:r, label: r === 'all' ? 'All Roles' : r}))}
         />
+        <CustomSelect
+          value={institutionFilter}
+          onChange={setInstitutionFilter}
+          options={institutionOptions}
+        />
         <button onClick={reload} disabled={loading} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent disabled:opacity-50">
           <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -297,6 +317,9 @@ export default function UserManagementPage() {
                     </div>
                     <p className="text-[11px] text-muted truncate">{u.email}{u.studentCode && ` · ${u.studentCode}`}</p>
                   </div>
+                  <p className="hidden lg:block text-[11px] text-muted shrink-0 max-w-[160px] truncate">
+                    {u.institutionId ? (institutionNameById.get(u.institutionId) ?? '—') : '—'}
+                  </p>
                   <div className="hidden sm:block shrink-0"><StatusDot status={u.status ?? 'Active'} /></div>
                   <p className="hidden md:block text-[11px] text-muted shrink-0">{fmt(u.createdAt)}</p>
                   <div className="flex gap-1.5 shrink-0">

@@ -6,6 +6,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { NotificationProvider } from './contexts/NotificationContext';
+import { ExamTerminationProvider } from './contexts/ExamTerminationContext';
 import ToastContainer from './components/feedback/ToastContainer';
 
 createRoot(document.getElementById('root')!).render(
@@ -14,8 +15,10 @@ createRoot(document.getElementById('root')!).render(
       <ThemeProvider>
         <ToastProvider>
           <NotificationProvider>
-            <App />
-            <ToastContainer />
+            <ExamTerminationProvider>
+              <App />
+              <ToastContainer />
+            </ExamTerminationProvider>
           </NotificationProvider>
         </ToastProvider>
       </ThemeProvider>

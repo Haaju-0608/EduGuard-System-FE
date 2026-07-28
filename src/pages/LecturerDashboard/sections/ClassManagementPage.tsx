@@ -15,30 +15,12 @@ import {
   SkeletonCard,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
+import StudentExamHistoryModal from '../../../components/lecturer/StudentExamHistoryModal';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchSchoolAdminClasses, fetchClassEnrollments } from '../../../services/schoolAdminApi';
-import { apiGet } from '../../../services/apiClient';
+import { fetchSchoolAdminClasses, fetchClassEnrollmentsWithStudents } from '../../../services/schoolAdminApi';
 import type { ClassStatus, LecturerClass } from '../../../types/lecturer';
-import type { ApiEnrollment, ApiUser } from '../../../types/api';
-
-async function fetchEnrollmentsWithStudents(classId: string): Promise<ApiEnrollment[]> {
-  const enrollments = await fetchClassEnrollments(classId);
-  // Fetch student info for any enrollment missing it
-  const enriched = await Promise.all(
-    enrollments.map(async (e) => {
-      if (e.student) return e;
-      try {
-        const user = await apiGet<ApiUser>(`/api/users/${e.studentId}`);
-        return { ...e, student: user };
-      } catch {
-        return e;
-      }
-    }),
-  );
-  return enriched;
-}
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
@@ -61,9 +43,10 @@ function StatusBadge({ status }: { status: ClassStatus }) {
 
 function StudentListModal({ cls, onClose }: { cls: LecturerClass; onClose: () => void }) {
   const [search, setSearch] = useState('');
+  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
 
   const { data, loading, error } = useAsyncData(
-    () => fetchEnrollmentsWithStudents(cls.id),
+    () => fetchClassEnrollmentsWithStudents(cls.id),
     [cls.id],
   );
 
@@ -152,7 +135,12 @@ function StudentListModal({ cls, onClose }: { cls: LecturerClass; onClose: () =>
                 const email = e.student?.email;
                 const enrollStatus = e.status?.toLowerCase();
                 return (
-                  <div key={`${e.classId}-${e.studentId}-${idx}`} className="flex items-center gap-3 px-5 py-3.5 hover:bg-white/2 transition-colors">
+                  <div
+                    key={`${e.classId}-${e.studentId}-${idx}`}
+                    onClick={() => setHistoryTarget({ id: e.studentId, name })}
+                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-white/5 transition-colors cursor-pointer"
+                    title="View exam history"
+                  >
                     {/* Avatar */}
                     <div className="w-9 h-9 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0 text-xs font-bold text-blue-bright">
                       {initials || <FiUser size={14} />}
@@ -200,6 +188,14 @@ function StudentListModal({ cls, onClose }: { cls: LecturerClass; onClose: () =>
           </button>
         </div>
       </div>
+
+      {historyTarget && (
+        <StudentExamHistoryModal
+          studentId={historyTarget.id}
+          studentName={historyTarget.name}
+          onClose={() => setHistoryTarget(null)}
+        />
+      )}
     </div>
   );
 }

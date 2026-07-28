@@ -58,6 +58,15 @@ function StudentFormModal({
       toast.warning('Required', 'Password is required for new students.');
       return;
     }
+    if (!isEdit && form.password.trim().length < 6) {
+      toast.warning('Invalid', 'Password must be at least 6 characters.');
+      return;
+    }
+    // BE bắt buộc studentCode khi tạo role Student (CreateUserDto.Validate() throw nếu thiếu).
+    if (!isEdit && !form.studentCode.trim()) {
+      toast.warning('Required', 'Student code is required.');
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -72,7 +81,7 @@ function StudentFormModal({
           fullName: form.fullName.trim(),
           email: form.email.trim(),
           password: form.password,
-          role: 'student',
+          role: 'Student',
           studentCode: form.studentCode.trim() || null,
           phone: form.phone.trim() || null,
           institutionId: institutionId || null,
@@ -118,7 +127,7 @@ function StudentFormModal({
           )}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student Code</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student Code{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
             </div>
             <div>
@@ -167,8 +176,8 @@ export default function SchoolStudentManagementPage() {
   const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
 
   const { data, loading, reload } = useAsyncData(
-    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200 }),
-    [],
+    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
   );
   const students: LecturerStudent[] = data?.items ?? [];
 
@@ -280,10 +289,14 @@ export default function SchoolStudentManagementPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold text-white-soft truncate">{s.name ?? '—'}</p>
-                    <p className="text-[11px] text-muted truncate">
-                      {s.studentId && <span className="mr-2 font-mono">{s.studentId}</span>}
-                      {s.email}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {s.studentId && (
+                        <span className="text-[10px] font-mono text-cyan bg-cyan/10 border border-cyan/20 px-1.5 py-0.5 rounded-md shrink-0">
+                          {s.studentId}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted truncate">{s.email}</span>
+                    </div>
                   </div>
                   <StatusBadge status={s.status === 'active' ? 'Active' : s.status === 'inactive' ? 'Inactive' : 'Pending'} />
                   <div className="flex gap-1.5 shrink-0">

@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { FiBookOpen, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
+import { FiBookOpen, FiClock, FiFileText, FiMail, FiPhone, FiSearch, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { ModalOverlay } from '../../../components/lecturer/LecturerAnimations';
+import { useAuth } from '../../../contexts/AuthContext';
 import {
   AttendanceProgressBar,
   CourseCodeBadge,
@@ -13,8 +14,10 @@ import {
   StudentAvatar,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import { fetchSchoolAdminClasses, fetchSchoolAdminStudents } from '../../../services/schoolAdminApi';
+import { fetchSchoolAdminClasses, fetchSchoolAdminStudents, fetchStudentExamRecords } from '../../../services/schoolAdminApi';
+import type { ApiStudentExamRecord } from '../../../types/api';
 import type { FacultyId, LecturerStudent, StudentStatus } from '../../../types/lecturer';
+import { parseExamRecord } from '../../../utils/examRecord';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
@@ -29,6 +32,70 @@ function StudentStatusBadge({ status }: { status: StudentStatus }) {
   const { label, className } = config[status];
   return (
     <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${className}`}>{label}</span>
+  );
+}
+
+/** Badge trạng thái chấm điểm bài thi — "Marked" = đã chấm xong hết, "Completed" = còn câu chờ chấm tay */
+function ExamRecordStatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase();
+  if (s === 'marked') {
+    return <span className="text-[10px] font-bold text-green bg-green/10 border border-green/25 px-2 py-0.5 rounded-full shrink-0">Graded</span>;
+  }
+  if (s === 'completed') {
+    return <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full shrink-0">Pending Grading</span>;
+  }
+  return <span className="text-[10px] font-bold text-muted bg-white/5 border border-border px-2 py-0.5 rounded-full shrink-0">{status}</span>;
+}
+
+/** Danh sách lịch sử bài thi của sinh viên — parse ExamRecord JSON để hiện điểm/max điểm nếu có */
+function ExamHistoryList({ studentId }: { studentId: string }) {
+  const { data, loading, error } = useAsyncData(
+    () => fetchStudentExamRecords({ studentId, pageSize: 100 }),
+    [studentId],
+  );
+  const records = (data?.items ?? [])
+    .filter((r) => r.status.toLowerCase() !== 'deleted')
+    .sort((a, b) => new Date(b.submittedAt ?? b.createdAt).getTime() - new Date(a.submittedAt ?? a.createdAt).getTime());
+
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <div key={i} className="h-14 bg-white/5 rounded-xl animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+  if (error) {
+    return <p className="text-xs text-red">{error}</p>;
+  }
+  if (records.length === 0) {
+    return <p className="text-xs text-muted text-center py-3">No exam submissions yet.</p>;
+  }
+
+  return (
+    <div className="space-y-2 max-h-64 overflow-y-auto custom-scrollbar pr-1">
+      {records.map((r: ApiStudentExamRecord) => {
+        const parsed = parseExamRecord(r.examRecord);
+        return (
+          <div key={r.id} className="bg-navy/50 border border-border/50 rounded-xl p-3">
+            <div className="flex items-start justify-between gap-2 mb-1.5">
+              <p className="text-sm font-semibold text-white-soft truncate">{r.examName ?? 'Exam'}</p>
+              <ExamRecordStatusBadge status={r.status} />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-muted flex items-center gap-1.5">
+                <FiClock size={11} />
+                {r.submittedAt ? new Date(r.submittedAt).toLocaleString('en-GB') : '—'}
+              </p>
+              <span className="text-xs font-bold text-white-soft shrink-0">
+                {r.finalScore ?? 0}{parsed ? ` / ${parsed.maxScore}` : ''} pts
+              </span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -89,6 +156,14 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
               <AttendanceProgressBar rate={student.attendanceRate} facultyId={student.facultyId} />
             </div>
           </UniCard>
+
+          <UniCard facultyId={student.facultyId} hover={false} className="!p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <FiFileText className="text-blue-bright" />
+              <h4 className="font-syne font-bold text-sm text-white-soft">Exam History</h4>
+            </div>
+            <ExamHistoryList studentId={student.id} />
+          </UniCard>
         </div>
       </div>
     </ModalOverlay>
@@ -98,6 +173,7 @@ function StudentDetailPanel({ student, onClose }: { student: LecturerStudent; on
 /** Trang quản lý sinh viên */
 export default function StudentManagementPage() {
   const { facultyId } = useLecturerFaculty();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('all');
   const [facultyFilter, setFacultyFilter] = useState<FacultyId | 'all'>('all');
@@ -106,12 +182,12 @@ export default function StudentManagementPage() {
   const { data, loading, error, reload } = useAsyncData(
     async () => {
       const [studentResult, classResult] = await Promise.all([
-        fetchSchoolAdminStudents({ page: 1, pageSize: 50 }),
+        fetchSchoolAdminStudents({ page: 1, pageSize: 50, institutionId: user?.institutionId ?? undefined }),
         fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
       ]);
       return { students: studentResult.items, classes: classResult.items };
     },
-    []
+    [user?.institutionId]
   );
 
   const students = data?.students ?? [];

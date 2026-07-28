@@ -40,7 +40,9 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       eyeGaze: new EyeGazeEngine(),
       violation: new ViolationEngine(),
       evidence: new EvidenceRecorder({
-        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL,
+        // Không phải secret — cùng 1 giá trị cho mọi máy, không cần .env.local mới chạy được.
+        // .env.local vẫn có thể override khi cần trỏ sang backend khác để test.
+        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL ?? '/api/violation-logs',
         participationId: import.meta.env.VITE_AI_PARTICIPATION_ID,
         sessionId: import.meta.env.VITE_AI_SESSION_ID,
         studentId: import.meta.env.VITE_AI_STUDENT_ID,
@@ -74,6 +76,10 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         stopLoop();
         return;
       }
+
+      // Chụp frame evidence ngay đầu tick, TRƯỚC khi chạy MediaPipe (việc nặng, đồng bộ) — để
+      // việc chụp không bị trễ thêm bởi thời gian detect của chính tick đang xử lý violation.
+      engines.evidence.tick(timestamp);
 
       if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;
@@ -162,8 +168,15 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     // ── Camera ──
     try {
       setCameraStatus('requesting');
-      const stream = await cameraService.start(video);
-      engines.evidence.start(stream);
+      await cameraService.start(video, {}, () => {
+        // Camera tự tắt ngoài ý muốn (rút webcam, app khác chiếm quyền, OS thu hồi permission
+        // giữa chừng...) — không phải do stop() chủ động gọi. Đưa cameraStatus về 'error' để UI
+        // (CameraGateModal) chặn thi lại ngay, và dừng luôn vòng lặp detect vì video không còn
+        // frame thật để phân tích nữa.
+        setCameraStatus('error');
+        stopLoop();
+      });
+      engines.evidence.start(video);
       setCameraStatus('ready');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Unable to access camera.';

@@ -14,7 +14,7 @@ const DEFAULT_THRESHOLDS: ViolationEngineThresholds = {
   absenceMs: 1200,
   multipleFaceMs: 1200,
   faceObstructedMs: 1800,
-  headTurnMs: 1200,
+  headTurnMs: 1500,
   eyeDiversionMs: 1500,
 };
 

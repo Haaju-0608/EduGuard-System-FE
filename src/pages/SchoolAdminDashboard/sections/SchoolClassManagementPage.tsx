@@ -45,7 +45,7 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Enrollment Panel ────────────────────────────────────────────────────
 
-function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => void }) {
+function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; institutionId: string; onClose: () => void }) {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState('');
@@ -64,8 +64,9 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
   );
 
   const enrollments: ApiEnrollment[] = enrollData ?? [];
+  // Filter client-side theo institution — backend /api/users chưa scope theo institution
   const allStudents: ApiUser[] = (usersData?.items ?? []).filter(
-    (u) => u.role.trim().toLowerCase() === 'student',
+    (u) => u.role.trim().toLowerCase() === 'student' && (!institutionId || u.institutionId === institutionId),
   );
 
   // Lọc students chưa enrolled và khớp search
@@ -187,7 +188,7 @@ function EnrollmentPanel({ cls, onClose }: { cls: LecturerClass; onClose: () => 
         </div>
 
         {/* Student list */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
           {loading ? (
             <div className="p-6 space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-14 bg-white/5 rounded-xl animate-pulse" />)}
@@ -340,6 +341,12 @@ function ClassFormModal({
     e.preventDefault();
     if (!form.courseName.trim()) { toast.warning('Required', 'Course name is required.'); return; }
     if (!form.lecturerId && !isEdit) { toast.warning('Required', 'Please select a lecturer.'); return; }
+    // BE (CreateClassDto) bắt buộc Semester + AcademicYear khi tạo mới — không check trước thì
+    // submit fail 400 dù form nhìn như hợp lệ (2 field này trước đây không đánh dấu required).
+    if (!isEdit && (!form.semester.trim() || !form.academicYear.trim())) {
+      toast.warning('Required', 'Semester and academic year are required.');
+      return;
+    }
     setSaving(true);
     try {
       if (isEdit) {
@@ -417,11 +424,11 @@ function ClassFormModal({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Spring 2025" className={inputCls} />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year{!isEdit && <span className="text-gold ml-1">*</span>}</label>
               <input type="text" value={form.academicYear} onChange={set('academicYear')} placeholder="e.g. 2024-2025" className={inputCls} />
             </div>
             <div>
@@ -530,8 +537,8 @@ export default function SchoolClassManagementPage() {
     [],
   );
   const { data: lecturerRes } = useAsyncData(
-    () => fetchLecturers({ page: 1, pageSize: 200 }),
-    [],
+    () => fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
   );
 
   const lecturers: LecturerStudent[] = lecturerRes?.items ?? [];
@@ -661,7 +668,7 @@ export default function SchoolClassManagementPage() {
         />
       )}
       {enrollTarget && (
-        <EnrollmentPanel cls={enrollTarget} onClose={() => setEnrollTarget(null)} />
+        <EnrollmentPanel cls={enrollTarget} institutionId={institutionId} onClose={() => setEnrollTarget(null)} />
       )}
 
       {deleteClassTarget && createPortal(

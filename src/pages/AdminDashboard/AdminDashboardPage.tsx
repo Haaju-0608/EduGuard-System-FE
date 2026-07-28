@@ -5,15 +5,14 @@ import DashboardOverview from './sections/DashboardOverview';
 import UserManagementPage from './sections/UserManagementPage';
 import ReportsPage from './sections/ReportsPage';
 import CreditsPage from './sections/CreditsPage';
-import SettingsPage from './sections/SettingsPage';
 import InstitutionsPage from './sections/InstitutionsPage';
+
 const menuItems: MenuItem[] = [
   { icon: '🏠', label: 'Dashboard', path: '/admin' },
   { icon: '🏫', label: 'Institutions', path: '/admin/institutions' },
   { icon: '👥', label: 'Users', path: '/admin/users' },
   { icon: '💳', label: 'Credits', path: '/admin/credits' },
   { icon: '📊', label: 'Reports', path: '/admin/reports' },
-  { icon: '⚙️', label: 'Settings', path: '/admin/settings' },
 ];
 
 export default function AdminDashboardPage() {
@@ -28,7 +27,6 @@ export default function AdminDashboardPage() {
           <Route path="users" element={<UserManagementPage />} />
           <Route path="credits" element={<CreditsPage />} />
           <Route path="reports" element={<ReportsPage />} />
-          <Route path="settings" element={<SettingsPage />} />
         </Routes>
       </div>
     </DashboardLayout>

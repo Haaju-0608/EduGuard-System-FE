@@ -81,7 +81,8 @@ export default function StudentOverview() {
       active.map(async (slot) => {
         try {
           const { items } = await fetchExamParticipations(slot.id, { pageSize: 100 });
-          const mine = items.find((p) => p.studentId === user.id);
+          // Lọc thêm examSlotId ở FE vì BE hiện chưa filter theo examSlotId (trả về participation của mọi bài thi)
+          const mine = items.find((p) => p.examSlotId === slot.id && p.studentId === user.id);
           // Ignore "Submitted" if student never actually started (BE bug: auto-created record)
           if (mine && !(mine.status === 'Submitted' && mine.actualStart === null)) {
             participations[slot.id] = mine.status;

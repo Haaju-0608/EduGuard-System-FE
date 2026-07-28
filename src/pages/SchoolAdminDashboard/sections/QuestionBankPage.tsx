@@ -103,7 +103,7 @@ function QuestionModal({ initial, onClose, onSave }: ModalProps) {
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
       onMouseDown={(e) => { if (e.target === overlayRef.current) onClose(); }}
     >
-      <div className="bg-[#0f172a] border border-border rounded-[24px] shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-[#0f172a] border border-border rounded-[24px] shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto custom-scrollbar">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-border">
           <h2 className="font-syne font-extrabold text-white-soft text-lg">

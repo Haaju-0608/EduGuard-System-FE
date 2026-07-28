@@ -24,7 +24,13 @@ export class CameraService {
     return CameraService.instance;
   }
 
-  async start(video: HTMLVideoElement, constraints: CameraConstraints = {}): Promise<MediaStream> {
+  /**
+   * `onEnded` — báo khi track camera tự dừng NGOÀI Ý MUỐN (rút webcam, app khác chiếm quyền,
+   * OS thu hồi permission giữa chừng...) — khác với `stop()` chủ động gọi từ code. Không có
+   * listener này thì proctoring không biết camera đã chết, `cameraStatus` vẫn kẹt ở 'ready' dù
+   * không còn frame nào thật để phân tích/quay bằng chứng nữa.
+   */
+  async start(video: HTMLVideoElement, constraints: CameraConstraints = {}, onEnded?: () => void): Promise<MediaStream> {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error('Camera access is not supported in this browser.');
     }
@@ -41,6 +47,12 @@ export class CameraService {
       },
       audio: false,
     });
+
+    if (onEnded) {
+      this.stream.getVideoTracks().forEach((track) => {
+        track.addEventListener('ended', onEnded, { once: true });
+      });
+    }
 
     video.srcObject = this.stream;
     video.muted = true;

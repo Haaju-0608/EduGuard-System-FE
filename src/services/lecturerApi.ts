@@ -1,10 +1,8 @@
 /**
  * API Lecturer — attendance sessions, violation logs, exam participations.
- * Camera feeds giữ mock vì không có camera API thật.
  */
-import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams, mockApiResponse } from './apiClient';
+import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import { updateParticipationStatus, disqualifyParticipation } from './schoolAdminApi';
-import { MOCK_CAMERA_FEEDS } from './mockData/lecturerMockData';
 import { fetchExamSlots, fetchSchoolAdminClasses, mapApiClassToLecturerClass } from './schoolAdminApi';
 import type {
   ApiAttendanceRecord,
@@ -18,12 +16,9 @@ import type {
   AttendanceRecord,
   AttendanceSession,
   BiometricStatus,
-  CameraFeed,
   ExamSlot,
   LecturerClass,
   LecturerKpi,
-  ViolationAlert,
-  ViolationSeverity,
 } from '../types/lecturer';
 import { getInitialsFromName } from './authApi';
 
@@ -37,29 +32,6 @@ function mapAttendanceStatus(status: string): AttendanceRecord['status'] {
   return 'absent';
 }
 
-function mapViolationSeverity(severity: string): ViolationSeverity {
-  const s = severity.trim().toLowerCase();
-  if (s === 'high') return 'high';
-  if (s === 'medium') return 'medium';
-  return 'low';
-}
-
-function mapApiViolationLog(log: ApiViolationLog): ViolationAlert {
-  return {
-    id: log.id,
-    studentId: log.participationId,
-    studentName: 'Student',
-    classCode: '—',
-    type: log.violationType ?? 'Unknown',
-    severity: mapViolationSeverity(log.severity ?? 'low'),
-    timestamp: new Date(log.recordedAt ?? log.createdAt).toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    }),
-    description: `${log.violationType} — AI confidence: ${log.aiConfidence != null ? `${Math.round(log.aiConfidence * 100)}%` : 'N/A'}`,
-  };
-}
-
 function mapApiAttendanceRecord(
   record: ApiAttendanceRecord,
 ): AttendanceRecord {
@@ -67,6 +39,7 @@ function mapApiAttendanceRecord(
   return {
     id: record.id,
     studentId: record.student?.studentCode || record.studentId.slice(0, 8),
+    rawStudentId: record.studentId,
     name,
     classCode: '—',
     status: mapAttendanceStatus(record.status),
@@ -114,8 +87,10 @@ export async function fetchLecturerKpis(): Promise<LecturerKpi[]> {
 export async function fetchActiveAttendanceSession(
   classId?: string,
 ): Promise<AttendanceSession | null> {
+  // expand=class — BE chỉ populate session.class khi có tham số này (Helpers/AcademicMapper.cs),
+  // không gửi thì className luôn rơi về "Unknown" dù data thật vẫn tồn tại.
   const { data } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50 })}`,
+    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50, expand: 'class' })}`,
   );
 
   const active = data.find(
@@ -149,6 +124,29 @@ export async function endAttendanceSession(
   return { success: true };
 }
 
+const STATUS_TO_BE: Record<AttendanceRecord['status'], string> = {
+  present: 'Present',
+  absent: 'Absent',
+  late: 'Late',
+  excused: 'Excused',
+};
+
+/** POST /api/attendance-records — Lecturer/SchoolAdmin/SuperAdmin tự điểm danh tay cho 1 sinh viên
+ *  (vd sinh viên bị bỏ sót khi điểm danh bằng AI trên app di động). */
+export async function createAttendanceRecord(
+  sessionId: string,
+  studentId: string,
+  status: AttendanceRecord['status'],
+): Promise<AttendanceRecord> {
+  const record = await apiPost<ApiAttendanceRecord>('/api/attendance-records', {
+    sessionId,
+    studentId,
+    status: STATUS_TO_BE[status],
+    method: 'Manual',
+  });
+  return mapApiAttendanceRecord(record);
+}
+
 /** GET /api/attendance-sessions — danh sách tất cả sessions */
 export async function fetchAttendanceSessions(
   params: ListQueryParams = {},
@@ -156,7 +154,7 @@ export async function fetchAttendanceSessions(
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
   const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page, pageSize })}`,
+    `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
 }
@@ -168,8 +166,9 @@ async function buildAttendanceSession(session: ApiAttendanceSession): Promise<At
 
   let records: AttendanceRecord[] = [];
   try {
+    // expand=student — không gửi thì record.student luôn null, tên hiện "Unknown" dù có data thật.
     const recRes = await apiGetPaginated<ApiAttendanceRecord[]>(
-      `/api/attendance-records${buildQueryParams({ page: 1, pageSize: 200 })}`,
+      `/api/attendance-records${buildQueryParams({ page: 1, pageSize: 200, expand: 'student' })}`,
     );
     records = recRes.data
       .filter((r) => r.sessionId === session.id)
@@ -198,31 +197,31 @@ async function buildAttendanceSession(session: ApiAttendanceSession): Promise<At
   };
 }
 
-/** POST /api/attendance-sessions/{sessionId}/records/bulk — điểm danh thủ công */
+/** POST /api/attendance-sessions/{sessionId}/records/bulk — điểm danh thủ công.
+ *  BE nhận { presentStudentIds, method, status } — group records by status rồi gửi từng batch. */
 export async function bulkUpdateAttendance(
   sessionId: string,
-  records: Array<{ studentId: string; status: string; checkInTime?: string }>,
+  records: Array<{ studentId: string; status: string }>,
 ): Promise<void> {
-  await apiPost(`/api/attendance-sessions/${sessionId}/records/bulk`, { records });
+  // Group student IDs by status (Present, Absent, Late, Excused…)
+  const byStatus = records.reduce<Record<string, string[]>>((acc, r) => {
+    const key = r.status.charAt(0).toUpperCase() + r.status.slice(1).toLowerCase();
+    (acc[key] ??= []).push(r.studentId);
+    return acc;
+  }, {});
+
+  await Promise.all(
+    Object.entries(byStatus).map(([status, studentIds]) =>
+      apiPost(`/api/attendance-sessions/${sessionId}/records/bulk`, {
+        presentStudentIds: studentIds,
+        method: 'Manual',
+        status,
+      }),
+    ),
+  );
 }
 
 // ─── Violation Logs ───────────────────────────────────────────────────────
-
-/** GET /api/violation-logs */
-export async function fetchViolationAlerts(
-  params: ListQueryParams = {},
-): Promise<ViolationAlert[]> {
-  try {
-    const page = params.page ?? 1;
-    const pageSize = params.pageSize ?? 20;
-    const { data } = await apiGetPaginated<ApiViolationLog[]>(
-      `/api/violation-logs${buildQueryParams({ page, pageSize })}`,
-    );
-    return data.map(mapApiViolationLog);
-  } catch {
-    return [];
-  }
-}
 
 /** GET /api/violation-logs — raw paginated (giữ đủ evidencePath cho review page) */
 export async function fetchViolationLogs(
@@ -250,9 +249,36 @@ export async function fetchExamSlotById(id: string): Promise<import('../types/ap
   }
 }
 
+/** GET /api/violation-logs/exam-slot/{examSlotId} — violation logs theo bài thi */
+export async function fetchViolationsByExamSlot(
+  examSlotId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiViolationLog>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 20;
+  const { data, pagination } = await apiGetPaginated<ApiViolationLog[]>(
+    `/api/violation-logs/exam-slot/${examSlotId}${buildQueryParams({ page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
 /** PUT /api/violation-logs/{id} — đánh dấu đã review */
 export async function reviewViolationLog(id: string, reviewedBy: string): Promise<void> {
   await apiPut(`/api/violation-logs/${id}`, { isReviewed: true, reviewedBy });
+}
+
+const EXAM_EVIDENCE_BUCKET = 'exam-evidence';
+
+/**
+ * POST /api/storage/signed-url — `evidencePath` trả về từ `/api/violation-logs` chỉ là raw object
+ * path trong bucket Supabase (BE không tự sign khi trả list), KHÔNG phải URL xem/tải được trực
+ * tiếp. Phải đổi qua endpoint này lấy signed URL thật rồi mới fetch/phát video hay hiển thị ảnh.
+ */
+export async function resolveEvidenceUrl(path: string): Promise<string> {
+  const result = await apiPost<{ signedUrl: string }>(
+    `/api/storage/signed-url${buildQueryParams({ bucket: EXAM_EVIDENCE_BUCKET, path })}`,
+  );
+  return result.signedUrl;
 }
 
 /** GET /api/exam-participations/{id} — lấy thông tin participation + student */
@@ -275,13 +301,6 @@ export async function fetchParticipationById(id: string): Promise<ApiExamPartici
 }
 
 export { updateParticipationStatus, disqualifyParticipation };
-
-// ─── Camera Feeds (mock — không có camera API thật) ───────────────────────
-
-/** Camera feeds giữ mock vì backend không có real-time camera endpoint */
-export async function fetchCameraFeeds(): Promise<CameraFeed[]> {
-  return mockApiResponse([...MOCK_CAMERA_FEEDS]);
-}
 
 // ─── Unused exports giữ lại để không break imports ────────────────────────
 

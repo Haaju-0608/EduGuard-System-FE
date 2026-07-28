@@ -16,6 +16,7 @@ import {
   suspendInstitution,
   updateInstitution,
 } from '../../../services/adminApi';
+import { billingModelLabel } from '../../../utils/billingModel';
 import type { ApiInstitution } from '../../../types/api';
 
 function fmt(iso: string) {
@@ -37,7 +38,8 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Form Modal ───────────────────────────────────────────────────────────
 
-type BillingModel = 'PerUse' | 'Subscription';
+// Giá trị phải khớp đúng tên enum thật của BE (BillingModel.Monthly/Yearly).
+type BillingModel = 'Monthly' | 'Yearly';
 
 interface FormData {
   name: string;
@@ -46,7 +48,7 @@ interface FormData {
   billingModel: BillingModel;
 }
 
-const EMPTY: FormData = { name: '', subDomain: '', contactEmail: '', billingModel: 'PerUse' };
+const EMPTY: FormData = { name: '', subDomain: '', contactEmail: '', billingModel: 'Monthly' };
 
 function InstitutionFormModal({
   target, onClose, onSaved,
@@ -65,7 +67,7 @@ function InstitutionFormModal({
       name: target.name ?? '',
       subDomain: target.subDomain ?? '',
       contactEmail: target.contactEmail ?? '',
-      billingModel: (target.billingModel as BillingModel) ?? 'PerUse',
+      billingModel: (target.billingModel as BillingModel) ?? 'Monthly',
     } : EMPTY);
   }, [target]);
 
@@ -76,12 +78,17 @@ function InstitutionFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { toast.warning('Required', 'Institution name is required.'); return; }
+    // BE (CreateInstitutionDto/UpdateInstitutionDto) khai báo SubDomain/ContactEmail là non-nullable
+    // string — ASP.NET Core's [ApiController] tự coi đây là required (400 nếu thiếu), dù không có
+    // [Required] tường minh. Không check trước thì submit fail dù form nhìn như hợp lệ.
+    if (!form.subDomain.trim()) { toast.warning('Required', 'Sub domain is required.'); return; }
+    if (!form.contactEmail.trim()) { toast.warning('Required', 'Contact email is required.'); return; }
     setSaving(true);
     try {
       const payload: CreateInstitutionPayload = {
         name: form.name.trim(),
-        subDomain: form.subDomain.trim() || undefined,
-        contactEmail: form.contactEmail.trim() || undefined,
+        subDomain: form.subDomain.trim(),
+        contactEmail: form.contactEmail.trim(),
         billingModel: form.billingModel,
       };
       if (isEdit) {
@@ -118,19 +125,19 @@ function InstitutionFormModal({
             <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Hanoi University" className={inp} required />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Sub Domain</label>
-            <input type="text" value={form.subDomain} onChange={set('subDomain')} placeholder="e.g. hanu" className={inp} />
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Sub Domain *</label>
+            <input type="text" value={form.subDomain} onChange={set('subDomain')} placeholder="e.g. hanu" className={inp} required />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Contact Email</label>
-            <input type="email" value={form.contactEmail} onChange={set('contactEmail')} placeholder="admin@university.edu" className={inp} />
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Contact Email *</label>
+            <input type="email" value={form.contactEmail} onChange={set('contactEmail')} placeholder="admin@university.edu" className={inp} required />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Billing Model</label>
             <CustomSelect
               value={form.billingModel}
               onChange={(v) => setForm((f) => ({ ...f, billingModel: v as typeof f.billingModel }))}
-              options={[{value:'PerUse',label:'Per Use'},{value:'Subscription',label:'Subscription'}]}
+              options={[{value:'Monthly',label:'Monthly'},{value:'Yearly',label:'Yearly'}]}
               className="w-full"
             />
           </div>
@@ -292,8 +299,13 @@ export default function InstitutionsPage() {
                         <span className="flex items-center gap-1"><FiMail className="text-[10px]" />{inst.contactEmail}</span>
                       )}
                       {inst.subDomain && <span className="font-mono">.{inst.subDomain}</span>}
-                      <span className="bg-navy px-1.5 py-0.5 rounded text-[10px]">{inst.billingModel}</span>
+                      <span className="bg-navy px-1.5 py-0.5 rounded text-[10px]">{billingModelLabel(inst.billingModel)}</span>
                       <span>Since {fmt(inst.createdAt)}</span>
+                      {inst.subscriptionExpiresAt && (
+                        <span className={new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'text-red' : ''}>
+                          {new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'Expired' : 'Expires'} {fmt(inst.subscriptionExpiresAt)}
+                        </span>
+                      )}
                     </div>
                   </div>
 

@@ -3,18 +3,27 @@ import { useNavigate } from 'react-router-dom';
 import { FiCalendar, FiClock, FiSearch } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchExamParticipations, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import { fetchExamParticipations, fetchStudentExamRecords, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
 import { useToast } from '../../../contexts/ToastContext';
 import type { ExamSlot } from '../../../types/lecturer';
-import type { ParticipationStatus } from '../../../types/api';
+import type { ApiStudentExamRecord, ParticipationStatus } from '../../../types/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 type StudentStatus = 'upcoming' | 'available' | 'completed' | 'missed' | 'submitted' | 'disqualified';
 
-function deriveStudentStatus(slot: ExamSlot, participationStatus?: ParticipationStatus): StudentStatus {
-  // Participation status takes precedence for the current student
-  if (participationStatus === 'Submitted') return 'submitted';
+/** Lấy maxScore đã lưu kèm trong examRecord (JSON) lúc BE chấm điểm — tránh phải gọi thêm API câu hỏi */
+function extractMaxScore(examRecord: string | null): number | null {
+  if (!examRecord) return null;
+  try {
+    const parsed = JSON.parse(examRecord) as { maxScore?: number };
+    return typeof parsed.maxScore === 'number' ? parsed.maxScore : null;
+  } catch { return null; }
+}
+
+function deriveStudentStatus(slot: ExamSlot, participationStatus: ParticipationStatus | undefined, hasRecord: boolean): StudentStatus {
+  // Có StudentExamRecord (đã nộp bài, BE đã chấm) hoặc participation Submitted → coi là đã nộp
+  if (hasRecord || participationStatus === 'Submitted') return 'submitted';
   if (participationStatus === 'Disqualified') return 'disqualified';
 
   const now = Date.now();
@@ -57,10 +66,19 @@ export default function StudentExamsPage() {
   const [checkingId, setCheckingId] = useState<string | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(async () => {
-    if (!user?.id) return { slots: [], participations: {} as Record<string, ParticipationStatus> };
+    if (!user?.id) {
+      return { slots: [], participations: {} as Record<string, ParticipationStatus>, records: {} as Record<string, ApiStudentExamRecord> };
+    }
     const slots = await fetchStudentExamSlots(user.id);
 
-    // For slots the student could currently enter, check their participation status
+    // StudentExamRecord tồn tại = đã nộp bài và được BE chấm điểm — nguồn xác định "submitted" đáng tin nhất
+    const records: Record<string, ApiStudentExamRecord> = {};
+    try {
+      const { items } = await fetchStudentExamRecords({ studentId: user.id, pageSize: 200 });
+      items.forEach((r) => { records[r.examSlotId] = r; });
+    } catch { /* ignore */ }
+
+    // For slots the student could currently enter, check their participation status (dùng để phát hiện Disqualified)
     const likelyCurrent = slots.filter((s) => {
       const now = Date.now();
       const start = new Date(s.startTime).getTime();
@@ -73,7 +91,8 @@ export default function StudentExamsPage() {
       likelyCurrent.map(async (slot) => {
         try {
           const { items } = await fetchExamParticipations(slot.id, { pageSize: 100 });
-          const mine = items.find((p) => p.studentId === user.id);
+          // Lọc thêm examSlotId ở FE vì BE hiện chưa filter theo examSlotId (trả về participation của mọi bài thi)
+          const mine = items.find((p) => p.examSlotId === slot.id && p.studentId === user.id);
           // Ignore "Submitted" if student never actually started (BE bug: auto-created record)
           if (mine && !(mine.status === 'Submitted' && mine.actualStart === null)) {
             participations[slot.id] = mine.status;
@@ -82,11 +101,12 @@ export default function StudentExamsPage() {
       }),
     );
 
-    return { slots, participations };
+    return { slots, participations, records };
   }, [user?.id]);
 
   const slots = data?.slots ?? [];
   const participations = data?.participations ?? {};
+  const records = data?.records ?? {};
 
   const filtered = slots.filter((slot) => {
     const q = search.toLowerCase();
@@ -95,7 +115,7 @@ export default function StudentExamsPage() {
       slot.examName.toLowerCase().includes(q) ||
       slot.classCode.toLowerCase().includes(q) ||
       slot.className.toLowerCase().includes(q);
-    const status = deriveStudentStatus(slot, participations[slot.id]);
+    const status = deriveStudentStatus(slot, participations[slot.id], !!records[slot.id]);
     const matchFilter = filter === 'all' || status === filter;
     return matchSearch && matchFilter;
   });
@@ -104,8 +124,12 @@ export default function StudentExamsPage() {
     if (!user?.id || checkingId) return;
     setCheckingId(slot.id);
     try {
+      if (records[slot.id]) {
+        toast.warning('Already submitted', 'You have already completed this exam and cannot retake it.');
+        return;
+      }
       const { items } = await fetchExamParticipations(slot.id, { pageSize: 100 });
-      const mine = items.find((p) => p.studentId === user.id);
+      const mine = items.find((p) => p.examSlotId === slot.id && p.studentId === user.id);
       // Only block if student actually started AND submitted (ignore BE auto-created records)
       if (mine?.status === 'Submitted' && mine.actualStart !== null) {
         toast.warning('Already submitted', 'You have already completed this exam and cannot retake it.');
@@ -123,10 +147,10 @@ export default function StudentExamsPage() {
 
   const counts = {
     total:     slots.length,
-    available: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'available').length,
-    upcoming:  slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'upcoming').length,
-    submitted: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'submitted').length,
-    completed: slots.filter((s) => deriveStudentStatus(s, participations[s.id]) === 'completed').length,
+    available: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'available').length,
+    upcoming:  slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'upcoming').length,
+    submitted: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'submitted').length,
+    completed: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'completed').length,
   };
 
   return (
@@ -202,9 +226,11 @@ export default function StudentExamsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map((slot) => {
-            const studentStatus = deriveStudentStatus(slot, participations[slot.id]);
+            const record = records[slot.id];
+            const studentStatus = deriveStudentStatus(slot, participations[slot.id], !!record);
             const cfg = STATUS_CONFIG[studentStatus];
             const canStart = studentStatus === 'available';
+            const maxScore = record ? extractMaxScore(record.examRecord) : null;
             return (
               <div key={slot.id} className="bg-navy-card border border-border rounded-[20px] p-5 flex flex-col gap-4">
                 {/* Top */}
@@ -232,6 +258,11 @@ export default function StudentExamsPage() {
                     <FiClock className="text-cyan shrink-0" />
                     <span>{slot.durationMinutes > 0 ? `${slot.durationMinutes} min` : 'Duration not set'}</span>
                   </div>
+                  {record && record.finalScore != null && (
+                    <div className="flex items-center gap-2 text-xs bg-cyan/10 border border-cyan/25 rounded-xl px-3 py-2">
+                      <span className="text-cyan font-bold">🏆 Score: {record.finalScore}{maxScore != null ? `/${maxScore}` : ''}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Action */}

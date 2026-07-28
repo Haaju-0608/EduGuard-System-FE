@@ -3,10 +3,20 @@ import { FiActivity, FiCamera, FiClock, FiRefreshCw, FiUsers, FiVideo } from 're
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchAttendanceSessions } from '../../../services/lecturerApi';
 import { fetchExamSlots } from '../../../services/schoolAdminApi';
+import { useAuth } from '../../../contexts/AuthContext';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import type { ApiAttendanceSession } from '../../../types/api';
 import type { ExamSlot } from '../../../types/lecturer';
 
 type TabKey = 'attendance' | 'exam';
+
+const LIVE_RESOURCES = new Set(['attendance-sessions', 'attendance-records', 'exam-slots', 'exam-participations']);
+
+interface ResourceChangedPayload {
+  resource: string;
+  action: string;
+}
 
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase() ?? '';
@@ -31,6 +41,7 @@ function formatDateTime(iso: string | null | undefined) {
 }
 
 export default function MonitoringPage() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
 
   const { data: attendanceRes, loading: loadingA, reload: reloadA } = useAsyncData(
@@ -41,6 +52,16 @@ export default function MonitoringPage() {
     () => fetchExamSlots({ page: 1, pageSize: 50 }),
     [],
   );
+
+  // Realtime: tự refresh khi BE báo có attendance session/exam slot/record mới trong institution
+  const institutionId = user?.institutionId ?? null;
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', institutionId ? [institutionId] : null);
+  useHubEvent<ResourceChangedPayload>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (!LIVE_RESOURCES.has(payload.resource)) return;
+    reloadA();
+    reloadE();
+  });
 
   const attendanceSessions: ApiAttendanceSession[] = attendanceRes?.items ?? [];
   const examSlots: ExamSlot[] = examRes?.items ?? [];

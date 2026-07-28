@@ -155,8 +155,8 @@ export default function SchoolDashboardOverview() {
     [institutionId],
   );
   const { data: biometricData } = useAsyncData(
-    () => fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50 }),
-    [],
+    () => fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50, institutionId }),
+    [institutionId],
   );
   const { data: examsData, loading: loadingE } = useAsyncData(
     () => fetchExamSlots({ page: 1, pageSize: 10 }),

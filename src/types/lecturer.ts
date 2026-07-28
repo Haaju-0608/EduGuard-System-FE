@@ -52,7 +52,10 @@ export interface LecturerStudent {
 /** Sinh viên trong phiên điểm danh */
 export interface AttendanceRecord {
   id: string;
+  /** studentCode hiển thị (hoặc UUID rút gọn nếu chưa có code) — KHÔNG dùng để so khớp với enrollment */
   studentId: string;
+  /** UUID thật của student — dùng để so khớp với ClassEnrollment.studentId và gọi API */
+  rawStudentId: string;
   name: string;
   classCode: string;
   status: AttendanceStatus;
@@ -77,28 +80,20 @@ export interface AttendanceSession {
   records: AttendanceRecord[];
 }
 
-/** Yêu cầu duyệt ảnh sinh trắc học */
+/** Yêu cầu duyệt ảnh sinh trắc học — 1 request = 1 lần nộp gồm cả 3 ảnh (front/left/right),
+ *  1 status chung cho cả bộ 3 (không phải 3 request riêng như trước). */
 export interface BiometricRequest {
   id: string;
   studentId: string;
   studentName: string;
+  studentEmail: string;
   classCode: string;
   submittedAt: string;
-  photoUrl: string;
-  faceImagePath: string | null;
+  frontImageUrl: string | null;
+  leftImageUrl: string | null;
+  rightImageUrl: string | null;
   status: BiometricStatus;
   note?: string;
-}
-
-/** Ô camera trên dashboard giám sát */
-export interface CameraFeed {
-  id: string;
-  studentId: string;
-  studentName: string;
-  classCode: string;
-  isOnline: boolean;
-  hasViolation: boolean;
-  lastActivity: string;
 }
 
 /** Cảnh báo vi phạm trong phiên thi/giám sát */
