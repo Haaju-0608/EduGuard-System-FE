@@ -61,7 +61,6 @@ const pricingData: Plan[] = [
       { text: 'Unlimited students', included: true },
       { text: 'All features included', included: true },
       { text: 'On-premise deployment', included: true },
-      { text: 'Custom SSO', included: true },
       { text: '99.9% SLA guaranteed', included: true },
       { text: 'Dedicated support team', included: true },
     ],

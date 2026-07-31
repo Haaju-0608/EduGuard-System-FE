@@ -89,8 +89,10 @@ export async function fetchActivePricing(
   return apiGet<ApiPricingConfig>(`/api/pricing-configs/active/${serviceType}`);
 }
 
+// Khớp đúng tên enum thật của BE (Models/AppRole.cs: PricingServiceType.ATTENDANCE_UNIT/
+// PROCTORING_PER_HOUR, deserialize qua JsonStringEnumConverter) — không có "BiometricRegistration".
 export interface CreatePricingPayload {
-  serviceType: 'Attendance' | 'Proctoring' | 'BiometricRegistration';
+  serviceType: 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR';
   unitPrice: number;
   effectiveDate: string;
 }

@@ -6,6 +6,7 @@ import LecturerManagementPage from './sections/LecturerManagementPage';
 import SchoolClassManagementPage from './sections/SchoolClassManagementPage';
 import BiometricApprovalPage from './sections/BiometricApprovalPage';
 import WalletPage from './sections/WalletPage';
+import WalletPaymentResultPage from './sections/WalletPaymentResultPage';
 import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
@@ -33,6 +34,7 @@ export default function SchoolAdminDashboardPage() {
           <Route path="exams" element={<ExamManagementPage />} />
           <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
           <Route path="wallet" element={<WalletPage />} />
+          <Route path="wallet-result" element={<WalletPaymentResultPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />
           <Route path="profile" element={<ProfileDetailPage />} />
         </Routes>
