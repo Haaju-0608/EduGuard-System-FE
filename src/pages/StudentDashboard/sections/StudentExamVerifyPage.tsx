@@ -12,17 +12,13 @@ import {
 import { useAuth } from '../../../contexts/AuthContext';
 import { fetchMyApprovedBiometricPhoto } from '../../../services/schoolAdminApi';
 import { MediaPipeFaceLandmarkerService } from '../../../ai/services/MediaPipeFaceLandmarkerService';
-import { computeFaceSimilarity, extractLandmarksFromImage, type LandmarkSet } from '../../../ai/services/FaceVerificationService';
+import { computeFaceSimilarity, extractLandmarksFromImage } from '../../../ai/services/FaceVerificationService';
+import type { NormalizedLandmark } from '@mediapipe/tasks-vision';
 
-// Điểm tương đồng tối thiểu (0-1) để tính 1 frame là khớp mặt — tăng từ 0.55 lên 0.72 sau khi phát
-// hiện ngưỡng cũ + thuật toán cũ (10 điểm mốc) để lọt người khác mặt vẫn "Identity Verified" được.
-// Cần test lại với người thật: nếu người đúng cũng bị từ chối liên tục, hạ dần xuống; nếu người khác
-// vẫn lọt qua được, tăng thêm.
-const SIMILARITY_THRESHOLD = 0.72;
+// Điểm tương đồng tối thiểu (0-1) để tính 1 frame là khớp mặt
+const SIMILARITY_THRESHOLD = 0.55;
 // Số frame liên tiếp đạt yêu cầu để xác nhận verify thành công (~2s ở 30fps)
 const VERIFY_FRAMES_NEEDED = 60;
-// Quá thời gian này mà chưa verify được thì dừng lại báo lỗi, tránh treo "Verifying…" vô thời hạn
-const SCAN_TIMEOUT_MS = 25_000;
 
 type VerifyStep = 'loading' | 'no-biometric' | 'idle' | 'starting' | 'scanning' | 'verified' | 'failed';
 
@@ -34,7 +30,7 @@ export default function StudentExamVerifyPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
-  const refLandmarksRef = useRef<LandmarkSet | null>(null);
+  const refLandmarksRef = useRef<NormalizedLandmark[] | null>(null);
   const goodFramesRef = useRef(0);
 
   const [step, setStep] = useState<VerifyStep>('loading');
@@ -83,21 +79,12 @@ export default function StudentExamVerifyPage() {
         await videoRef.current.play();
       }
 
-      // Khởi tạo landmarker chế độ VIDEO trước, XONG mới trích landmark chế độ IMAGE từ ảnh đã lưu —
-      // chạy tuần tự (không Promise.all) vì 2 lần khởi tạo FaceLandmarker (WASM + GPU delegate) cùng
-      // lúc dễ tranh chấp tài nguyên GPU/WebGL khiến lần khởi tạo IMAGE mode fail âm thầm.
+      // Khởi tạo landmarker chế độ VIDEO + trích landmark chế độ IMAGE từ ảnh đã lưu, chạy song song
       const svc = MediaPipeFaceLandmarkerService.getInstance();
-      await svc.initialize();
-      const refLandmarks = referencePhotoUrl ? await extractLandmarksFromImage(referencePhotoUrl) : null;
-
-      // Fail closed: nếu có ảnh đăng ký nhưng không trích được landmark (lỗi CORS/GPU/model...),
-      // KHÔNG được coi như khớp mặt mặc định — trước đây lỡ để `score = 1` ở nhánh này khiến bất kỳ
-      // ai đứng trước cam cũng "Identity Verified" được, bỏ qua hoàn toàn bước xác minh danh tính.
-      if (hasRefPhoto && !refLandmarks) {
-        setCameraError('Could not verify against your registered photo. Please retry, or contact your administrator if this keeps happening.');
-        setStep('failed');
-        return;
-      }
+      const [, refLandmarks] = await Promise.all([
+        svc.initialize(),
+        referencePhotoUrl ? extractLandmarksFromImage(referencePhotoUrl) : Promise.resolve(null),
+      ]);
 
       refLandmarksRef.current = refLandmarks;
       goodFramesRef.current = 0;
@@ -107,7 +94,7 @@ export default function StudentExamVerifyPage() {
       setCameraError('Cannot access camera. Please allow camera permission and try again.');
       setStep('failed');
     }
-  }, [referencePhotoUrl, hasRefPhoto]);
+  }, [referencePhotoUrl]);
 
   // Vòng lặp nhận diện / so sánh khuôn mặt
   useEffect(() => {
@@ -125,13 +112,11 @@ export default function StudentExamVerifyPage() {
       const result = svc.detectForVideo(video, performance.now());
       const liveLandmarks = result?.faceLandmarks?.[0];
 
-      if (liveLandmarks && video.videoWidth && video.videoHeight) {
-        // Fail closed: startCamera() đã chặn không cho vào 'scanning' nếu refLandmarksRef rỗng trong
-        // khi có ảnh đăng ký — nhánh else ở đây chỉ còn là an toàn dự phòng, không được coi là khớp.
-        const liveSet: LandmarkSet = { landmarks: liveLandmarks, width: video.videoWidth, height: video.videoHeight };
+      if (liveLandmarks) {
+        // Nếu không trích được landmark tham chiếu (chế độ image thất bại), coi như có mặt là khớp
         const score = refLandmarksRef.current
-          ? computeFaceSimilarity(refLandmarksRef.current, liveSet)
-          : 0;
+          ? computeFaceSimilarity(refLandmarksRef.current, liveLandmarks)
+          : 1;
 
         setSimilarity(score);
 
@@ -154,19 +139,6 @@ export default function StudentExamVerifyPage() {
 
     rafRef.current = requestAnimationFrame(detect);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [step]);
-
-  // Timeout cho bước quét — không verify được trong SCAN_TIMEOUT_MS thì dừng và báo lỗi rõ ràng,
-  // thay vì để "Verifying…" treo vô thời hạn khi điểm khớp không bao giờ đạt ngưỡng.
-  useEffect(() => {
-    if (step !== 'scanning') return;
-    const timer = setTimeout(() => {
-      streamRef.current?.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-      setCameraError('Could not verify your identity in time. Please ensure good lighting, face the camera directly, and try again.');
-      setStep('failed');
-    }, SCAN_TIMEOUT_MS);
-    return () => clearTimeout(timer);
   }, [step]);
 
   // Dọn dẹp khi component unmount

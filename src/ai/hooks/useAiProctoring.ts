@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { API_BASE_URL } from '../../services/apiClient';
 import { cameraService } from '../camera/CameraService';
 import { CalibrationEngine } from '../engines/CalibrationEngine';
 import { DiversionSignalEngine } from '../engines/DiversionSignalEngine';
@@ -43,10 +42,7 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       evidence: new EvidenceRecorder({
         // Không phải secret — cùng 1 giá trị cho mọi máy, không cần .env.local mới chạy được.
         // .env.local vẫn có thể override khi cần trỏ sang backend khác để test.
-        // Path tương đối '/api/violation-logs' CHỈ hoạt động ở local dev nhờ proxy trong vite.config.ts
-        // — trên Vercel (không có proxy đó) nó resolve về domain FE, không tới được BE thật, khiến
-        // toàn bộ violation log không được ghi nhận khi thi trên bản deploy. Phải ghép API_BASE_URL.
-        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL ?? `${API_BASE_URL}/api/violation-logs`,
+        uploadUrl: import.meta.env.VITE_FASTAPI_EVIDENCE_URL ?? '/api/violation-logs',
         participationId: import.meta.env.VITE_AI_PARTICIPATION_ID,
         sessionId: import.meta.env.VITE_AI_SESSION_ID,
         studentId: import.meta.env.VITE_AI_STUDENT_ID,
