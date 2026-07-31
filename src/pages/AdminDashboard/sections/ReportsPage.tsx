@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { FiDownload, FiBarChart2, FiPieChart, FiInfo, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -46,6 +49,43 @@ function downloadCsv(filename: string, rows: Record<string, unknown>[]) {
   URL.revokeObjectURL(url);
 }
 
+/** Xuất Excel (.xlsx) — dựng workbook ngay trong trình duyệt từ cùng data JSON, không qua BE. */
+function downloadExcel(filename: string, rows: Record<string, unknown>[]) {
+  if (rows.length === 0) return;
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Report');
+  XLSX.writeFile(workbook, filename);
+}
+
+/** Xuất PDF (bảng) — dựng ngay trong trình duyệt bằng jsPDF, không qua BE. */
+function downloadPdf(filename: string, title: string, rows: Record<string, unknown>[]) {
+  if (rows.length === 0) return;
+  const doc = new jsPDF();
+  doc.setFontSize(14);
+  doc.text(title, 14, 15);
+  doc.setFontSize(9);
+  doc.setTextColor(120);
+  doc.text(`Generated ${new Date().toLocaleString('en-GB')}`, 14, 21);
+
+  const headers = Object.keys(rows[0]);
+  const body = rows.map((r) => headers.map((h) => {
+    const v = r[h];
+    return v === null || v === undefined ? '' : String(v);
+  }));
+
+  autoTable(doc, {
+    head: [headers],
+    body,
+    startY: 26,
+    styles: { fontSize: 7, cellPadding: 2 },
+    headStyles: { fillColor: [37, 99, 235] },
+    margin: { left: 14, right: 14 },
+  });
+
+  doc.save(filename);
+}
+
 const BAR_COLORS = ['bg-blue-bright', 'bg-cyan', 'bg-gold', 'bg-red', 'bg-green', 'bg-purple-400'];
 
 // ─── Page ─────────────────────────────────────────────────────────────────
@@ -54,6 +94,7 @@ export default function ReportsPage() {
   const [institutionFilter, setInstitutionFilter] = useState('');
   const [datePreset, setDatePreset] = useState<DatePreset>('Last 30 Days');
   const [exportType, setExportType] = useState<'Attendance' | 'Violations' | 'Wallet' | 'Revenue'>('Attendance');
+  const [exportFormat, setExportFormat] = useState<'csv' | 'excel' | 'pdf'>('csv');
   const [exporting, setExporting] = useState(false);
 
   const { data: instData } = useAsyncData(() => fetchInstitutions({ page: 1, pageSize: 100 }), []);
@@ -145,7 +186,15 @@ export default function ReportsPage() {
         setExporting(false);
         return;
       }
-      downloadCsv(`${exportType.toLowerCase()}_report_${new Date().toISOString().slice(0, 10)}.csv`, rows);
+      const datePart = new Date().toISOString().slice(0, 10);
+      const baseName = `${exportType.toLowerCase()}_report_${datePart}`;
+      if (exportFormat === 'excel') {
+        downloadExcel(`${baseName}.xlsx`, rows);
+      } else if (exportFormat === 'pdf') {
+        downloadPdf(`${baseName}.pdf`, `${exportType} Report`, rows);
+      } else {
+        downloadCsv(`${baseName}.csv`, rows);
+      }
     } finally {
       setExporting(false);
     }
@@ -288,30 +337,45 @@ export default function ReportsPage() {
         <div className="lg:col-span-3 bg-navy-card border border-border rounded-[16px] p-5">
           <h3 className="font-syne font-bold text-white-soft text-base mb-4 flex items-center gap-2">
             <FiDownload className="text-cyan" />
-            Export Report (CSV)
+            Export Report
           </h3>
 
           <div className="space-y-4 font-dm text-sm">
-            <div>
-              <label className="block text-muted font-medium mb-1.5">Report Type</label>
-              <CustomSelect
-                value={exportType}
-                onChange={(v) => setExportType(v as typeof exportType)}
-                options={[
-                  { value: 'Attendance', label: 'Attendance Log' },
-                  { value: 'Violations', label: 'Proctoring Violations' },
-                  { value: 'Wallet', label: 'Wallet Transactions' },
-                  { value: 'Revenue', label: 'Revenue (SuperAdmin)' },
-                ]}
-                className="w-full"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-muted font-medium mb-1.5">Report Type</label>
+                <CustomSelect
+                  value={exportType}
+                  onChange={(v) => setExportType(v as typeof exportType)}
+                  options={[
+                    { value: 'Attendance', label: 'Attendance Log' },
+                    { value: 'Violations', label: 'Proctoring Violations' },
+                    { value: 'Wallet', label: 'Wallet Transactions' },
+                    { value: 'Revenue', label: 'Revenue (SuperAdmin)' },
+                  ]}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-muted font-medium mb-1.5">Format</label>
+                <CustomSelect
+                  value={exportFormat}
+                  onChange={(v) => setExportFormat(v as typeof exportFormat)}
+                  options={[
+                    { value: 'csv', label: 'CSV' },
+                    { value: 'excel', label: 'Excel (.xlsx)' },
+                    { value: 'pdf', label: 'PDF' },
+                  ]}
+                  className="w-full"
+                />
+              </div>
             </div>
 
             <div className="flex items-start gap-2 bg-navy/40 border border-border/60 rounded-xl p-3 text-xs text-muted">
               <FiInfo className="text-cyan text-sm shrink-0 mt-0.5" />
               <p>
-                Downloads the raw records for the selected report type, institution and date range as a CSV file —
-                pulled live from the backend, not a pre-generated file.
+                Downloads the raw records for the selected report type, institution and date range —
+                pulled live from the backend and converted to {exportFormat.toUpperCase()} right in your browser.
               </p>
             </div>
 
@@ -321,7 +385,7 @@ export default function ReportsPage() {
               className="flex items-center justify-center gap-2 bg-linear-to-r from-blue to-blue-bright text-white font-semibold py-2.5 px-5 rounded-xl cursor-pointer hover:brightness-110 shadow-lg transition-all border-0 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
             >
               <FiDownload className="text-sm" />
-              <span>{exporting ? 'Fetching data…' : 'Download CSV'}</span>
+              <span>{exporting ? 'Fetching data…' : `Download ${exportFormat.toUpperCase()}`}</span>
             </button>
           </div>
         </div>

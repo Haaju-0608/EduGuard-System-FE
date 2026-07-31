@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCheckCircle, FiDollarSign, FiPlus, FiX } from 'react-icons/fi';
+import { FiCheckCircle, FiPlus, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -11,26 +11,21 @@ import {
 } from '../../../services/adminApi';
 import type { ApiPricingConfig } from '../../../types/api';
 
-type ServiceType = 'Attendance' | 'Proctoring' | 'BiometricRegistration';
+// Khớp đúng enum thật của BE (Models/AppRole.cs PricingServiceType) — không có "BiometricRegistration".
+type ServiceType = 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR';
 
 const SERVICE_META: Record<ServiceType, { label: string; icon: string; desc: string; color: string }> = {
-  Attendance: {
+  ATTENDANCE_UNIT: {
     label: 'Attendance',
     icon: '📋',
     desc: 'Credits deducted per student per attendance session.',
     color: 'text-blue-bright',
   },
-  Proctoring: {
+  PROCTORING_PER_HOUR: {
     label: 'Exam Proctoring',
     icon: '🎥',
-    desc: 'Credits deducted per student per proctored exam.',
+    desc: 'Credits deducted per student per proctored exam hour.',
     color: 'text-cyan',
-  },
-  BiometricRegistration: {
-    label: 'Biometric Registration',
-    icon: '🪪',
-    desc: 'Credits deducted per student face registration.',
-    color: 'text-gold',
   },
 };
 
@@ -43,7 +38,7 @@ function fmt(iso: string) {
 function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const [form, setForm] = useState<CreatePricingPayload>({
-    serviceType: 'Attendance',
+    serviceType: 'ATTENDANCE_UNIT',
     unitPrice: 0,
     effectiveDate: new Date().toISOString().slice(0, 10),
   });
@@ -84,9 +79,8 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
               value={form.serviceType}
               onChange={(v) => setForm((f) => ({ ...f, serviceType: v as typeof f.serviceType }))}
               options={[
-                {value:'Attendance',label:'Attendance'},
-                {value:'Proctoring',label:'Proctoring'},
-                {value:'BiometricRegistration',label:'Biometric Registration'},
+                {value:'ATTENDANCE_UNIT',label:'Attendance'},
+                {value:'PROCTORING_PER_HOUR',label:'Exam Proctoring'},
               ]}
               className="w-full"
             />
@@ -135,7 +129,7 @@ export default function PricingPlansPage() {
     arr.sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()),
   );
 
-  const serviceTypes: ServiceType[] = ['Attendance', 'Proctoring', 'BiometricRegistration'];
+  const serviceTypes: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR'];
 
   return (
     <div className="space-y-6">
@@ -151,7 +145,7 @@ export default function PricingPlansPage() {
       </div>
 
       {/* Active Pricing Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {serviceTypes.map((type) => {
           const meta = SERVICE_META[type];
           const active = grouped[type]?.[0];
@@ -174,7 +168,6 @@ export default function PricingPlansPage() {
               ) : active ? (
                 <>
                   <div className="flex items-end gap-2">
-                    <FiDollarSign className={`text-lg mb-0.5 ${meta.color}`} />
                     <p className={`font-syne font-extrabold text-3xl ${meta.color}`}>{active.unitPrice.toLocaleString()}</p>
                     <p className="text-muted text-sm mb-1">credits / student</p>
                   </div>
@@ -215,7 +208,7 @@ export default function PricingPlansPage() {
           <div className="divide-y divide-border">
             {configs
               .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())
-              .map((c, idx) => {
+              .map((c) => {
                 const meta = SERVICE_META[c.serviceType as ServiceType];
                 const isLatestOfType = grouped[c.serviceType]?.[0]?.id === c.id;
                 return (
@@ -228,7 +221,7 @@ export default function PricingPlansPage() {
                     <p className={`text-sm font-bold ${meta?.color ?? 'text-white-soft'}`}>
                       {c.unitPrice.toLocaleString()} credits
                     </p>
-                    {isLatestOfType && idx === 0 || isLatestOfType ? (
+                    {isLatestOfType ? (
                       <span className="text-[10px] font-bold text-green bg-green/10 border border-green/25 px-2 py-0.5 rounded-full shrink-0">Active</span>
                     ) : (
                       <span className="text-[10px] font-bold text-muted bg-white/5 border border-border px-2 py-0.5 rounded-full shrink-0">Past</span>

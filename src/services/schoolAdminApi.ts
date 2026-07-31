@@ -38,7 +38,12 @@ import type {
   StudentStatus,
 } from '../types/lecturer';
 import { getFacultyByCourseCode } from '../utils/facultyTheme';
-import type { BrowserViolationResponse, BrowserViolationType, ExamParticipationStatusResponse } from '../types/termination';
+import type {
+  BrowserViolationResponse,
+  BrowserViolationType,
+  ExamParticipationStatusResponse,
+  ExamRealtimeStateResponse,
+} from '../types/termination';
 
 const DEFAULT_PAGE_SIZE = 50;
 
@@ -315,6 +320,13 @@ export async function fetchExamSlots(
     items: slotRes.data.map((slot) => mapApiExamSlot(slot, classMap)),
     pagination: slotRes.pagination,
   };
+}
+
+/** GET /api/exam-slots/{id}/realtime-state — Lecturer/SchoolAdmin/SuperAdmin. Snapshot ban đầu
+ *  (danh sách sinh viên + online/submit/disqualify/violation count) trước khi nghe tiếp qua SignalR
+ *  hub Exams (JoinLecturerDashboard) để cập nhật live — xem Hubs/ExamHub.cs. */
+export async function fetchExamRealtimeState(examId: string): Promise<ExamRealtimeStateResponse> {
+  return apiGet<ExamRealtimeStateResponse>(`/api/exam-slots/${examId}/realtime-state`);
 }
 
 export interface CreateExamSlotPayload {

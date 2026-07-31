@@ -38,12 +38,6 @@ const featuresData: FeatureData[] = [
     description: 'Android application for students — biometric face registration, schedules, and exam entry on the go.',
     iconBg: 'rgba(139,92,246,0.18)',
   },
-  {
-    icon: '🔐',
-    name: 'SSO & Security',
-    description: 'Secure authentication via Google / Microsoft SSO, granular permissions, and end-to-end encryption.',
-    iconBg: 'rgba(6,182,212,0.18)',
-  },
 ];
 
 export default function FeaturesSection(): React.ReactElement {

@@ -7,6 +7,7 @@ import AttendanceSessionPage from './sections/AttendanceSessionPage';
 import ExamSlotsPage from './sections/ExamSlotsPage';
 import ExamQuestionsViewPage from './sections/ExamQuestionsViewPage';
 import EssayGradingPage from './sections/EssayGradingPage';
+import LiveMonitoringPage from './sections/LiveMonitoringPage';
 import ViolationReviewPage from './sections/ViolationReviewPage';
 import LecturerGuidePage from './sections/LecturerGuidePage';
 import LecturerNotFoundPage from './sections/NotFoundPage';
@@ -18,6 +19,7 @@ const menuItems: MenuItem[] = [
   { icon: '📚', label: 'Exam Classes', path: '/lecture/classes' },
   { icon: '📋', label: 'Attendance', path: '/lecture/attendance' },
   { icon: '📝', label: 'Exams', path: '/lecture/exams' },
+  { icon: '📡', label: 'Live Monitoring', path: '/lecture/live-monitoring' },
   { icon: '🚨', label: 'Violations', path: '/lecture/violations' },
   { icon: '📖', label: 'Proctoring Guide', path: '/lecture/guide' },
   { icon: '👤', label: 'My Profile', path: '/lecture/profile' },
@@ -34,6 +36,7 @@ export default function LecturerDashboardPage() {
         <Route path="exams" element={<ExamSlotsPage />} />
         <Route path="exams/:examId/questions" element={<ExamQuestionsViewPage />} />
         <Route path="exams/:examId/grading" element={<EssayGradingPage />} />
+        <Route path="live-monitoring" element={<LiveMonitoringPage />} />
         <Route path="violations" element={<ViolationReviewPage />} />
         <Route path="guide" element={<LecturerGuidePage />} />
         <Route path="profile" element={<ProfileDetailPage />} />

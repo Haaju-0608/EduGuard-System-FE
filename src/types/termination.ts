@@ -60,3 +60,65 @@ export interface BrowserViolationDetectedEventPayload {
   examTerminated: boolean;
   recordedAt: string | null;
 }
+
+// ─── Live Lecturer Monitoring (Hubs/ExamHub.cs JoinLecturerDashboard + GET .../realtime-state) ──
+
+/** 1 sinh viên trong `GET /api/exam-slots/{id}/realtime-state` (Services/ExamWorkflowService.cs GetRealtimeStateAsync) */
+export interface ExamRealtimeStudent {
+  participationId: string;
+  studentId: string;
+  fullName: string;
+  status: string;
+  actualStart: string | null;
+  actualEnd: string | null;
+  lastSeenAt: string | null;
+  isOnline: boolean;
+  violationCount: number;
+}
+
+/** Response `GET /api/exam-slots/{id}/realtime-state` — snapshot ban đầu trước khi nghe SignalR tiếp */
+export interface ExamRealtimeStateResponse {
+  examSlotId: string;
+  examName: string | null;
+  startTime: string;
+  endTime: string;
+  totalStudents: number;
+  onlineCount: number;
+  offlineCount: number;
+  submittedCount: number;
+  disqualifiedCount: number;
+  violationCount: number;
+  students: ExamRealtimeStudent[];
+}
+
+export interface StudentOnlineEventPayload {
+  participationId: string; examSlotId: string; studentId: string; fullName: string; onlineAt: string;
+}
+export interface StudentOfflineEventPayload {
+  participationId: string; examSlotId: string; studentId: string; fullName: string; disconnectedAt: string;
+}
+export interface StudentJoinedExamEventPayload {
+  participationId: string; examSlotId: string; examName: string | null; studentId: string; fullName: string;
+  joinedAt: string; submittedCount: number; onlineCount: number;
+}
+export interface ExamSubmittedEventPayload {
+  participationId: string; examSlotId: string; examName: string | null; studentId: string; fullName: string;
+  submittedAt: string; submittedCount: number; totalStudents: number;
+}
+
+/** Payload event "ViolationDetected" bắn qua SignalR hub Exams — vi phạm AI thật (khác
+ *  "BrowserViolationDetected" ở trên, vốn chỉ dành cho đổi tab/mất focus/thoát fullscreen).
+ *  Xem Services/ViolationlogServices.cs. */
+export interface ViolationDetectedEventPayload {
+  violationId: string;
+  participationId: string;
+  examSlotId: string;
+  examName: string | null;
+  studentId: string;
+  fullName: string;
+  type: string;
+  severity: string;
+  confidence: number | null;
+  evidencePath: string | null;
+  recordedAt: string;
+}
