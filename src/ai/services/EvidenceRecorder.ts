@@ -1,4 +1,5 @@
 import type { EvidenceItem, EvidenceViolationMetadata, ViolationType, ViolationEvent } from '../types/proctoring';
+import { API_BASE_URL } from '../../services/apiClient';
 import { getAccessToken } from '../../services/authStorage';
 import { patchWebmDuration } from './webmDurationFix';
 
@@ -473,7 +474,9 @@ export class EvidenceRecorder {
     formData.append('file', videoBlob, `evidence-${violationId}.webm`);
     formData.append('violationId', violationId);
 
-    const storageResponse = await fetch('/api/storage/evidence', {
+    // Path tương đối trước đây chỉ chạy được ở local dev nhờ proxy trong vite.config.ts — trên
+    // Vercel không có proxy đó nên phải ghép sẵn API_BASE_URL để trỏ đúng backend thật.
+    const storageResponse = await fetch(`${API_BASE_URL}/api/storage/evidence`, {
       method: 'POST',
       headers: authHeader,
       body: formData,
