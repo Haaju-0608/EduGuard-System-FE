@@ -18,7 +18,6 @@ import {
   submitExamParticipation,
   submitStudentExamRecord,
 } from '../../../services/schoolAdminApi';
-import type { ApiExamQuestion } from '../../../types/api';
 
 // ─── Termination Modal ─────────────────────────────────────────────────────
 // Hiện ngay khi phát hiện bài thi bị terminate (SignalR hoặc status check) — không có nút huỷ,
@@ -311,9 +310,18 @@ export default function StudentExamTakingPage() {
     try { return JSON.parse(localStorage.getItem(`studentExam_${examId}`) ?? '{}'); } catch { return {}; }
   })();
 
+  // BE chỉ trả câu hỏi cho Student nếu đã tồn tại ExamParticipation của đúng exam đó
+  // (Repositories/ExamQuestionRepository.cs lọc theo ExamSlot.ExamParticipations.Any(...)) — nên
+  // phải đợi effect tạo/xác nhận participation bên dưới xong rồi mới gọi, tránh race: nếu gọi song
+  // song, request lấy câu hỏi có thể về TRƯỚC lúc participation được tạo → BE trả data rỗng thật sự
+  // (không phải lỗi), F5 lại mới thấy vì participation đã có từ lần trước.
+  const [participationReady, setParticipationReady] = useState(false);
+
   const { data: questionsData, loading: loadingQuestions } = useAsyncData(
-    () => (examId ? fetchExamQuestions(examId, { pageSize: 200 }) : Promise.resolve({ items: [] as ApiExamQuestion[], pagination: { page: 1, pageSize: 0, totalItems: 0, totalPages: 0 } })),
-    [examId],
+    () => (examId && participationReady
+      ? fetchExamQuestions(examId, { pageSize: 200 })
+      : Promise.resolve(null)),
+    [examId, participationReady],
   );
   const questions = [...(questionsData?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
   const maxScore = questions.reduce((sum, q) => sum + q.points, 0);
@@ -398,6 +406,10 @@ export default function StudentExamTakingPage() {
 
       if (participationId) {
         participationIdRef.current = participationId;
+        // Mở khoá fetch câu hỏi ngay khi biết participation đã tồn tại thật trên BE — không cần
+        // đợi /join hay đồng bộ actualStart bên dưới, vì BE chỉ cần bản ghi participation tồn tại
+        // là đủ để trả câu hỏi (xem ghi chú ở khai báo participationReady phía trên).
+        setParticipationReady(true);
         // Đăng ký participationId với ExamTerminationContext (global) để nó check status ngay
         // (không đợi SignalR) và lắng nghe event ExamTerminated đúng cho participation này.
         termination.registerParticipation(participationId);
@@ -424,6 +436,9 @@ export default function StudentExamTakingPage() {
         // browser-violation report (useBrowserViolation) sẽ bị no-op hoàn toàn vì không có
         // participationId thật để gửi kèm. Log lại để phát hiện đúng nguyên nhân khi debug.
         console.warn('[StudentExamTakingPage] Could not resolve a real participationId — browser violation reporting will be skipped.');
+        // Mở khoá luôn (dù không có participationId) — nếu không, UI treo loading vô thời hạn.
+        // BE sẽ trả rỗng thật cho fetchExamQuestions trong trường hợp này (đúng theo thiết kế filter).
+        setParticipationReady(true);
       }
 
       void proctoringRef.current.start();
@@ -521,7 +536,7 @@ export default function StudentExamTakingPage() {
     return !!a && (!!a.optionId || !!a.answerText?.trim());
   };
 
-  if (loadingQuestions) {
+  if (loadingQuestions || !participationReady) {
     return (
       <div className="min-h-screen bg-navy flex items-center justify-center p-6">
         <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
