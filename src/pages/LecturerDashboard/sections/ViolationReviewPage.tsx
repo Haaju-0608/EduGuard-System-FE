@@ -33,7 +33,13 @@ interface ParticipationGroup {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 15;
+// BE phân trang theo TỪNG violation log, nhưng UI gom nhiều log cùng participation lại thành 1 thẻ
+// — nếu phân trang thẳng theo log thì 1 trang log có thể chỉ gom được vài thẻ (participation bị cắt
+// ngang qua trang), gây lưới bị "lủng lỗ" không đủ 9 ô. Nên lấy 1 lượt hết toàn bộ log (đủ dùng với
+// quy mô hiện tại), tự gom + tự phân trang lại theo THẺ ở phía client.
+const LOG_FETCH_SIZE = 500;
+// 9 = đúng 1 lưới 3x3 (grid xl:grid-cols-3 bên dưới) mỗi trang, tính theo số THẺ chứ không phải số log
+const CARDS_PER_PAGE = 9;
 
 function severityConfig(severity: string) {
   if (severity === 'Severe')
@@ -607,9 +613,14 @@ export default function ViolationReviewPage() {
   const [confirmLog, setConfirmLog] = useState<{ log: ApiViolationLog; violationCount: number } | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(
-    () => fetchViolationLogs({ page, pageSize: PAGE_SIZE }),
-    [page],
+    () => fetchViolationLogs({ page: 1, pageSize: LOG_FETCH_SIZE }),
+    [],
   );
+
+  // Đổi filter thì quay lại trang 1 — tránh đứng ở 1 trang giờ đã vượt quá số trang thật sau khi lọc.
+  useEffect(() => {
+    setPage(1);
+  }, [severityFilter, typeFilter]);
 
   // Realtime: BE bắn ResourceChanged("violations") tới DashboardHub group của lecturer ngay khi AI phát hiện vi phạm mới
   const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
@@ -631,7 +642,7 @@ export default function ViolationReviewPage() {
   });
 
   // 1 bài thi (participation) = 1 nhóm, gom tất cả vi phạm của cùng 1 lượt thi lại với nhau
-  const groups: ParticipationGroup[] = useMemo(() => {
+  const allGroups: ParticipationGroup[] = useMemo(() => {
     const map = new Map<string, ApiViolationLog[]>();
     filtered.forEach((l) => {
       const arr = map.get(l.participationId) ?? [];
@@ -652,7 +663,11 @@ export default function ViolationReviewPage() {
       );
   }, [filtered]);
 
-  const selectedGroup = groups.find((g) => g.participationId === selectedGroupId) ?? null;
+  // Phân trang theo THẺ (không phải theo log) — đảm bảo luôn lấp đủ 3x3 trừ trang cuối cùng.
+  const totalCardPages = Math.max(1, Math.ceil(allGroups.length / CARDS_PER_PAGE));
+  const groups = allGroups.slice((page - 1) * CARDS_PER_PAGE, page * CARDS_PER_PAGE);
+
+  const selectedGroup = allGroups.find((g) => g.participationId === selectedGroupId) ?? null;
 
   // Load participation info for visible logs
   useEffect(() => {
@@ -838,11 +853,11 @@ export default function ViolationReviewPage() {
             })}
           </div>
 
-          {/* Pagination */}
-          {pagination && pagination.totalPages > 1 && (
+          {/* Pagination — theo số thẻ (participation), không phải số log */}
+          {totalCardPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted">
-                Page {pagination.page} of {pagination.totalPages} — {pagination.totalItems} violations
+                Page {page} of {totalCardPages} — {allGroups.length} exam attempt{allGroups.length !== 1 ? 's' : ''}
               </p>
               <div className="flex gap-2">
                 <button
@@ -853,8 +868,8 @@ export default function ViolationReviewPage() {
                   <FiChevronLeft size={14} />
                 </button>
                 <button
-                  onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
-                  disabled={page >= pagination.totalPages}
+                  onClick={() => setPage((p) => Math.min(totalCardPages, p + 1))}
+                  disabled={page >= totalCardPages}
                   className="p-2 rounded-xl border border-border text-muted hover:border-blue/40 hover:text-blue-bright transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <FiChevronRight size={14} />
