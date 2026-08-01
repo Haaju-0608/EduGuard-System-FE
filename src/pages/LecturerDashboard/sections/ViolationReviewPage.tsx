@@ -33,7 +33,8 @@ interface ParticipationGroup {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 15;
+// 9 = đúng 1 lưới 3x3 (grid xl:grid-cols-3 bên dưới) mỗi trang
+const PAGE_SIZE = 9;
 
 function severityConfig(severity: string) {
   if (severity === 'Severe')
