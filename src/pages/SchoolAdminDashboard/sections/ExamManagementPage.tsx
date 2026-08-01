@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { FiBell, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
@@ -54,6 +54,13 @@ function toLocalDT(iso: string) {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// Thời điểm hiện tại theo cùng định dạng — dùng làm mốc "min" để chặn tạo đề thi trong quá khứ.
+function nowLocalDT() {
+  const p = (n: number) => String(n).padStart(2, '0');
+  const d = new Date();
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 function StatusBadge({ status }: { status: ExamSlotStatus }) {
   const map: Record<ExamSlotStatus, string> = {
     scheduled: 'text-blue-bright bg-blue/10 border-blue/25',
@@ -72,8 +79,8 @@ function StatusBadge({ status }: { status: ExamSlotStatus }) {
 }
 
 // ─── Proctor Search ───────────────────────────────────────────────────────
-// Ô nhập trơn — không phải dropdown phải bấm mới mở. Gõ tới đâu, kết quả hiện ngay bên dưới tới
-// đó (không chiếm chỗ khi chưa gõ gì).
+// Bấm vào ô là hiện ngay dropdown đầy đủ danh sách hiện có; gõ vào thì lọc dần theo chữ đang gõ.
+// Đóng dropdown khi blur, nhưng trễ 150ms để kịp nhận click vào 1 item trong dropdown trước.
 
 function ProctorDropdown({
   lecturers,
@@ -85,6 +92,8 @@ function ProctorDropdown({
   onChange: (id: string) => void;
 }) {
   const [search, setSearch] = useState('');
+  const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const selectedLecturer = lecturers.find((l) => l.id === selected);
 
@@ -95,11 +104,15 @@ function ProctorDropdown({
     ? lecturers.filter(
         (l) => l.name.toLowerCase().includes(search.toLowerCase()) || l.email.toLowerCase().includes(search.toLowerCase()),
       )
-    : [];
+    : lecturers;
 
   const selectLecturer = (id: string) => {
     onChange(id);
     setSearch('');
+    setFocused(false);
+    // onMouseDown ở item dropdown đã preventDefault để click không bị lỡ (xem ghi chú trên input) —
+    // tác dụng phụ là input KHÔNG tự mất focus thật sau khi chọn (con trỏ vẫn nháy) — chủ động blur.
+    inputRef.current?.blur();
   };
 
   return (
@@ -109,10 +122,13 @@ function ProctorDropdown({
       <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
         <FiSearch className="text-muted text-sm shrink-0" />
         <input
+          ref={inputRef}
           type="text"
           placeholder="Search lecturer by name or email..."
           value={inputValue}
           onChange={(e) => { setSearch(e.target.value); if (selected) onChange(''); }}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setTimeout(() => setFocused(false), 150)}
           className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
         />
         {(selected || search) && (
@@ -126,7 +142,7 @@ function ProctorDropdown({
         )}
       </div>
 
-      {search.trim() && (
+      {focused && (
         <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
           <div className="max-h-48 overflow-y-auto custom-scrollbar">
             {filtered.length === 0 ? (
@@ -138,6 +154,7 @@ function ProctorDropdown({
                   <button
                     key={lec.id}
                     type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => selectLecturer(isSelected ? '' : lec.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/30 last:border-0 ${
                       isSelected ? 'bg-cyan/10' : 'hover:bg-white/5'
@@ -191,6 +208,7 @@ function ExamFormModal({
   const [form, setForm] = useState<SlotForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [classSearch, setClassSearch] = useState('');
+  const [classFocused, setClassFocused] = useState(false);
   const isEdit = !!target;
 
   useEffect(() => {
@@ -209,7 +227,7 @@ function ExamFormModal({
   const classSearchQuery = classSearch.trim().toLowerCase();
   const filteredClasses = classSearchQuery
     ? classes.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
-    : [];
+    : classes;
 
   const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
 
@@ -227,6 +245,11 @@ function ExamFormModal({
     }
     if (new Date(form.endTime) <= new Date(form.startTime)) {
       toast.warning('Invalid', 'End time must be after start time.');
+      return;
+    }
+    // Chỉ chặn khi tạo mới — sửa đề đã diễn ra/kết thúc trong quá khứ vẫn cần giữ nguyên startTime cũ.
+    if (!isEdit && new Date(form.startTime) < new Date()) {
+      toast.warning('Invalid', 'Start time cannot be in the past.');
       return;
     }
     if (!isEdit && form.classIds.length === 0) {
@@ -298,11 +321,13 @@ function ExamFormModal({
                   placeholder="Search class code or name..."
                   value={classSearch}
                   onChange={(e) => setClassSearch(e.target.value)}
+                  onFocus={() => setClassFocused(true)}
+                  onBlur={() => setTimeout(() => setClassFocused(false), 150)}
                   className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
                 />
               </div>
 
-              {classSearchQuery && (
+              {classFocused && (
                 <div className="mt-1.5 bg-navy-card border border-border rounded-xl overflow-hidden">
                   <div className="max-h-44 overflow-y-auto custom-scrollbar">
                     {filteredClasses.length === 0 ? (
@@ -314,6 +339,7 @@ function ExamFormModal({
                           <button
                             key={c.id}
                             type="button"
+                            onMouseDown={(e) => e.preventDefault()}
                             onClick={() => toggleClass(c.id)}
                             className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
                               checked ? 'bg-blue/10' : 'hover:bg-white/5'
@@ -381,7 +407,14 @@ function ExamFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Start Time *</label>
-              <input type="datetime-local" value={form.startTime} onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))} className={inp} required />
+              <input
+                type="datetime-local"
+                value={form.startTime}
+                onChange={(e) => setForm((f) => ({ ...f, startTime: e.target.value }))}
+                min={isEdit ? undefined : nowLocalDT()}
+                className={inp}
+                required
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">End Time *</label>
