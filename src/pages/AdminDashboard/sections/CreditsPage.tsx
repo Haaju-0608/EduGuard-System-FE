@@ -7,11 +7,13 @@ import { billingModelLabel } from '../../../utils/billingModel';
 import type { ApiInstitution, ApiPricingConfig } from '../../../types/api';
 
 // Khớp đúng enum thật của BE (Models/AppRole.cs PricingServiceType) — không có "BiometricRegistration".
-type ServiceType = 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR';
+type ServiceType = 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR' | 'SUBSCRIPTION_MONTHLY' | 'SUBSCRIPTION_YEARLY';
 
 const SERVICE_META: Record<string, { label: string; icon: string; color: string }> = {
   ATTENDANCE_UNIT: { label: 'Attendance', icon: '📋', color: 'text-blue-bright' },
   PROCTORING_PER_HOUR: { label: 'Proctoring', icon: '🎥', color: 'text-cyan' },
+  SUBSCRIPTION_MONTHLY: { label: 'Monthly Sub.', icon: '🔄', color: 'text-gold' },
+  SUBSCRIPTION_YEARLY: { label: 'Yearly Sub.', icon: '🗓️', color: 'text-green' },
 };
 
 // Fetches wallet + transactions for one institution
@@ -68,7 +70,7 @@ export default function CreditsPage() {
   const configs: ApiPricingConfig[] = pricingData ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
 
-  const activeConfigs = (['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR'] as ServiceType[]).map((type) => {
+  const activeConfigs = (['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR', 'SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'] as ServiceType[]).map((type) => {
     const list = configs.filter((c) => c.serviceType === type).sort(
       (a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime(),
     );
@@ -94,7 +96,7 @@ export default function CreditsPage() {
       {/* Active Pricing Rates */}
       <div>
         <p className="text-xs font-bold text-muted uppercase tracking-wider mb-3">Active Credit Rates</p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
           {activeConfigs.map(({ type, config }) => {
             const meta = SERVICE_META[type];
             return (

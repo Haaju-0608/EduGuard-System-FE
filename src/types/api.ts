@@ -144,8 +144,11 @@ export interface ApiAttendanceRecord {
   sessionId: string;
   studentId: string;
   status: string;
-  checkInTime: string | null;
+  /** BE trả "checkinAt" (từ property C# CheckinAt qua camelCase), không phải "checkInTime" */
+  checkinAt: string | null;
   student: ApiUser | null;
+  /** Chỉ có khi gọi kèm expand=session */
+  session: { id: string; classId: string; examSlotId: string | null; status: string; startTime: string } | null;
 }
 
 /** Violation log từ GET /api/violation-logs */

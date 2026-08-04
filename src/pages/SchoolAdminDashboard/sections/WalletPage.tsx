@@ -3,16 +3,24 @@ import { createPortal } from 'react-dom';
 import { FiAlertCircle, FiArrowUpRight, FiCalendar, FiCheckCircle, FiClock, FiCreditCard, FiRefreshCw, FiRepeat, FiTrendingDown } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
-import { fetchInstitutionById, renewInstitutionSubscription } from '../../../services/adminApi';
+import { fetchInstitutionById, fetchPricingConfigs, renewInstitutionSubscription } from '../../../services/adminApi';
 import { fetchWallet, fetchWalletTransactions, topUpWallet } from '../../../services/schoolAdminApi';
 import { billingModelLabel } from '../../../utils/billingModel';
-import type { ApiInstitution, ApiTransaction, ApiWallet } from '../../../types/api';
+import type { ApiInstitution, ApiPricingConfig, ApiTransaction, ApiWallet } from '../../../types/api';
+
+/** Giá active mới nhất cho 1 loại dịch vụ (list configs đã fetch 1 lần cho cả trang). */
+function activeUnitPrice(configs: ApiPricingConfig[], serviceType: string): number | null {
+  const matches = configs
+    .filter((c) => c.serviceType === serviceType)
+    .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
+  return matches[0]?.unitPrice ?? null;
+}
 
 const TOP_UP_PACKAGES = [
-  { amount: 100000,  label: '100,000',  price: '100.000 ₫',  sessions: '~20 sessions',  popular: false },
-  { amount: 500000,  label: '500,000',  price: '500.000 ₫',  sessions: '~100 sessions', popular: true  },
-  { amount: 1000000, label: '1,000,000', price: '1.000.000 ₫', sessions: '~200 sessions', popular: false },
-  { amount: 2000000, label: '2,000,000', price: '2.000.000 ₫', sessions: '~400 sessions', popular: false },
+  { amount: 100000,  label: '100,000',  price: '100.000 ₫',  popular: false },
+  { amount: 500000,  label: '500,000',  price: '500.000 ₫',  popular: true  },
+  { amount: 1000000, label: '1,000,000', price: '1.000.000 ₫', popular: false },
+  { amount: 2000000, label: '2,000,000', price: '2.000.000 ₫', popular: false },
 ];
 
 function formatDate(iso: string) {
@@ -33,8 +41,14 @@ export default function WalletPage() {
   const [institution, setInstitution] = useState<ApiInstitution | null>(null);
   const [loadingInstitution, setLoadingInstitution] = useState(true);
   const [renewing, setRenewing] = useState(false);
+  const [showRenewConfirm, setShowRenewConfirm] = useState(false);
+  const [pricingConfigs, setPricingConfigs] = useState<ApiPricingConfig[]>([]);
 
   const institutionId = user?.institutionId ?? '';
+
+  useEffect(() => {
+    fetchPricingConfigs().then(setPricingConfigs).catch(() => setPricingConfigs([]));
+  }, []);
 
   async function loadInstitution() {
     if (!institutionId) { setLoadingInstitution(false); return; }
@@ -52,17 +66,25 @@ export default function WalletPage() {
 
   const handleRenewSubscription = async () => {
     if (!institutionId) return;
+    setShowRenewConfirm(false);
     setRenewing(true);
     try {
       await renewInstitutionSubscription(institutionId);
       toast.success('Renewed', 'Subscription renewed successfully.');
-      await loadInstitution();
+      // Renew trừ tiền ví thật (xem WalletPage handleRenewSubscription) — phải load lại CẢ balance
+      // lẫn institution, không chỉ institution, nếu không số dư hiện cũ tới khi F5 lại trang.
+      await Promise.all([loadInstitution(), loadWallet()]);
     } catch (err) {
       toast.error('Error', err instanceof Error ? err.message : 'Failed to renew subscription.');
     } finally {
       setRenewing(false);
     }
   };
+
+  // Giá gia hạn phụ thuộc billing model của trường (Monthly/Yearly) — khớp đúng 2 loại
+  // PricingServiceType.SUBSCRIPTION_MONTHLY/SUBSCRIPTION_YEARLY thật bên BE.
+  const renewalServiceType = institution?.billingModel === 'Yearly' ? 'SUBSCRIPTION_YEARLY' : 'SUBSCRIPTION_MONTHLY';
+  const renewalPrice = activeUnitPrice(pricingConfigs, renewalServiceType);
 
   async function loadWallet() {
     if (!institutionId) {
@@ -119,6 +141,22 @@ export default function WalletPage() {
 
   const balance = wallet?.balance ?? 0;
   const isLowBalance = balance < 10000;
+
+  // ApiWallet.totalDeducted không tồn tại trong response thật của BE (WalletResponseDto chỉ có
+  // Id/InstitutionId/Balance/Currency/LowBalanceThreshold) — luôn undefined, hiện "0" giả vĩnh viễn.
+  // Tính lại từ chính các giao dịch đã tải (chỉ trong phạm vi "Last 20 transactions" bên dưới).
+  // BE luôn lưu Amount dương bất kể top-up hay phí (xem Services/InstitutionService.cs
+  // RenewSubscriptionAsync: `Amount = renewalFee`, không âm) — chỉ `type` mới phân biệt được
+  // chiều tiền, không được suy theo dấu của amount (trước đây lỡ fallback `amount > 0` khiến
+  // mọi giao dịch phí — vốn cũng dương — bị tính nhầm thành top-up, luôn ra 0 giao dịch trừ tiền).
+  const isTopUpType = (t: ApiTransaction) => t.type?.toLowerCase().includes('top_up') ?? false;
+  const isDeductionTxn = (t: ApiTransaction) => !isTopUpType(t);
+  const deductedRecent = transactions
+    .filter(isDeductionTxn)
+    .reduce((sum, t) => sum + Math.abs(t.amount ?? 0), 0);
+
+  const attendancePrice = activeUnitPrice(pricingConfigs, 'ATTENDANCE_UNIT');
+  const proctoringPrice = activeUnitPrice(pricingConfigs, 'PROCTORING_PER_HOUR');
 
   if (!institutionId && !loadingWallet) {
     return (
@@ -199,7 +237,7 @@ export default function WalletPage() {
               </p>
             </div>
             <button
-              onClick={() => void handleRenewSubscription()}
+              onClick={() => setShowRenewConfirm(true)}
               disabled={renewing}
               className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50 ${tone.chip}`}
             >
@@ -240,7 +278,7 @@ export default function WalletPage() {
               </button>
               {wallet && (
                 <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl bg-navy/60 border border-border text-sm text-muted">
-                  <span>Total deducted: <strong className="text-white-soft">{(wallet.totalDeducted ?? 0).toLocaleString()}</strong></span>
+                  <span>Deducted (last 20 txns): <strong className="text-white-soft">{deductedRecent.toLocaleString()}</strong></span>
                 </div>
               )}
             </div>
@@ -260,26 +298,73 @@ export default function WalletPage() {
           <div className="flex-1 bg-navy-card border border-border rounded-2xl p-4 space-y-3">
             <p className="text-xs font-bold text-muted uppercase tracking-wider">Estimated Cost Per Use</p>
             {[
-              { label: 'AI Attendance (per session)', cost: '~90 credits' },
-              { label: 'AI Proctoring (per exam)', cost: '~350 credits' },
-              { label: 'Face Registration (per student)', cost: '~5 credits' },
+              { label: 'AI Attendance (per session)', price: attendancePrice },
+              { label: 'AI Proctoring (per hour)', price: proctoringPrice },
             ].map((item) => (
               <div key={item.label} className="flex justify-between text-xs">
                 <span className="text-muted">{item.label}</span>
-                <span className="text-white-soft font-medium">{item.cost}</span>
+                <span className="text-white-soft font-medium">
+                  {item.price === null ? 'Not configured' : `${item.price.toLocaleString()} credits`}
+                </span>
               </div>
             ))}
-            {!loadingWallet && balance > 0 && (
+            {!loadingWallet && balance > 0 && attendancePrice !== null && attendancePrice > 0 && (
               <div className="pt-2 border-t border-border flex items-center gap-2 text-xs">
                 <FiTrendingDown className="text-gold" />
                 <span className="text-muted">
-                  Runway: ~<strong className="text-gold">{Math.floor(balance / 90)} attendance sessions</strong>
+                  Runway: ~<strong className="text-gold">{Math.floor(balance / attendancePrice)} attendance sessions</strong>
                 </span>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* Renew Subscription Confirm Modal — hiện đúng giá thật trước khi trừ ví */}
+      {showRenewConfirm && createPortal(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+          <div className="bg-navy-card border border-border rounded-[20px] p-6 w-full max-w-sm">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-10 h-10 rounded-xl bg-green/10 border border-green/20 grid place-items-center shrink-0">
+                <FiRepeat className="text-green" />
+              </div>
+              <div>
+                <h3 className="font-syne font-bold text-white-soft text-base">Renew Subscription</h3>
+                {renewalPrice === null ? (
+                  <p className="text-muted text-sm mt-1">
+                    No active price configured for {billingModelLabel(institution?.billingModel)} renewal yet.
+                    Ask your Super Admin to set one up before renewing.
+                  </p>
+                ) : (
+                  <p className="text-muted text-sm mt-1">
+                    Renewing will charge <strong className="text-white-soft">{renewalPrice.toLocaleString()} credits</strong> from
+                    your wallet (current balance: <strong className="text-white-soft">{balance.toLocaleString()}</strong>).
+                    {renewalPrice > balance && (
+                      <span className="block text-red mt-1.5">Not enough balance — top up first.</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowRenewConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleRenewSubscription()}
+                disabled={renewalPrice === null || renewalPrice > balance}
+                className="flex-1 py-2.5 rounded-xl bg-green text-white text-sm font-semibold cursor-pointer hover:bg-green/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-none"
+              >
+                Confirm & Renew
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {/* Top-up Modal — portal để tránh CSS transform của parent */}
       {showTopUp && createPortal(
@@ -303,7 +388,6 @@ export default function WalletPage() {
                   )}
                   <p className="font-syne font-extrabold text-xl text-white-soft">{pkg.label}</p>
                   <p className="text-xs mt-0.5 text-cyan font-semibold">{pkg.price}</p>
-                  <p className="text-[10px] mt-0.5 text-muted">{pkg.sessions}</p>
                 </button>
               ))}
             </div>
@@ -351,7 +435,7 @@ export default function WalletPage() {
         ) : (
           <div className="divide-y divide-border">
             {transactions.map((txn) => {
-              const isTopUp = txn.type?.toLowerCase().includes('topup') || txn.amount > 0;
+              const isTopUp = isTopUpType(txn);
               return (
                 <div key={txn.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/40 transition-colors">
                   <div className={`w-8 h-8 rounded-xl grid place-items-center shrink-0 ${isTopUp ? 'bg-green/10 text-green' : 'bg-red/10 text-red'}`}>
