@@ -6,10 +6,12 @@ import {
   FiRefreshCw,
   FiSearch,
   FiTrash2,
+  FiUpload,
   FiUserPlus,
   FiX,
   FiXCircle,
 } from 'react-icons/fi';
+import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -193,6 +195,7 @@ export default function LecturerManagementPage() {
 
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [deleteLecturerTarget, setDeleteLecturerTarget] = useState<LecturerStudent | null>(null);
@@ -244,12 +247,20 @@ export default function LecturerManagementPage() {
           <h1 className="font-syne text-2xl font-extrabold text-white-soft">Lecturers</h1>
           <p className="text-muted text-sm mt-1">Manage lecturer accounts for your institution.</p>
         </div>
-        <button
-          onClick={() => { setEditTarget(null); setShowForm(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none shrink-0"
-        >
-          <FiUserPlus /> Add Lecturer
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent"
+          >
+            <FiUpload /> Import
+          </button>
+          <button
+            onClick={() => { setEditTarget(null); setShowForm(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
+          >
+            <FiUserPlus /> Add Lecturer
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -376,6 +387,14 @@ export default function LecturerManagementPage() {
           onSaved={reload}
           institutionId={user?.institutionId ?? null}
           institutionName={institutionName}
+        />
+      )}
+
+      {showImport && (
+        <BulkImportUsersModal
+          onClose={() => setShowImport(false)}
+          onImported={reload}
+          allowedRoles="Lecturer"
         />
       )}
 

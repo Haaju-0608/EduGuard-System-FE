@@ -544,6 +544,30 @@ export async function createUser(payload: CreateUserPayload): Promise<ApiUser> {
   return apiPost<ApiUser>('/api/users', payload);
 }
 
+export interface BulkImportUserRowResult {
+  row: number;
+  email: string | null;
+  success: boolean;
+  userId: string | null;
+  error: string | null;
+}
+
+export interface BulkImportUsersResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: BulkImportUserRowResult[];
+}
+
+/** POST /api/users/bulk-import — file .xlsx/.csv, tối đa 5MB / 500 dòng.
+ * Cột: Email, Password, FullName, Role, StudentCode, Phone, InstitutionId (School Admin gọi thì
+ * InstitutionId trong file bị BE bỏ qua, tự gán theo institution của chính School Admin đó). */
+export async function bulkImportUsers(file: File): Promise<BulkImportUsersResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiPost<BulkImportUsersResult>('/api/users/bulk-import', formData);
+}
+
 /** PUT /api/users/{id} — cập nhật thông tin / trạng thái */
 export async function updateUser(
   id: string,
@@ -971,8 +995,8 @@ export interface StudentAttendanceRecord {
   date: string;        // 'YYYY-MM-DD'
   className: string;
   classCode: string;
+  lecturerName: string | null;
   startTime: string;   // 'HH:MM'
-  endTime: string;     // 'HH:MM' or '—'
   status: 'present' | 'absent' | 'late' | 'excused';
   checkInTime: string | null;
 }
@@ -995,22 +1019,23 @@ function datePart(iso: string) {
 
 /**
  * Lấy lịch sử điểm danh của student:
- * 1. GET /api/attendance-records?studentId={id}
- * 2. GET /api/attendance-sessions  → map sessionId → session info
- * 3. Join để lấy className, classCode, ngày giờ
+ * 1. GET /api/attendance-records?studentId={id}&expand=session — Student role được phép,
+ *    trả kèm session tóm tắt (classId, startTime). KHÔNG dùng GET /api/attendance-sessions
+ *    vì endpoint đó chỉ cho SuperAdmin/SchoolAdmin/Lecturer, Student gọi sẽ bị 403 và bị
+ *    .catch() nuốt lỗi âm thầm thành mảng rỗng → mọi record bị lọc mất, trang luôn trống.
+ * 2. GET /api/classes/my-classes&expand=lecturer — map classId → tên môn, mã môn, giảng viên.
+ * 3. Join để lấy className, classCode, lecturerName, ngày giờ.
  */
 export async function fetchStudentAttendanceHistory(
   studentId: string,
 ): Promise<StudentAttendanceRecord[]> {
-  const [recordRes, sessionRes] = await Promise.all([
+  const [recordRes, classRes] = await Promise.all([
     apiGetPaginated<ApiAttendanceRecord[]>(
-      `/api/attendance-records${buildQueryParams({ studentId, page: 1, pageSize: 200 })}`,
+      `/api/attendance-records${buildQueryParams({ studentId, expand: 'session', page: 1, pageSize: 200 })}`,
     ).catch(() => ({ data: [] as ApiAttendanceRecord[], pagination: EMPTY_PAGINATION })),
-    // expand=class — không gửi thì session.class luôn null, className rơi về "Unknown class"
-    // dù data thật vẫn tồn tại (BE chỉ populate navigation property khi có tham số này).
-    apiGetPaginated<ApiAttendanceSession[]>(
-      `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 200, expand: 'class' })}`,
-    ).catch(() => ({ data: [] as ApiAttendanceSession[], pagination: EMPTY_PAGINATION })),
+    apiGetPaginated<ApiClass[]>(
+      `/api/classes/my-classes${buildQueryParams({ expand: 'lecturer', page: 1, pageSize: 200 })}`,
+    ).catch(() => ({ data: [] as ApiClass[], pagination: EMPTY_PAGINATION })),
   ]);
 
   // Nếu studentId param không được hỗ trợ → filter client-side
@@ -1020,22 +1045,22 @@ export async function fetchStudentAttendanceHistory(
 
   if (myRecords.length === 0) return [];
 
-  const sessionMap = new Map(sessionRes.data.map((s) => [s.id, s]));
+  const classMap = new Map(classRes.data.map((c) => [c.id, c]));
 
   return myRecords
     .map((rec): StudentAttendanceRecord | null => {
-      const session = sessionMap.get(rec.sessionId);
+      const session = rec.session;
       if (!session) return null;
-      const cls = session.class;
+      const cls = classMap.get(session.classId);
       return {
         id: rec.id,
         date: datePart(session.startTime),
         className: cls?.courseName ?? 'Unknown class',
         classCode: cls?.courseCode ?? session.classId.slice(0, 8),
+        lecturerName: cls?.lecturer?.fullName ?? null,
         startTime: timePart(session.startTime),
-        endTime: session.endTime ? timePart(session.endTime) : '—',
         status: mapAttendanceStatus(rec.status),
-        checkInTime: rec.checkInTime ? timePart(rec.checkInTime) : null,
+        checkInTime: rec.checkinAt ? timePart(rec.checkinAt) : null,
       };
     })
     .filter((r): r is StudentAttendanceRecord => r !== null)

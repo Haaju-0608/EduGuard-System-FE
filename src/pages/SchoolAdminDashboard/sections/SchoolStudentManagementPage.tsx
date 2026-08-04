@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiX } from 'react-icons/fi';
+import { FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
+import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { fetchInstitutionById } from '../../../services/adminApi';
@@ -171,6 +172,7 @@ export default function SchoolStudentManagementPage() {
   }, [user?.institutionId]);
   const [search, setSearch] = useState('');
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
@@ -213,12 +215,20 @@ export default function SchoolStudentManagementPage() {
           <h1 className="font-syne text-2xl font-extrabold text-white-soft">Students</h1>
           <p className="text-muted text-sm mt-1">Manage student accounts for your institution.</p>
         </div>
-        <button
-          onClick={() => { setEditTarget(null); setShowForm(true); }}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none shrink-0"
-        >
-          <FiUserPlus /> New Student
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent"
+          >
+            <FiUpload /> Import
+          </button>
+          <button
+            onClick={() => { setEditTarget(null); setShowForm(true); }}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
+          >
+            <FiUserPlus /> New Student
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -328,6 +338,14 @@ export default function SchoolStudentManagementPage() {
           onSaved={reload}
           institutionId={user?.institutionId ?? null}
           institutionName={institutionName}
+        />
+      )}
+
+      {showImport && (
+        <BulkImportUsersModal
+          onClose={() => setShowImport(false)}
+          onImported={reload}
+          allowedRoles="Student"
         />
       )}
 

@@ -82,17 +82,11 @@ export async function fetchPricingConfigs(): Promise<ApiPricingConfig[]> {
   return apiGet<ApiPricingConfig[]>('/api/pricing-configs');
 }
 
-/** GET /api/pricing-configs/active/{serviceType} */
-export async function fetchActivePricing(
-  serviceType: 'Attendance' | 'Proctoring' | 'BiometricRegistration',
-): Promise<ApiPricingConfig> {
-  return apiGet<ApiPricingConfig>(`/api/pricing-configs/active/${serviceType}`);
-}
-
-// Khớp đúng tên enum thật của BE (Models/AppRole.cs: PricingServiceType.ATTENDANCE_UNIT/
-// PROCTORING_PER_HOUR, deserialize qua JsonStringEnumConverter) — không có "BiometricRegistration".
+// Khớp đúng tên enum thật của BE (Models/AppRole.cs: PricingServiceType) — 4 loại: 2 loại tính theo
+// lượt dùng (ATTENDANCE_UNIT/PROCTORING_PER_HOUR) + 2 loại phí gia hạn subscription theo billing
+// model của trường (SUBSCRIPTION_MONTHLY/SUBSCRIPTION_YEARLY, dùng bởi InstitutionService.RenewSubscriptionAsync).
 export interface CreatePricingPayload {
-  serviceType: 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR';
+  serviceType: 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR' | 'SUBSCRIPTION_MONTHLY' | 'SUBSCRIPTION_YEARLY';
   unitPrice: number;
   effectiveDate: string;
 }

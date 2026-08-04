@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUserPlus, FiX,
+  FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchInstitutions } from '../../../services/adminApi';
@@ -191,6 +192,7 @@ export default function UserManagementPage() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [institutionFilter, setInstitutionFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<ApiUser | null>(null);
@@ -244,9 +246,14 @@ export default function UserManagementPage() {
           <h1 className="font-syne text-2xl font-extrabold text-white-soft">User Management</h1>
           <p className="text-muted text-sm mt-1">All users across the platform — students, lecturers, and admins.</p>
         </div>
-        <button onClick={() => { setEditTarget(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none shrink-0">
-          <FiUserPlus /> New User
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={() => setShowImport(true)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent">
+            <FiUpload /> Import
+          </button>
+          <button onClick={() => { setEditTarget(null); setShowForm(true); }} className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
+            <FiUserPlus /> New User
+          </button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -334,6 +341,13 @@ export default function UserManagementPage() {
       </div>
 
       {showForm && <UserFormModal target={editTarget} onClose={() => setShowForm(false)} onSaved={reload} institutions={institutions} />}
+      {showImport && (
+        <BulkImportUsersModal
+          onClose={() => setShowImport(false)}
+          onImported={reload}
+          allowedRoles="Student, Lecturer, or SchoolAdmin"
+        />
+      )}
 
       {deleteUserTarget && createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">

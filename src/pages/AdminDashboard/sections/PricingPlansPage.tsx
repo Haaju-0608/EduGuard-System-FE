@@ -12,20 +12,36 @@ import {
 import type { ApiPricingConfig } from '../../../types/api';
 
 // Khớp đúng enum thật của BE (Models/AppRole.cs PricingServiceType) — không có "BiometricRegistration".
-type ServiceType = 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR';
+type ServiceType = 'ATTENDANCE_UNIT' | 'PROCTORING_PER_HOUR' | 'SUBSCRIPTION_MONTHLY' | 'SUBSCRIPTION_YEARLY';
 
-const SERVICE_META: Record<ServiceType, { label: string; icon: string; desc: string; color: string }> = {
+const SERVICE_META: Record<ServiceType, { label: string; icon: string; desc: string; color: string; unit: string }> = {
   ATTENDANCE_UNIT: {
     label: 'Attendance',
     icon: '📋',
     desc: 'Credits deducted per student per attendance session.',
     color: 'text-blue-bright',
+    unit: 'credits / student',
   },
   PROCTORING_PER_HOUR: {
     label: 'Exam Proctoring',
     icon: '🎥',
     desc: 'Credits deducted per student per proctored exam hour.',
     color: 'text-cyan',
+    unit: 'credits / student',
+  },
+  SUBSCRIPTION_MONTHLY: {
+    label: 'Monthly Subscription',
+    icon: '🔄',
+    desc: 'Credits charged from an institution’s wallet each time a monthly-billed subscription is renewed.',
+    color: 'text-gold',
+    unit: 'credits / renewal',
+  },
+  SUBSCRIPTION_YEARLY: {
+    label: 'Yearly Subscription',
+    icon: '🗓️',
+    desc: 'Credits charged from an institution’s wallet each time a yearly-billed subscription is renewed.',
+    color: 'text-green',
+    unit: 'credits / renewal',
   },
 };
 
@@ -81,6 +97,8 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
               options={[
                 {value:'ATTENDANCE_UNIT',label:'Attendance'},
                 {value:'PROCTORING_PER_HOUR',label:'Exam Proctoring'},
+                {value:'SUBSCRIPTION_MONTHLY',label:'Monthly Subscription'},
+                {value:'SUBSCRIPTION_YEARLY',label:'Yearly Subscription'},
               ]}
               className="w-full"
             />
@@ -129,7 +147,7 @@ export default function PricingPlansPage() {
     arr.sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()),
   );
 
-  const serviceTypes: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR'];
+  const serviceTypes: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR', 'SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'];
 
   return (
     <div className="space-y-6">
@@ -145,7 +163,7 @@ export default function PricingPlansPage() {
       </div>
 
       {/* Active Pricing Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {serviceTypes.map((type) => {
           const meta = SERVICE_META[type];
           const active = grouped[type]?.[0];
@@ -169,7 +187,7 @@ export default function PricingPlansPage() {
                 <>
                   <div className="flex items-end gap-2">
                     <p className={`font-syne font-extrabold text-3xl ${meta.color}`}>{active.unitPrice.toLocaleString()}</p>
-                    <p className="text-muted text-sm mb-1">credits / student</p>
+                    <p className="text-muted text-sm mb-1">{meta.unit}</p>
                   </div>
                   <p className="text-xs text-muted mt-2">Effective: {fmt(active.effectiveDate)}</p>
                 </>

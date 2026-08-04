@@ -62,13 +62,19 @@ export default function StudentAttendancePage() {
     });
   }, [records, classCodes]);
 
-  const grouped = useMemo(() => {
+  const groupedByClass = useMemo(() => {
     const map = new Map<string, StudentAttendanceRecord[]>();
     filtered.forEach((r) => {
-      if (!map.has(r.date)) map.set(r.date, []);
-      map.get(r.date)!.push(r);
+      if (!map.has(r.classCode)) map.set(r.classCode, []);
+      map.get(r.classCode)!.push(r);
     });
-    return [...map.entries()].sort(([a], [b]) => b.localeCompare(a));
+    return [...map.entries()]
+      .map(([code, recs]) => ({
+        code,
+        name: recs[0]?.className ?? code,
+        recs: [...recs].sort((a, b) => b.date.localeCompare(a.date)),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [filtered]);
 
   return (
@@ -175,7 +181,7 @@ export default function StudentAttendancePage() {
           <p className="text-red text-sm">{error}</p>
           <button onClick={reload} className="text-blue-bright text-sm underline cursor-pointer bg-transparent border-none">Retry</button>
         </div>
-      ) : grouped.length === 0 ? (
+      ) : groupedByClass.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">📋</p>
           <p className="text-muted text-sm">
@@ -185,38 +191,47 @@ export default function StudentAttendancePage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-4">
-          {grouped.map(([date, recs]) => (
-            <div key={date} className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
-              <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-navy/40">
-                <FiCalendar className="text-muted text-sm shrink-0" />
-                <span className="text-sm font-semibold text-white-soft">{fmtDate(date)}</span>
-                <span className="ml-auto text-xs text-muted">{recs.length} session{recs.length > 1 ? 's' : ''}</span>
+        <div className="space-y-5">
+          {groupedByClass.map((g) => (
+            <div key={g.code} className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
+              <div className="flex items-center gap-3 px-5 py-3.5 border-b border-border bg-navy/40">
+                <span className="text-[10px] font-bold font-mono text-blue-bright bg-blue/10 border border-blue/25 px-2 py-0.5 rounded-full shrink-0">{g.code}</span>
+                <span className="text-sm font-semibold text-white-soft truncate">{g.name}</span>
+                <span className="ml-auto text-xs text-muted shrink-0">{g.recs.length} session{g.recs.length > 1 ? 's' : ''}</span>
               </div>
-              <div className="divide-y divide-border">
-                {recs.map((r) => {
-                  const cfg = STATUS_CONFIG[r.status];
-                  return (
-                    <div key={r.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/30 transition-colors">
-                      <div className={`w-2 h-2 rounded-full shrink-0 ${cfg.dot}`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-bold font-mono text-muted bg-navy border border-border px-1.5 py-0.5 rounded">{r.classCode}</span>
-                          <span className="text-sm font-semibold text-white-soft truncate">{r.className}</span>
-                        </div>
-                        {r.checkInTime && (
-                          <p className="text-xs text-muted mt-0.5">Check-in: {r.checkInTime}</p>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted shrink-0 hidden sm:block">
-                        {r.startTime} – {r.endTime}
-                      </div>
-                      <span className={`flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${cfg.cls}`}>
-                        {cfg.icon} {cfg.label}
-                      </span>
-                    </div>
-                  );
-                })}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[11px] text-muted uppercase tracking-wider border-b border-border">
+                      <th className="text-left font-semibold px-5 py-2.5">Date</th>
+                      <th className="text-left font-semibold px-5 py-2.5">Proctoring Lecturer</th>
+                      <th className="text-left font-semibold px-5 py-2.5 hidden sm:table-cell">Check-in</th>
+                      <th className="text-right font-semibold px-5 py-2.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {g.recs.map((r) => {
+                      const cfg = STATUS_CONFIG[r.status];
+                      return (
+                        <tr key={r.id} className="hover:bg-navy/30 transition-colors">
+                          <td className="px-5 py-3 text-white-soft whitespace-nowrap">
+                            <span className="flex items-center gap-2">
+                              <FiCalendar className="text-muted text-xs shrink-0" />
+                              {fmtDate(r.date)}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 text-muted truncate max-w-55">{r.lecturerName ?? '—'}</td>
+                          <td className="px-5 py-3 text-muted hidden sm:table-cell">{r.checkInTime ?? '—'}</td>
+                          <td className="px-5 py-3 text-right">
+                            <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${cfg.cls}`}>
+                              {cfg.icon} {cfg.label}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           ))}

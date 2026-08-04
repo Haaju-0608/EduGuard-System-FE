@@ -43,8 +43,8 @@ function mapApiAttendanceRecord(
     name,
     classCode: '—',
     status: mapAttendanceStatus(record.status),
-    checkInTime: record.checkInTime
-      ? new Date(record.checkInTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    checkInTime: record.checkinAt
+      ? new Date(record.checkinAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
       : null,
     avatar: null,
     initials: getInitialsFromName(name),
