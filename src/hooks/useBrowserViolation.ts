@@ -39,12 +39,12 @@ export function useBrowserViolation(
   onReportedRef.current = onReported;
 
   const lastReportedAtRef = useRef<Partial<Record<BrowserViolationType, number>>>({});
+  const terminatedRef = useRef(false);
 
   // Hẹn giờ "ở ngoài fullscreen quá lâu" (setTimeout) và interval báo cáo dồn dập sau khi hẹn giờ
   // đó kích hoạt — cả 2 đều phải huỷ ngay khi học sinh quay lại fullscreen hoặc đã bị terminate.
   const escalationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const escalationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const terminatedRef = useRef(false);
 
   useEffect(() => {
     if (!enabled) return;
@@ -64,6 +64,8 @@ export function useBrowserViolation(
     // bypassCooldown=true dùng cho báo cáo dồn dập lúc escalate — hành vi lúc đó là cố ý ở lại
     // ngoài fullscreen, không phải rung/giật sự kiện, nên không cần chặn theo cooldown như bình thường.
     const report = (type: BrowserViolationType, bypassCooldown = false) => {
+      if (terminatedRef.current) return;
+
       const pid = participationIdRef.current;
       if (!pid) {
         // participationId chưa sẵn sàng (vd exam chưa join xong ở BE) — không có gì để gửi kèm nên
@@ -128,10 +130,10 @@ export function useBrowserViolation(
     document.addEventListener('fullscreenchange', handleFullscreenChange);
 
     return () => {
+      clearEscalation();
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('blur', handleBlur);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      clearEscalation();
     };
   }, [enabled]);
 }
