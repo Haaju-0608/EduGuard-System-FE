@@ -70,8 +70,11 @@ export default function CreditsPage() {
   const configs: ApiPricingConfig[] = pricingData ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
 
+  // Phải lọc isActive=true trước rồi mới lấy effectiveDate mới nhất, khớp đúng cách BE thật sự
+  // chọn config để tính tiền (PricingConfigRepository.GetActiveConfigByServiceTypeAsync) — nếu
+  // SuperAdmin đã tắt (deactivate) config gần nhất qua Edit, không được hiện nhầm nó là active.
   const activeConfigs = (['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR', 'SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'] as ServiceType[]).map((type) => {
-    const list = configs.filter((c) => c.serviceType === type).sort(
+    const list = configs.filter((c) => c.serviceType === type && c.isActive).sort(
       (a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime(),
     );
     return { type, config: list[0] ?? null };

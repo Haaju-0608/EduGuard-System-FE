@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
@@ -13,6 +14,26 @@ import {
   updateUser,
 } from '../../../services/schoolAdminApi';
 import type { LecturerStudent } from '../../../types/lecturer';
+
+const PAGE_SIZE = 20;
+
+type SortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'newest',   label: 'Newest First' },
+  { value: 'oldest',   label: 'Oldest First' },
+  { value: 'name-asc', label: 'Name (A–Z)' },
+  { value: 'name-desc', label: 'Name (Z–A)' },
+];
+
+function sortStudents(list: LecturerStudent[], sort: SortKey): LecturerStudent[] {
+  const sorted = [...list];
+  switch (sort) {
+    case 'oldest': return sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    case 'name-asc': return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    case 'name-desc': return sorted.sort((a, b) => b.name.localeCompare(a.name));
+    default: return sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
 
 function StatusBadge({ status }: { status: string }) {
   const s = status?.toLowerCase();
@@ -75,6 +96,13 @@ function StudentFormModal({
           fullName: form.fullName.trim(),
           phone: form.phone.trim() || undefined,
           studentCode: form.studentCode.trim() || undefined,
+          // role BẮT BUỘC phải gửi: BE (UserService.UpdateUserAsync) ghi đè entity.Role = dto.Role
+          // vô điều kiện, không gửi thì bị deserialize thành default enum — xem LecturerManagementPage
+          // cho trường hợp lộ rõ hậu quả (Lecturer bị hạ xuống Student).
+          role: 'Student',
+          // BE từ chối update nếu institutionId gửi lên khác institution hiện tại của user
+          // (kể cả khi field này bị bỏ trống — null cũng bị coi là "khác") — phải luôn gửi kèm.
+          ...(institutionId ? { institutionId } : {}),
         });
         toast.success('Updated', 'Student updated successfully.');
       } else {
@@ -171,6 +199,8 @@ export default function SchoolStudentManagementPage() {
       .catch(() => setInstitutionName(''));
   }, [user?.institutionId]);
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
@@ -178,10 +208,12 @@ export default function SchoolStudentManagementPage() {
   const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
 
   const { data, loading, reload } = useAsyncData(
-    () => fetchSchoolAdminStudents({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
+    () => fetchSchoolAdminStudents({ page: 1, pageSize: 1000, institutionId: user?.institutionId ?? undefined }),
     [user?.institutionId],
   );
   const students: LecturerStudent[] = data?.items ?? [];
+
+  useEffect(() => { setPage(1); }, [search, sort]);
 
   const filtered = students.filter((s) => {
     const q = search.toLowerCase();
@@ -190,6 +222,11 @@ export default function SchoolStudentManagementPage() {
       || s.email.toLowerCase().includes(q)
       || (s.studentId ?? '').toLowerCase().includes(q);
   });
+
+  const sorted = sortStudents(filtered, sort);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const confirmDeleteStudent = async () => {
     if (!deleteStudentTarget) return;
@@ -257,6 +294,7 @@ export default function SchoolStudentManagementPage() {
             className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
           />
         </div>
+        <CustomSelect value={sort} onChange={(v) => setSort(v as SortKey)} options={SORT_OPTIONS} />
         <button
           onClick={reload}
           disabled={loading}
@@ -270,7 +308,7 @@ export default function SchoolStudentManagementPage() {
       <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <p className="text-sm font-bold text-white-soft">Student List</p>
-          <span className="text-xs text-muted">{filtered.length} of {students.length}</span>
+          <span className="text-xs text-muted">{sorted.length} of {students.length}</span>
         </div>
         {loading ? (
           <div className="divide-y divide-border">
@@ -284,13 +322,13 @@ export default function SchoolStudentManagementPage() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="py-14 text-center text-muted text-sm">
             {search ? 'No students match your search.' : 'No students yet. Create the first one!'}
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {filtered.map((s) => {
+            {pageItems.map((s) => {
               const initials = (s.name ?? s.email).split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
               return (
                 <div key={s.id} className="flex items-center gap-4 px-5 py-3 hover:bg-navy/40 transition-colors">
@@ -327,6 +365,28 @@ export default function SchoolStudentManagementPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border">
+            <p className="text-xs text-muted">Page {safePage} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronLeft />
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronRight />
+              </button>
+            </div>
           </div>
         )}
       </div>

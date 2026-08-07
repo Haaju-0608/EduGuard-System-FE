@@ -204,6 +204,7 @@ export default function StudentAttendancePage() {
                   <thead>
                     <tr className="text-[11px] text-muted uppercase tracking-wider border-b border-border">
                       <th className="text-left font-semibold px-5 py-2.5">Date</th>
+                      <th className="text-left font-semibold px-5 py-2.5">Exam</th>
                       <th className="text-left font-semibold px-5 py-2.5">Proctoring Lecturer</th>
                       <th className="text-left font-semibold px-5 py-2.5 hidden sm:table-cell">Check-in</th>
                       <th className="text-right font-semibold px-5 py-2.5">Status</th>
@@ -220,6 +221,7 @@ export default function StudentAttendancePage() {
                               {fmtDate(r.date)}
                             </span>
                           </td>
+                          <td className="px-5 py-3 text-white-soft truncate max-w-45">{r.examName ?? <span className="text-muted">—</span>}</td>
                           <td className="px-5 py-3 text-muted truncate max-w-55">{r.lecturerName ?? '—'}</td>
                           <td className="px-5 py-3 text-muted hidden sm:table-cell">{r.checkInTime ?? '—'}</td>
                           <td className="px-5 py-3 text-right">

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag, FiShieldOff } from 'react-icons/fi';
+import { FiAlertTriangle, FiCamera, FiCheck, FiClock, FiFlag, FiShieldOff, FiX } from 'react-icons/fi';
 import { useAiProctoring } from '../../../ai/hooks/useAiProctoring';
+import { captureLiveFrame } from '../../../ai/services/FaceVerificationService';
 import type { CameraStatus, ViolationType } from '../../../ai/types/proctoring';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useExamTermination } from '../../../contexts/ExamTerminationContext';
@@ -70,6 +71,68 @@ function FullscreenGateModal({ onEnter }: { onEnter: () => void }) {
           className="w-full py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
         >
           Enter Fullscreen & Continue
+        </button>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+// ─── Rules Gate ─────────────────────────────────────────────────────────────
+// Chặn bắt đầu làm bài cho tới khi sinh viên đọc + tự đánh dấu đã hiểu quy định thi — nội dung lấy
+// từ mục "2. During the Exam" của Exam Proctoring Guide (/student/guide), khớp đúng hành vi thật
+// mà AI proctoring + browser-integrity check đang giám sát trong suốt bài thi.
+
+const EXAM_RULES: { text: string; type: 'do' | 'dont' }[] = [
+  { type: 'do', text: 'Sit directly facing the camera with your full face visible.' },
+  { type: 'dont', text: 'Do not cover your face.' },
+  { type: 'dont', text: "Do not leave the camera's field of view." },
+  { type: 'dont', text: 'Avoid turning your head or looking away from the screen for extended periods.' },
+  { type: 'dont', text: 'Do not allow another person to appear in frame.' },
+  { type: 'dont', text: 'Do not switch browser tabs.' },
+  { type: 'dont', text: 'Do not exit fullscreen.' },
+  { type: 'dont', text: 'Do not switch to another application.' },
+];
+
+function RulesGateModal({ onConfirm }: { onConfirm: () => void }) {
+  const [checked, setChecked] = useState(false);
+  return createPortal(
+    <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-blue/30 rounded-[20px] w-full max-w-md p-7 space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar">
+        <div className="text-center">
+          <div className="w-14 h-14 rounded-2xl bg-blue/10 border border-blue/30 grid place-items-center mx-auto mb-4">
+            <FiFlag className="text-blue-bright text-2xl" />
+          </div>
+          <h2 className="font-syne font-bold text-white-soft text-xl mb-2">Exam Rules</h2>
+          <p className="text-muted text-sm">Please read and confirm before you begin.</p>
+        </div>
+        <ul className="space-y-2.5">
+          {EXAM_RULES.map((r) => (
+            <li key={r.text} className="flex items-start gap-2.5 text-sm">
+              {r.type === 'do' ? (
+                <FiCheck className="text-green shrink-0 mt-0.5" />
+              ) : (
+                <FiX className="text-red shrink-0 mt-0.5" />
+              )}
+              <span className="text-white-soft/90">{r.text}</span>
+            </li>
+          ))}
+        </ul>
+        <label className="flex items-start gap-2.5 cursor-pointer bg-navy/50 border border-border rounded-xl p-3.5">
+          <input
+            type="checkbox"
+            checked={checked}
+            onChange={(e) => setChecked(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-blue-bright cursor-pointer shrink-0"
+          />
+          <span className="text-sm text-white-soft">I have read and will follow these exam rules.</span>
+        </label>
+        <button
+          onClick={onConfirm}
+          disabled={!checked}
+          className="w-full py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-none"
+        >
+          I Understand — Start Exam
         </button>
       </div>
     </div>,
@@ -358,6 +421,10 @@ export default function StudentExamTakingPage() {
   );
   useBlockLocalBehaviors(!submitted);
 
+  // Bắt buộc đọc + tự đánh dấu đã hiểu quy định thi trước khi được bắt đầu làm bài — chỉ hỏi 1 lần
+  // mỗi lượt vào trang (mất lại nếu F5, giống các gate khác — chủ động đọc lại là hợp lý).
+  const [rulesAcknowledged, setRulesAcknowledged] = useState(false);
+
   // Bắt buộc vào fullscreen mới được thi — nếu không bao giờ requestFullscreen() thì trình duyệt
   // không có gì để "thoát" cả, nên fullscreenchange sẽ không bao giờ bắn ra ExitFullscreen.
   const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
@@ -390,6 +457,11 @@ export default function StudentExamTakingPage() {
     const sessionId = examId;
 
     const init = async () => {
+      // Bật camera TRƯỚC khi gọi /join — BE giờ bắt buộc kèm ảnh liveCapture để verify khuôn mặt,
+      // nên <video> cần có frame thật sẵn trước khi ta chụp. Chạy song song với việc tạo participation
+      // để không làm chậm luồng vào thi.
+      const proctoringStart = proctoringRef.current.start();
+
       let participationId: string | null = null;
 
       try {
@@ -406,15 +478,33 @@ export default function StudentExamTakingPage() {
 
       if (participationId) {
         participationIdRef.current = participationId;
-        // Mở khoá fetch câu hỏi ngay khi biết participation đã tồn tại thật trên BE — không cần
-        // đợi /join hay đồng bộ actualStart bên dưới, vì BE chỉ cần bản ghi participation tồn tại
-        // là đủ để trả câu hỏi (xem ghi chú ở khai báo participationReady phía trên).
+        // Mở khoá fetch câu hỏi ngay khi biết participation đã tồn tại thật trên BE, KHÔNG đợi camera
+        // khởi động xong hay /join — camera + MediaPipe có thể mất vài giây để load, đợi ở đây sẽ làm
+        // chậm oan lúc hiện đề bài dù không liên quan tới việc fetch câu hỏi.
         setParticipationReady(true);
         // Đăng ký participationId với ExamTerminationContext (global) để nó check status ngay
         // (không đợi SignalR) và lắng nghe event ExamTerminated đúng cho participation này.
         termination.registerParticipation(participationId);
-        // Gọi /join để BE ghi actualStart (chỉ set lần đầu, các lần join lại sau giữ nguyên) và chuyển status → Joined
-        try { await joinExamParticipation(participationId); } catch { /* không chặn thi nếu fail */ }
+        // Gọi /join để BE ghi actualStart (chỉ set lần đầu, các lần join lại sau giữ nguyên), verify
+        // khuôn mặt qua liveCapture, và chuyển status → Joined. Đợi camera (proctoringStart) sẵn sàng
+        // trước khi chụp — nếu camera chưa sẵn sàng (bị chặn quyền, lỗi thiết bị...) thì captureLiveFrame
+        // trả null — bỏ qua gọi /join, CameraGateModal bên dưới đã tự chặn UI thi trong trường hợp này
+        // nên không cần xử lý thêm ở đây.
+        try {
+          await proctoringStart;
+          const liveCapture = await captureLiveFrame(videoRef.current);
+          if (liveCapture) {
+            await joinExamParticipation(participationId, liveCapture);
+          } else {
+            console.warn('[StudentExamTakingPage] Camera not ready — skipped /join (face verification).');
+          }
+        } catch (err) {
+          // Có thể là verify khuôn mặt lệch thật (BE trả 400) hoặc lỗi mạng thoáng qua — không chặn
+          // thi ở bước này vì đã lỡ vào phòng thi (fullscreen + camera đã bật), chặn cứng ở đây dễ
+          // khoá nhầm học sinh hợp lệ. Ảnh hưởng thật nếu /join fail: participation có thể không lên
+          // Joined, khiến BE từ chối trả câu hỏi — học sinh sẽ thấy empty-state và có thể báo GV.
+          console.warn('[StudentExamTakingPage] joinExamParticipation failed:', err);
+        }
 
         // Đồng bộ đồng hồ đếm ngược theo actualStart thật từ BE — để khi thoát ra vào lại,
         // thời gian còn lại tính đúng từ lúc bắt đầu làm bài, không bị reset về đủ giờ.
@@ -440,8 +530,6 @@ export default function StudentExamTakingPage() {
         // BE sẽ trả rỗng thật cho fetchExamQuestions trong trường hợp này (đúng theo thiết kế filter).
         setParticipationReady(true);
       }
-
-      void proctoringRef.current.start();
     };
 
     void init();
@@ -849,6 +937,12 @@ export default function StudentExamTakingPage() {
       {/* Overlay — không unmount cây UI thi bên dưới (giữ nguyên <video> để camera không bị đứt) */}
       {!termination.isExamTerminated && !submitted && cameraStatus === 'ready' && !isFullscreen && (
         <FullscreenGateModal onEnter={() => void enterFullscreen()} />
+      )}
+
+      {/* Gate cuối cùng — chỉ hiện khi camera + fullscreen đã sẵn sàng, chặn bắt đầu làm bài cho
+          tới khi tự đánh dấu đã đọc quy định thi. */}
+      {!termination.isExamTerminated && !submitted && cameraStatus === 'ready' && isFullscreen && !rulesAcknowledged && (
+        <RulesGateModal onConfirm={() => setRulesAcknowledged(true)} />
       )}
 
     </div>

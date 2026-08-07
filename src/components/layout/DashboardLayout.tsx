@@ -4,7 +4,6 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiMenu, FiChevronLeft, FiLogOut, FiBell } from 'react-icons/fi';
 import { CampusBackground, AcademySeal } from '../lecturer/LecturerUI';
-import { getFacultyByDepartment, getFacultyTheme } from '../../utils/facultyTheme';
 import NotificationPanel from '../feedback/NotificationPanel';
 import { useNotifications } from '../../contexts/NotificationContext';
 
@@ -47,10 +46,6 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
     navigate('/');
   };
 
-  const lecturerFaculty = campusMode && user?.department
-    ? getFacultyTheme(getFacultyByDepartment(user.department))
-    : null;
-
   return (
     <div className="flex min-h-screen lg:h-screen lg:overflow-hidden bg-navy overflow-x-hidden">
       {/* ── SIDEBAR ── */}
@@ -73,11 +68,6 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
             {!collapsed && (
               <div>
                 <span className="font-syne font-extrabold text-[1.1rem] text-white-soft block leading-tight">EduGuard</span>
-                {campusMode && (
-                  <span className="text-[10px] text-cyan font-semibold tracking-wide">
-                    Faculty Portal{lecturerFaculty ? ` · ${lecturerFaculty.shortName}` : ''}
-                  </span>
-                )}
               </div>
             )}
           </Link>

@@ -73,7 +73,7 @@ function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; 
   const enrolledIds = new Set(enrollments.map((e) => e.studentId));
   const suggestions = allStudents.filter((s) => {
     if (enrolledIds.has(s.id)) return false;
-    if (!search.trim()) return false;
+    if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
       (s.fullName ?? '').toLowerCase().includes(q) ||
@@ -171,9 +171,13 @@ function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; 
                   ))}
                 </div>
               )}
-              {showDropdown && search.trim() && suggestions.length === 0 && !loadingStudents && (
+              {showDropdown && suggestions.length === 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl px-4 py-3 text-sm text-muted z-50">
-                  {loadingStudents ? 'Loading students…' : `No students found matching "${search}"`}
+                  {loadingStudents
+                    ? 'Loading students…'
+                    : search.trim()
+                    ? `No students found matching "${search}"`
+                    : 'No available students to add.'}
                 </div>
               )}
             </div>
@@ -285,6 +289,12 @@ function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; 
 
 // ─── Class Form Modal ─────────────────────────────────────────────────────
 
+function todayLocalDate() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 interface ClassFormData {
   courseName: string;
   courseCode: string;
@@ -341,10 +351,37 @@ function ClassFormModal({
     e.preventDefault();
     if (!form.courseName.trim()) { toast.warning('Required', 'Course name is required.'); return; }
     if (!form.lecturerId && !isEdit) { toast.warning('Required', 'Please select a lecturer.'); return; }
+    // BE (ClassService.ValidateClassFields, thêm 08/08) — validate khớp đúng luật mới:
+    if (/^\d/.test(form.courseName.trim())) {
+      toast.warning('Invalid', 'Course name cannot start with a number.');
+      return;
+    }
+    if (form.courseCode.trim()) {
+      const code = form.courseCode.trim();
+      if (/^\d/.test(code)) { toast.warning('Invalid', 'Course code cannot start with a number.'); return; }
+      if (!/[A-Za-zÀ-ỹ]/.test(code) || !/\d/.test(code)) {
+        toast.warning('Invalid', 'Course code must contain both letters and numbers.');
+        return;
+      }
+    }
     // BE (CreateClassDto) bắt buộc Semester + AcademicYear khi tạo mới — không check trước thì
     // submit fail 400 dù form nhìn như hợp lệ (2 field này trước đây không đánh dấu required).
     if (!isEdit && (!form.semester.trim() || !form.academicYear.trim())) {
       toast.warning('Required', 'Semester and academic year are required.');
+      return;
+    }
+    // Semester giờ KHÔNG được chứa chữ số — năm học phải để riêng ở ô Academic Year (ví dụ
+    // Semester "Spring", Academic Year "2024-2025"), không gộp chung như "Spring 2025" nữa.
+    if (form.semester.trim() && /\d/.test(form.semester.trim())) {
+      toast.warning('Invalid', 'Semester cannot contain numbers — put the year in Academic Year instead (e.g. Semester "Spring", Academic Year "2024-2025").');
+      return;
+    }
+    if (form.startDate && form.endDate && form.endDate < form.startDate) {
+      toast.warning('Invalid date', 'End date cannot be before start date.');
+      return;
+    }
+    if (!isEdit && form.startDate && form.startDate < todayLocalDate()) {
+      toast.warning('Invalid date', 'Start date cannot be in the past.');
       return;
     }
     setSaving(true);
@@ -424,8 +461,10 @@ function ClassFormModal({
               />
             </div>
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Semester{!isEdit && <span className="text-gold ml-1">*</span>}</label>
-              <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Spring 2025" className={inputCls} />
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+                Semester{!isEdit && <span className="text-gold ml-1">*</span>} <span className="normal-case font-normal">(no numbers — put the year in Academic Year)</span>
+              </label>
+              <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Spring" className={inputCls} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year{!isEdit && <span className="text-gold ml-1">*</span>}</label>
@@ -433,7 +472,13 @@ function ClassFormModal({
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Start Date</label>
-              <input type="date" value={form.startDate} onChange={set('startDate')} className={inputCls} />
+              <input
+                type="date"
+                value={form.startDate}
+                onChange={set('startDate')}
+                min={isEdit ? undefined : todayLocalDate()}
+                className={inputCls}
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">End Date</label>
@@ -634,7 +679,7 @@ export default function SchoolClassManagementPage() {
         </div>
       ) : error ? (
         <div className="text-center py-16 text-muted">
-          <p className="text-red mb-2">Failed to load classes.</p>
+          <p className="text-red mb-2">Failed to load classes. {error}</p>
           <button onClick={reload} className="text-sm text-blue-bright underline bg-transparent border-none cursor-pointer">Retry</button>
         </div>
       ) : filtered.length === 0 ? (

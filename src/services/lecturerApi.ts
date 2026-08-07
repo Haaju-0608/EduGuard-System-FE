@@ -1,8 +1,8 @@
 /**
  * API Lecturer — attendance sessions, violation logs, exam participations.
  */
-import { apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
-import { updateParticipationStatus, disqualifyParticipation } from './schoolAdminApi';
+import { apiGet, apiGetAllPages, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
+import { updateParticipationStatus, disqualifyParticipation, voidExamParticipation } from './schoolAdminApi';
 import { fetchExamSlots, fetchSchoolAdminClasses, mapApiClassToLecturerClass } from './schoolAdminApi';
 import type {
   ApiAttendanceRecord,
@@ -54,7 +54,7 @@ function mapApiAttendanceRecord(
 // ─── KPIs ─────────────────────────────────────────────────────────────────
 
 /** KPI tổng quan: tính từ classes + exams thật */
-export async function fetchLecturerKpis(): Promise<LecturerKpi[]> {
+export async function fetchLecturerKpis(proctorId?: string): Promise<LecturerKpi[]> {
   try {
     const [classRes, examRes] = await Promise.all([
       fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
@@ -62,7 +62,9 @@ export async function fetchLecturerKpis(): Promise<LecturerKpi[]> {
     ]);
 
     const activeClasses = classRes.items.filter((c) => c.status === 'active').length;
-    const ongoingExams = examRes.items.filter((e) => e.status === 'ongoing').length;
+    // BE /api/exam-slots chưa scope theo proctor — trả về TOÀN BỘ exam slot hệ thống, phải tự lọc.
+    const myExams = examRes.items.filter((e) => !proctorId || e.proctorId === proctorId);
+    const ongoingExams = myExams.filter((e) => e.status === 'ongoing').length;
     const totalStudents = classRes.items.reduce((sum, c) => sum + c.studentCount, 0);
 
     return [
@@ -87,39 +89,138 @@ export async function fetchLecturerKpis(): Promise<LecturerKpi[]> {
 export async function fetchActiveAttendanceSession(
   classId?: string,
 ): Promise<AttendanceSession | null> {
+  // classId gửi thẳng lên BE (GetAll đã hỗ trợ filter theo classId) thay vì tải 50 session đầu
+  // của toàn hệ thống rồi filter client-side — tránh bị rớt session thật nếu hệ thống có nhiều
+  // session hơn 50 (giống bug pagination đã gặp ở attendance-records).
   // expand=class — BE chỉ populate session.class khi có tham số này (Helpers/AcademicMapper.cs),
   // không gửi thì className luôn rơi về "Unknown" dù data thật vẫn tồn tại.
   const { data } = await apiGetPaginated<ApiAttendanceSession[]>(
-    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50, expand: 'class' })}`,
+    `/api/attendance-sessions${buildQueryParams({ page: 1, pageSize: 50, expand: 'class', classId })}`,
   );
 
-  const active = data.find(
-    (s) =>
+  // Nếu có nhiều hơn 1 session đang mở cho cùng lớp (vd quên bấm End Session ở lần test trước),
+  // ưu tiên session mới nhất — tránh vô tình bám vào 1 session cũ đã "mồ côi".
+  const active = data
+    .filter((s) =>
       s.status?.toLowerCase() !== 'closed' &&
       s.status?.toLowerCase() !== 'completed' &&
-      s.endTime == null &&
-      (!classId || s.classId === classId),
-  );
+      s.endTime == null,
+    )
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
 
   if (!active) return null;
   return buildAttendanceSession(active);
 }
 
-/** POST /api/attendance-sessions — bắt đầu phiên điểm danh mới */
-export async function startAttendanceSession(classId: string): Promise<AttendanceSession> {
+/** GET /api/attendance-sessions/{id} — lấy lại đúng 1 session theo ID, dùng để refresh sau khi
+ *  điểm danh tay thay vì "active session theo classId" (mơ hồ nếu có nhiều session cùng mở). */
+export async function fetchAttendanceSessionById(id: string): Promise<AttendanceSession | null> {
+  try {
+    const found = await apiGet<ApiAttendanceSession>(
+      `/api/attendance-sessions/${id}${buildQueryParams({ expand: 'class' })}`,
+    );
+    return buildAttendanceSession(found);
+  } catch {
+    return null;
+  }
+}
+
+export interface OpenSessionSummary {
+  id: string;
+  classId: string;
+  classCode: string;
+  className: string;
+  examSlotId: string | null;
+  examName: string | null;
+  examEndTime: string | null;
+  startTime: string;
+}
+
+/** GET /api/attendance-sessions — toàn bộ session lecturer này ĐƯỢC PHÉP đóng (không phụ thuộc ca
+ *  thi đã hết giờ hay chưa — hệ thống không tự đóng session theo giờ). Dùng cho màn hình dọn dẹp
+ *  "Open Sessions", tránh mỗi lần chỉ thấy được 1 session "mới nhất" như fetchActiveAttendanceSession().
+ *  Không gọi buildAttendanceSession (tốn thêm 2 request/session cho records+examSlot) vì màn hình
+ *  dọn dẹp chỉ cần thông tin tóm tắt để hiển thị + đóng.
+ *
+ *  Lọc theo QUYỀN QUẢN LÝ (chủ lớp HOẶC proctor của exam slot) — khớp đúng EnsureSessionAccessAsync
+ *  ở BE — KHÔNG lọc theo "session do chính mình tạo" (createdBy): 1 session có thể do người khác mở
+ *  (SchoolAdmin test, lecturer khác...) nhưng lecturer sở hữu/coi thi lớp đó vẫn được BE cho phép
+ *  đóng lại. Lọc theo createdBy sẽ bỏ sót các session "kẹt" InProgress do người khác mở, khiến
+ *  không ai đóng lại được, làm class bị chặn mở session mới vĩnh viễn. */
+export async function fetchMyOpenAttendanceSessions(userId: string): Promise<OpenSessionSummary[]> {
+  const data = await apiGetAllPages<ApiAttendanceSession>(
+    (page, pageSize) => `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
+  );
+  // Lọc theo status thay vì chỉ endTime==null: endAttendanceSession trước đây (đã fix) không gửi
+  // status khi đóng session, khiến BE luôn set nhầm Status=InProgress dù EndTime đã có giá trị —
+  // để lại các session "kẹt" InProgress vĩnh viễn trong DB (dữ liệu cũ, fix chỉ chặn phát sinh
+  // thêm chứ không tự sửa các bản ghi cũ).
+  const openish = data.filter((s) =>
+    s.status?.toLowerCase() !== 'completed' && s.status?.toLowerCase() !== 'cancelled',
+  );
+  if (openish.length === 0) return [];
+
+  // Batch resolve tên + giờ kết thúc bài thi + proctor cho những session có examSlotId — tránh N+1
+  // request rời rạc, và cần dữ liệu này ngay để lọc theo quyền quản lý bên dưới.
+  const examSlotIds = [...new Set(openish.map((s) => s.examSlotId).filter((id): id is string => !!id))];
+  const examSlots = await Promise.all(examSlotIds.map((id) => fetchExamSlotById(id)));
+  const examById = new Map(
+    examSlots.filter((e): e is NonNullable<typeof e> => !!e).map((e) => [e.id, e]),
+  );
+
+  const mine = openish.filter((s) => {
+    if (s.createdBy === userId) return true;
+    if (s.class?.lecturerId === userId) return true;
+    const exam = s.examSlotId ? examById.get(s.examSlotId) : null;
+    return exam?.proctor?.id === userId;
+  });
+  if (mine.length === 0) return [];
+
+  return mine
+    .map((s) => {
+      const cls = s.class ? mapApiClassToLecturerClass(s.class as never) : null;
+      const exam = s.examSlotId ? examById.get(s.examSlotId) : null;
+      return {
+        id: s.id,
+        classId: s.classId,
+        classCode: cls?.code ?? s.classId.slice(0, 8),
+        className: cls?.name ?? 'Unknown',
+        examSlotId: s.examSlotId,
+        examName: exam?.examName ?? null,
+        examEndTime: exam?.endTime ?? null,
+        startTime: s.startTime,
+      };
+    })
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+}
+
+/** POST /api/attendance-sessions — bắt đầu phiên điểm danh mới, gắn kèm examSlotId nếu điểm danh
+ *  này là cho 1 bài thi cụ thể (BE validate examSlot.ClassId phải khớp classId truyền lên). */
+export async function startAttendanceSession(classId: string, examSlotId?: string): Promise<AttendanceSession> {
   const created = await apiPost<ApiAttendanceSession>('/api/attendance-sessions', {
     classId,
     startTime: new Date().toISOString(),
+    ...(examSlotId ? { examSlotId } : {}),
   });
   return buildAttendanceSession(created);
 }
 
-/** PUT /api/attendance-sessions/{id} — đóng phiên điểm danh */
+/** PUT /api/attendance-sessions/{id} — đóng phiên điểm danh.
+ *  status BẮT BUỘC phải gửi "Completed": UpdateAttendanceSessionDto.Status là enum non-nullable,
+ *  không gửi thì BE deserialize thành default = InProgress (member đầu tiên) — session coi như
+ *  "đóng" (có endTime) nhưng Status vẫn kẹt ở InProgress mãi mãi. BE (08/08) vừa thêm check chặn mở
+ *  session mới nếu lớp đang có session Status=InProgress — nếu không gửi đúng status này, sẽ không
+ *  bao giờ mở lại được session cho lớp đó nữa vì session cũ "tưởng" vẫn đang InProgress.
+ *  endTime — cho phép truyền tay (mặc định "now"): BE (08/08) giờ chặn EndTime > ExamSlot.EndTime
+ *  cho session gắn examSlotId, nên khi đóng session vì bài thi đã hết giờ từ lâu (auto-close), phải
+ *  gửi đúng giờ kết thúc bài thi thay vì "now" thật — nếu không sẽ luôn bị 400. */
 export async function endAttendanceSession(
   sessionId: string,
+  endTime?: string,
 ): Promise<{ success: boolean }> {
   await apiPut(`/api/attendance-sessions/${sessionId}`, {
-    endTime: new Date().toISOString(),
+    endTime: endTime ?? new Date().toISOString(),
+    status: 'Completed',
   });
   return { success: true };
 }
@@ -153,6 +254,15 @@ export async function fetchAttendanceSessions(
 ): Promise<PagedResult<ApiAttendanceSession>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 50;
+  // pageSize>100 bị BE từ chối (400) — gộp nhiều trang 100 nếu caller xin nhiều hơn. Quan trọng cho
+  // trang Monitoring (SchoolAdmin): phải thấy được HẾT session trong institution để tìm ra session
+  // "kẹt" InProgress cần đóng tay, bỏ sót do phân trang sẽ khiến không tìm được nó.
+  if (pageSize > 100) {
+    const data = await apiGetAllPages<ApiAttendanceSession>(
+      (p, ps) => `/api/attendance-sessions${buildQueryParams({ page: p, pageSize: ps, expand: 'class' })}`,
+    );
+    return { items: data, pagination: { page: 1, pageSize: data.length || 1, totalItems: data.length, totalPages: 1 } };
+  }
   const { data, pagination } = await apiGetPaginated<ApiAttendanceSession[]>(
     `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
@@ -166,24 +276,35 @@ async function buildAttendanceSession(session: ApiAttendanceSession): Promise<At
 
   let records: AttendanceRecord[] = [];
   try {
+    // sessionId — BẮT BUỘC phải lọc tại BE, không lọc client-side bằng cách fetch nhiều record
+    // đầu tiên của TOÀN HỆ THỐNG rồi filter theo sessionId: nếu tổng số attendance-records toàn
+    // hệ thống (mọi lớp, mọi session, từ trước tới giờ) vượt quá 1 trang, record của session hiện
+    // tại dễ bị rơi khỏi trang 1 và biến mất khỏi UI — dù record đó có thật trong DB (BE vẫn báo
+    // "already exists" khi cố tạo lại), gây hiện tượng "0 total students" sai lệch trên UI.
+    // pageSize>100 bị BE từ chối thẳng (400) — dùng apiGetAllPages để gộp nhiều trang 100 thay vì
+    // 1 trang lớn.
     // expand=student — không gửi thì record.student luôn null, tên hiện "Unknown" dù có data thật.
-    const recRes = await apiGetPaginated<ApiAttendanceRecord[]>(
-      `/api/attendance-records${buildQueryParams({ page: 1, pageSize: 200, expand: 'student' })}`,
+    const apiRecords = await apiGetAllPages<ApiAttendanceRecord>(
+      (page, pageSize) => `/api/attendance-records${buildQueryParams({ page, pageSize, sessionId: session.id, expand: 'student' })}`,
     );
-    records = recRes.data
-      .filter((r) => r.sessionId === session.id)
-      .map(mapApiAttendanceRecord);
+    records = apiRecords.map(mapApiAttendanceRecord);
   } catch {
     records = [];
   }
 
   const presentCount = records.filter((r) => r.status === 'present' || r.status === 'late').length;
 
+  // Session được tạo với examSlotId → tra thẳng ra tên bài thi, không cần đoán theo giờ overlap.
+  const examSlot = session.examSlotId ? await fetchExamSlotById(session.examSlotId) : null;
+
   return {
     id: session.id,
     classId: session.classId,
     classCode: cls?.code ?? session.classId.slice(0, 8),
     className: cls?.name ?? 'Unknown',
+    examSlotId: session.examSlotId,
+    examName: examSlot?.examName ?? null,
+    examEndTime: examSlot?.endTime ?? null,
     room: cls?.room ?? '—',
     startTime: new Date(session.startTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
     endTime: session.endTime
@@ -229,6 +350,14 @@ export async function fetchViolationLogs(
 ): Promise<PagedResult<ApiViolationLog>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 20;
+  // pageSize>100 bị BE từ chối (400) — gộp nhiều trang 100 nếu caller xin nhiều hơn (vd trang
+  // Violation Review tải LOG_FETCH_SIZE=500 một lần để tự nhóm/phân trang lại theo card ở FE).
+  if (pageSize > 100) {
+    const data = await apiGetAllPages<ApiViolationLog>(
+      (p, ps) => `/api/violation-logs${buildQueryParams({ page: p, pageSize: ps })}`,
+    );
+    return { items: data, pagination: { page: 1, pageSize: data.length || 1, totalItems: data.length, totalPages: 1 } };
+  }
   const { data, pagination } = await apiGetPaginated<ApiViolationLog[]>(
     `/api/violation-logs${buildQueryParams({ page, pageSize })}`,
   );
@@ -300,7 +429,7 @@ export async function fetchParticipationById(id: string): Promise<ApiExamPartici
   }
 }
 
-export { updateParticipationStatus, disqualifyParticipation };
+export { updateParticipationStatus, disqualifyParticipation, voidExamParticipation };
 
 // ─── Unused exports giữ lại để không break imports ────────────────────────
 

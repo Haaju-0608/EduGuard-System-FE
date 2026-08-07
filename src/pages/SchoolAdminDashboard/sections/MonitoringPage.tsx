@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { FiActivity, FiCamera, FiClock, FiRefreshCw, FiUsers, FiVideo } from 'react-icons/fi';
+import { FiActivity, FiCamera, FiClock, FiRefreshCw, FiStopCircle, FiUsers, FiVideo } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchAttendanceSessions } from '../../../services/lecturerApi';
+import { endAttendanceSession, fetchAttendanceSessions } from '../../../services/lecturerApi';
 import { fetchExamSlots } from '../../../services/schoolAdminApi';
 import { useAuth } from '../../../contexts/AuthContext';
+import { useToast } from '../../../contexts/ToastContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
 import type { ApiAttendanceSession } from '../../../types/api';
@@ -19,12 +20,17 @@ interface ResourceChangedPayload {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  // BE trả nguyên tên enum C# qua JsonStringEnumConverter — SessionStatus là "InProgress"/
+  // "Completed"/"Cancelled" (PascalCase), ExamSlotStatus tương tự — không khớp chuỗi nào ở đây
+  // trước đây (chỉ check "active"/"ongoing"/"closed"...) nên rơi về hiện thẳng text thô.
   const s = status?.toLowerCase() ?? '';
   const config =
-    s === 'active' || s === 'open' || s === 'ongoing'
+    s === 'active' || s === 'open' || s === 'ongoing' || s === 'inprogress'
       ? { label: 'Live', className: 'text-green bg-green/10 border-green/25 animate-pulse' }
       : s === 'closed' || s === 'completed' || s === 'ended'
       ? { label: 'Ended', className: 'text-muted bg-white/5 border-border' }
+      : s === 'cancelled' || s === 'canceled'
+      ? { label: 'Cancelled', className: 'text-red bg-red/10 border-red/25' }
       : { label: status ?? 'Unknown', className: 'text-gold bg-gold/10 border-gold/25' };
   return (
     <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${config.className}`}>
@@ -42,16 +48,41 @@ function formatDateTime(iso: string | null | undefined) {
 
 export default function MonitoringPage() {
   const { user } = useAuth();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
+  const [endingId, setEndingId] = useState<string | null>(null);
 
   const { data: attendanceRes, loading: loadingA, reload: reloadA } = useAsyncData(
-    () => fetchAttendanceSessions({ page: 1, pageSize: 50 }),
+    // pageSize lớn — fetchAttendanceSessions tự gộp nhiều trang, đảm bảo thấy hết session kể cả
+    // khi vượt quá 1 trang, tránh bỏ sót session "kẹt" cần đóng tay.
+    () => fetchAttendanceSessions({ page: 1, pageSize: 1000 }),
     [],
   );
   const { data: examRes, loading: loadingE, reload: reloadE } = useAsyncData(
     () => fetchExamSlots({ page: 1, pageSize: 50 }),
     [],
   );
+
+  // SchoolAdmin không bị BE giới hạn theo chủ lớp/proctor (EnsureSessionAccessAsync chỉ chặn role
+  // Lecturer) — dùng chỗ này để đóng hộ các session "kẹt" InProgress mà lecturer sở hữu không tự
+  // đóng được (session do người khác mở cho lớp họ không quản lý).
+  const handleEndSession = async (session: ApiAttendanceSession) => {
+    setEndingId(session.id);
+    try {
+      const exam = session.examSlotId ? examRes?.items.find((e) => e.id === session.examSlotId) : null;
+      const examEndTime = exam?.endTime ?? null;
+      const endTime = examEndTime && new Date(examEndTime).getTime() < Date.now()
+        ? examEndTime
+        : new Date().toISOString();
+      await endAttendanceSession(session.id, endTime);
+      toast.success('Session ended', 'Closed successfully.');
+      reloadA();
+    } catch (err) {
+      toast.error('Failed to close session', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setEndingId(null);
+    }
+  };
 
   // Realtime: tự refresh khi BE báo có attendance session/exam slot/record mới trong institution
   const institutionId = user?.institutionId ?? null;
@@ -66,9 +97,19 @@ export default function MonitoringPage() {
   const attendanceSessions: ApiAttendanceSession[] = attendanceRes?.items ?? [];
   const examSlots: ExamSlot[] = examRes?.items ?? [];
 
-  const liveSessions = attendanceSessions.filter(
-    (s) => !s.endTime && s.status?.toLowerCase() !== 'closed',
-  ).length;
+  const isOpenStatus = (s: ApiAttendanceSession) =>
+    s.status?.toLowerCase() !== 'completed' && s.status?.toLowerCase() !== 'cancelled';
+
+  // Session chưa đóng (Live/kẹt InProgress) luôn nổi lên đầu — với 22+ session, cuộn tay tìm đúng
+  // cái cần đóng giữa 1 đống "Ended" là bất khả thi. Trong mỗi nhóm, mới nhất lên trước.
+  const sortedAttendanceSessions = [...attendanceSessions].sort((a, b) => {
+    const aOpen = isOpenStatus(a);
+    const bOpen = isOpenStatus(b);
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
+    return new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
+  });
+
+  const liveSessions = attendanceSessions.filter(isOpenStatus).length;
   const liveExams = examSlots.filter((e) => e.status === 'ongoing').length;
 
   function handleReload() {
@@ -152,13 +193,30 @@ export default function MonitoringPage() {
             <div className="py-16 text-center text-muted text-sm">No attendance sessions found.</div>
           ) : (
             <div className="divide-y divide-border">
-              {attendanceSessions.map((session) => (
+              {sortedAttendanceSessions.map((session) => {
+                // session.class có courseName/courseCode (đúng field thật của ApiClass — trước đây
+                // đọc nhầm ".name" không tồn tại nên luôn rơi về hiện thẳng UUID thô).
+                const cls = session.class;
+                const exam = session.examSlotId ? examSlots.find((e) => e.id === session.examSlotId) : null;
+                return (
                 <div key={session.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/40 transition-colors">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${!session.endTime ? 'bg-green animate-pulse' : 'bg-muted'}`} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-white-soft/90 font-medium truncate">
-                      {(session.class as { name?: string } | undefined)?.name ?? session.classId.slice(0, 12)}
-                    </p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {cls?.courseCode && (
+                        <span className="text-[10px] font-mono font-bold text-muted bg-navy border border-border px-1.5 py-0.5 rounded shrink-0">
+                          {cls.courseCode}
+                        </span>
+                      )}
+                      <p className="text-sm text-white-soft/90 font-medium truncate">
+                        {cls?.courseName ?? session.classId.slice(0, 12)}
+                      </p>
+                      {exam && (
+                        <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full shrink-0">
+                          📝 {exam.examName}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[11px] text-muted mt-0.5 flex items-center gap-2">
                       <FiClock className="text-[10px]" />
                       Started: {formatDateTime(session.startTime)}
@@ -168,8 +226,19 @@ export default function MonitoringPage() {
                     </p>
                   </div>
                   <StatusBadge status={session.status ?? (session.endTime ? 'Ended' : 'Active')} />
+                  {session.status?.toLowerCase() !== 'completed' && session.status?.toLowerCase() !== 'cancelled' && (
+                    <button
+                      onClick={() => void handleEndSession(session)}
+                      disabled={endingId === session.id}
+                      title="Close this session — use this for sessions stuck open that the lecturer can't close themselves"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red/30 text-red text-xs font-semibold cursor-pointer hover:bg-red/10 transition-colors disabled:opacity-40 bg-transparent shrink-0"
+                    >
+                      <FiStopCircle className="text-xs" /> {endingId === session.id ? 'Ending…' : 'End'}
+                    </button>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

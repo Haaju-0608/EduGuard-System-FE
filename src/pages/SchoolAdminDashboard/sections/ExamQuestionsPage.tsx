@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiArrowLeft, FiEdit2, FiImage, FiMusic, FiPlus, FiTrash2, FiX } from 'react-icons/fi';
+import { FiArrowLeft, FiEdit2, FiImage, FiPlus, FiTrash2, FiX } from 'react-icons/fi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -30,6 +30,10 @@ const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'Essay', label: 'Essay (manual grading)' },
 ];
 
+// Chỉ MCQ/Reading còn cho chọn khi tạo/sửa câu hỏi — Listening/Essay bị bỏ khỏi bộ chọn theo yêu cầu,
+// nhưng vẫn giữ trong QUESTION_TYPES để câu hỏi cũ (nếu có) vẫn hiển thị đúng label/chấm điểm.
+const SELECTABLE_QUESTION_TYPES = QUESTION_TYPES.filter((t) => t.value === 'MCQ' || t.value === 'Reading');
+
 interface EditableOption {
   /** id thật từ BE nếu đã tồn tại, id tạm (client-side) nếu mới thêm chưa lưu */
   id: string;
@@ -41,6 +45,8 @@ interface EditableOption {
 
 const MIN_OPTIONS = 2;
 const MAX_OPTIONS = 8;
+/** Đề thi dùng thang điểm 10 — tổng Max Points của mọi câu hỏi phải bằng đúng 10. */
+const TOTAL_POINTS_SCALE = 10;
 
 function letter(i: number) { return String.fromCharCode(65 + i); }
 function tempId() { return `new_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`; }
@@ -61,18 +67,23 @@ interface ModalProps {
   examId: string;
   displayOrder: number;
   initial?: ApiExamQuestion;
+  /** Tổng điểm của các câu hỏi KHÁC (không tính câu đang sửa) — dùng để tính điểm tối đa còn lại
+   *  cho câu hỏi này, đảm bảo tổng toàn bài không vượt quá TOTAL_POINTS_SCALE. */
+  otherQuestionsPoints: number;
   onClose: () => void;
   onSaved: () => void;
 }
 
-function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: ModalProps) {
+function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, onClose, onSaved }: ModalProps) {
   const toast = useToast();
   const [questionType, setQuestionType] = useState<QuestionType>(() => {
     const match = QUESTION_TYPES.find((t) => t.value.toLowerCase() === initial?.questionType.toLowerCase());
     return match?.value ?? 'MCQ';
   });
   const [text, setText] = useState(initial?.questionContent ?? '');
-  const [points, setPoints] = useState(initial?.points ?? 1);
+  const remainingPoints = Math.max(0, TOTAL_POINTS_SCALE - otherQuestionsPoints);
+  // Gợi ý sẵn đúng số điểm còn thiếu để đạt tổng 10 — admin chỉnh giảm nếu còn định thêm câu khác.
+  const [points, setPoints] = useState(initial?.points ?? remainingPoints);
   const [imageUrl, setImageUrl] = useState(initial?.imageUrl ?? '');
   const [imageError, setImageError] = useState(false);
   const [audioUrl, setAudioUrl] = useState(initial?.audioUrl ?? '');
@@ -114,6 +125,10 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
       if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
     }
     if (points < 0) { toast.warning('Invalid', 'Points must be 0 or more.'); return; }
+    if (points > remainingPoints) {
+      toast.warning('Invalid', `Max Points cannot exceed ${remainingPoints} — the exam uses a 10-point scale and other questions already total ${otherQuestionsPoints}.`);
+      return;
+    }
 
     setSaving(true);
     try {
@@ -192,7 +207,7 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question Type</label>
             <div className="grid grid-cols-2 gap-2">
-              {QUESTION_TYPES.map(({ value, label }) => (
+              {SELECTABLE_QUESTION_TYPES.map(({ value, label }) => (
                 <button
                   key={value}
                   type="button"
@@ -234,11 +249,15 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
             <input
               type="number"
               min={0}
+              max={remainingPoints}
               step="0.5"
               value={points}
               onChange={(e) => setPoints(Number(e.target.value))}
               className="w-32 bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
+            <p className={`mt-1.5 text-[11px] ${points > remainingPoints ? 'text-red' : 'text-muted'}`}>
+              {remainingPoints} point{remainingPoints !== 1 ? 's' : ''} remaining out of {TOTAL_POINTS_SCALE} (other questions total {otherQuestionsPoints}).
+            </p>
           </div>
 
           {/* Image URL */}
@@ -266,26 +285,6 @@ function QuestionModal({ examId, displayOrder, initial, onClose, onSaved }: Moda
             )}
             {imageUrl.trim() && imageError && (
               <p className="mt-2 text-xs text-red">Could not load image from this URL.</p>
-            )}
-          </div>
-
-          {/* Audio URL */}
-          <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-              Audio URL <span className="normal-case font-normal">(optional — for Listening questions; paste a link to an audio file)</span>
-            </label>
-            <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2.5 focus-within:border-blue-bright/50 transition-colors">
-              <FiMusic className="text-muted shrink-0" />
-              <input
-                type="text"
-                value={audioUrl}
-                onChange={(e) => setAudioUrl(e.target.value)}
-                placeholder="https://..."
-                className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
-              />
-            </div>
-            {audioUrl.trim() && (
-              <audio controls src={audioUrl.trim()} className="mt-2 w-full h-10" />
             )}
           </div>
 
@@ -374,12 +373,18 @@ export default function ExamQuestionsPage() {
     return result.items;
   }, []);
   const slot = slotsData?.find((s) => s.id === examId);
+  // BE (ExamQuestionService.EnsureExamQuestionsCanBeEdited) chỉ cho tạo/sửa/xoá câu hỏi khi exam
+  // slot còn "Scheduled" (chưa tới giờ bắt đầu) — khoá y hệt ở FE để không bấm xong mới thấy lỗi.
+  const isLocked = !!slot && slot.status !== 'scheduled';
 
   const { data, loading, error, reload } = useAsyncData(
     () => (examId ? fetchExamQuestions(examId, { pageSize: 200 }) : Promise.resolve({ items: [] as ApiExamQuestion[], pagination: { page: 1, pageSize: 0, totalItems: 0, totalPages: 0 } })),
     [examId],
   );
   const questions = [...(data?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
+  const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
+  const editingPoints = modal === 'edit' && editing ? editing.points : 0;
+  const otherQuestionsPoints = totalPoints - editingPoints;
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -419,22 +424,38 @@ export default function ExamQuestionsPage() {
               </p>
             )}
           </div>
-          <button
-            onClick={() => { setEditing(null); setModal('create'); }}
-            disabled={!examId}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer shrink-0 disabled:opacity-50"
-          >
-            <FiPlus /> Add Question
-          </button>
+          <div className="flex flex-col items-end gap-3 shrink-0">
+            <button
+              onClick={() => { setEditing(null); setModal('create'); }}
+              disabled={!examId || isLocked}
+              title={isLocked ? 'Questions can only be added before the exam starts.' : undefined}
+              className="flex items-center gap-2 px-4 py-2.5 bg-blue text-white rounded-xl text-sm font-semibold hover:bg-blue/80 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <FiPlus /> Add Question
+            </button>
+            <div className="flex gap-3">
+              <div className="bg-navy-card border border-border rounded-xl px-4 py-2.5 text-sm text-muted">
+                <span className="font-bold text-white-soft">{questions.length}</span> question{questions.length !== 1 ? 's' : ''}
+              </div>
+              <div className={`bg-navy-card border rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                totalPoints === TOTAL_POINTS_SCALE ? 'border-green/30 text-green' : 'border-gold/30 text-gold'
+              }`}>
+                Total: {totalPoints} / {TOTAL_POINTS_SCALE} pts
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Count */}
-      <div className="flex justify-end">
-        <div className="bg-navy-card border border-border rounded-xl px-4 py-2.5 text-sm text-muted">
-          <span className="font-bold text-white-soft">{questions.length}</span> question{questions.length !== 1 ? 's' : ''}
+      {isLocked && (
+        <div className="flex items-center gap-3 bg-gold/5 border border-gold/20 rounded-xl px-4 py-3 text-sm text-gold">
+          <span className="text-lg">🔒</span>
+          <span>
+            This exam has {slot!.status === 'ongoing' ? 'already started' : slot!.status === 'completed' ? 'ended' : 'been cancelled'} —
+            questions can no longer be added, edited, or deleted.
+          </span>
         </div>
-      </div>
+      )}
 
       {/* Question list */}
       {loading ? (
@@ -451,7 +472,9 @@ export default function ExamQuestionsPage() {
       ) : questions.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">📋</p>
-          <p className="text-muted text-sm">No questions yet. Click "Add Question" to get started.</p>
+          <p className="text-muted text-sm">
+            {isLocked ? 'No questions were added before this exam started.' : 'No questions yet. Click "Add Question" to get started.'}
+          </p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -482,14 +505,16 @@ export default function ExamQuestionsPage() {
                     );
                   })()}
                 </div>
-                <div className="flex gap-1.5 shrink-0">
-                  <button onClick={() => { setEditing(q); setModal('edit'); }} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-blue-bright transition-colors cursor-pointer">
-                    <FiEdit2 size={14} />
-                  </button>
-                  <button onClick={() => setDeleteTarget(q)} className="p-1.5 rounded-lg hover:bg-red/10 text-muted hover:text-red transition-colors cursor-pointer">
-                    <FiTrash2 size={14} />
-                  </button>
-                </div>
+                {!isLocked && (
+                  <div className="flex gap-1.5 shrink-0">
+                    <button onClick={() => { setEditing(q); setModal('edit'); }} className="p-1.5 rounded-lg hover:bg-white/5 text-muted hover:text-blue-bright transition-colors cursor-pointer">
+                      <FiEdit2 size={14} />
+                    </button>
+                    <button onClick={() => setDeleteTarget(q)} className="p-1.5 rounded-lg hover:bg-red/10 text-muted hover:text-red transition-colors cursor-pointer">
+                      <FiTrash2 size={14} />
+                    </button>
+                  </div>
+                )}
               </div>
 
               <p className="text-sm text-white-soft font-medium leading-relaxed mb-4">{q.questionContent}</p>
@@ -540,6 +565,7 @@ export default function ExamQuestionsPage() {
           examId={examId}
           displayOrder={questions.length}
           initial={modal === 'edit' && editing ? editing : undefined}
+          otherQuestionsPoints={otherQuestionsPoints}
           onClose={() => { setModal(null); setEditing(null); }}
           onSaved={reload}
         />

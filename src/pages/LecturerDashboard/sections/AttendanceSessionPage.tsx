@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   FiCheckCircle,
   FiClock,
+  FiFolder,
   FiPlay,
   FiRefreshCw,
   FiStopCircle,
@@ -24,7 +25,7 @@ import {
 import {
   deductAttendance,
   fetchClassEnrollmentsWithStudents,
-  fetchSchoolAdminClassesSimple,
+  fetchExamSlots,
   fetchWallet,
   sendAttendanceStartedEmail,
 } from '../../../services/schoolAdminApi';
@@ -32,11 +33,21 @@ import {
   createAttendanceRecord,
   endAttendanceSession,
   fetchActiveAttendanceSession,
+  fetchAttendanceSessionById,
+  fetchMyOpenAttendanceSessions,
   startAttendanceSession,
+  type OpenSessionSummary,
 } from '../../../services/lecturerApi';
 import { useAuth } from '../../../contexts/AuthContext';
-import type { AttendanceRecord, AttendanceSession, AttendanceStatus, LecturerClass } from '../../../types/lecturer';
+import type { AttendanceRecord, AttendanceSession, AttendanceStatus, ExamSlot } from '../../../types/lecturer';
 import type { ApiEnrollment } from '../../../types/api';
+
+// BE (08/08) chặn EndTime > ExamSlot.EndTime cho session gắn examSlotId — nếu bài thi đã hết giờ
+// từ trước, phải gửi đúng giờ kết thúc bài thi làm EndTime thay vì "now" thật (sẽ luôn bị 400).
+function computeEndTime(examEndTime: string | null | undefined): string {
+  if (examEndTime && new Date(examEndTime).getTime() < Date.now()) return examEndTime;
+  return new Date().toISOString();
+}
 
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
   { value: 'present', label: 'Present' },
@@ -107,9 +118,11 @@ function SessionStats({ session }: { session: AttendanceSession }) {
 /** Màn hình phiên điểm danh */
 export default function AttendanceSessionPage() {
   const { user } = useAuth();
-  const [classes, setClasses] = useState<LecturerClass[]>([]);
+  // Điểm danh giờ đi theo BÀI THI (không phải chọn lớp trực tiếp): lecturer chọn 1 exam slot mình
+  // được phân công coi thi (proctor), trang tự suy ra lớp + danh sách sinh viên của bài thi đó.
+  const [exams, setExams] = useState<ExamSlot[]>([]);
   const [session, setSession] = useState<AttendanceSession | null>(null);
-  const [selectedClassId, setSelectedClassId] = useState('');
+  const [selectedExamId, setSelectedExamId] = useState('');
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [filter, setFilter] = useState<AttendanceStatus | 'all'>('all');
@@ -121,6 +134,70 @@ export default function AttendanceSessionPage() {
   const [loadingRoster, setLoadingRoster] = useState(false);
   const [markingId, setMarkingId] = useState<string | null>(null);
 
+  // Toàn bộ session mình từng mở mà quên End — hệ thống không tự đóng theo giờ ca thi, nên các
+  // session "mồ côi" này có thể tồn tại vô thời hạn nếu không dọn tay.
+  const [openSessions, setOpenSessions] = useState<OpenSessionSummary[]>([]);
+  const [loadingOpenSessions, setLoadingOpenSessions] = useState(false);
+  const [endingOpenId, setEndingOpenId] = useState<string | null>(null);
+
+  // Đọc được session hiện tại mới nhất bên trong interval mà không cần restart interval mỗi lần
+  // session đổi (tránh setInterval bị tạo lại liên tục / đọc phải giá trị session cũ).
+  const sessionRef = React.useRef<AttendanceSession | null>(null);
+  useEffect(() => { sessionRef.current = session; }, [session]);
+
+  /** Tải lại danh sách session đang mở, đồng thời TỰ ĐỘNG đóng session nào có bài thi đã hết giờ —
+   *  hệ thống (BE) không tự làm việc này, nên FE chủ động làm mỗi khi trang được load/refresh, và
+   *  định kỳ (xem interval bên dưới) trong lúc trang vẫn đang mở. Không thể đảm bảo đóng được nếu
+   *  không có ai mở trang này cả — trường hợp đó cần BE chạy job nền theo lịch. */
+  const loadOpenSessions = async () => {
+    if (!user?.id) return;
+    setLoadingOpenSessions(true);
+    try {
+      const list = await fetchMyOpenAttendanceSessions(user.id);
+      const now = Date.now();
+      const expired = list.filter((s) => s.examEndTime && new Date(s.examEndTime).getTime() < now);
+
+      if (expired.length > 0) {
+        await Promise.all(expired.map((s) => endAttendanceSession(s.id, computeEndTime(s.examEndTime)).catch(() => undefined)));
+        const expiredIds = new Set(expired.map((s) => s.id));
+        if (sessionRef.current && expiredIds.has(sessionRef.current.id)) {
+          setSession(null);
+          toast.info('Session auto-closed', 'The exam time has ended.');
+        }
+        setOpenSessions(list.filter((s) => !expiredIds.has(s.id)));
+      } else {
+        setOpenSessions(list);
+      }
+    } catch {
+      setOpenSessions([]);
+    } finally {
+      setLoadingOpenSessions(false);
+    }
+  };
+
+  // Kiểm tra định kỳ trong lúc trang đang mở — bắt kịp trường hợp hết giờ thi NGAY khi lecturer
+  // đang xem trang, không cần đợi họ bấm Refresh hay tải lại trang.
+  useEffect(() => {
+    if (!user?.id) return;
+    const interval = setInterval(() => { void loadOpenSessions(); }, 30000);
+    return () => clearInterval(interval);
+  }, [user?.id]);
+
+  const handleEndOpenSession = async (id: string) => {
+    setEndingOpenId(id);
+    try {
+      const target = openSessions.find((s) => s.id === id);
+      await endAttendanceSession(id, computeEndTime(target?.examEndTime));
+      if (session?.id === id) setSession(null);
+      toast.success('Session ended', 'Closed successfully.');
+      await loadOpenSessions();
+    } catch {
+      toast.error('Failed to close session', 'Please try again in a few seconds.');
+    } finally {
+      setEndingOpenId(null);
+    }
+  };
+
   useEffect(() => {
     if (!session) { setRoster([]); return; }
     setLoadingRoster(true);
@@ -130,40 +207,49 @@ export default function AttendanceSessionPage() {
       .finally(() => setLoadingRoster(false));
   }, [session?.id, session?.classId]);
 
-  /** Tải danh sách lớp và phiên điểm danh hiện tại */
+  /** Tải danh sách bài thi mình coi thi (proctor) và phiên điểm danh hiện tại */
   const loadData = async () => {
     setLoading(true);
     try {
-      const [classData, sessionData] = await Promise.all([
-        fetchSchoolAdminClassesSimple(),
+      const [sessionData, examSlotsRes] = await Promise.all([
         fetchActiveAttendanceSession().catch(() => null),
+        fetchExamSlots({ page: 1, pageSize: 100 }).catch(() => ({ items: [] as ExamSlot[], pagination: undefined })),
       ]);
-      setClasses(classData.filter((c) => c.status === 'active'));
+      // Chỉ hiện bài thi mình được phân công proctor, ĐANG Ongoing — BE (08/08) giờ chặn cứng
+      // không cho mở session điểm danh nếu giờ hiện tại chưa nằm trong [ExamSlot.StartTime,
+      // ExamSlot.EndTime], nên bài "Scheduled" (chưa tới giờ) chọn vào cũng chắc chắn bị từ chối
+      // lúc bấm Start — ẩn hẳn khỏi dropdown thay vì để bấm xong mới báo lỗi.
+      const myExams = examSlotsRes.items.filter(
+        (e) => e.proctorId === user?.id && e.status === 'ongoing',
+      );
+      setExams(myExams);
       setSession(sessionData);
-      if (sessionData) setSelectedClassId(sessionData.classId);
-      else if (classData.length > 0) setSelectedClassId(classData[0].id);
+      if (sessionData) setSelectedExamId(sessionData.examSlotId ?? '');
+      else if (myExams.length > 0) setSelectedExamId(myExams[0].id);
     } catch {
-      // classes failed to load — page still renders empty state
+      // exams failed to load — page still renders empty state
     } finally {
       setLoading(false);
     }
+    void loadOpenSessions();
   };
 
   useEffect(() => { loadData(); }, []);
 
-  /** Mở phiên điểm danh mới + deduct wallet nếu có institutionId */
+  /** Mở phiên điểm danh mới cho bài thi đã chọn + deduct wallet nếu có institutionId */
   const handleStartSession = async () => {
-    if (!selectedClassId) {
-      toast.warning('No class selected', 'Please select a course before starting attendance.');
+    const exam = exams.find((e) => e.id === selectedExamId);
+    if (!exam) {
+      toast.warning('No exam selected', 'Please select an exam before starting attendance.');
       return;
     }
     setActionLoading(true);
     try {
-      const newSession = await startAttendanceSession(selectedClassId);
+      const newSession = await startAttendanceSession(exam.classId, exam.id);
       setSession(newSession);
-      const cls = classes.find((c) => c.id === selectedClassId);
-      toast.success('Attendance started', cls ? `${cls.code} — ${cls.name}` : 'Attendance session opened.');
-      void notifyStudentsAttendanceStarted(selectedClassId, cls?.name ?? 'your class');
+      toast.success('Attendance started', `${exam.examName} — ${exam.classCode} ${exam.className}`);
+      void notifyStudentsAttendanceStarted(exam.classId, exam.className);
+      void loadOpenSessions();
 
       // Deduct wallet credits nếu institution có wallet
       if (user?.institutionId) {
@@ -172,15 +258,18 @@ export default function AttendanceSessionPage() {
           await deductAttendance({
             walletId: wallet.id,
             attendanceSessionId: newSession.id,
-            studentCount: newSession.totalStudents || cls?.studentCount || 0,
+            studentCount: newSession.totalStudents || 0,
           });
         } catch {
           // Không block UI nếu deduct thất bại
           toast.warning('Wallet', 'Could not deduct attendance credits from wallet.');
         }
       }
-    } catch {
-      toast.error('Failed to open session', 'Please try again in a few seconds.');
+    } catch (err) {
+      // Lecturer chỉ coi thi (proctor) nhưng không sở hữu lớp (không phải lecturerId của Class) sẽ
+      // bị BE từ chối ở đây ("You can only open sessions for your own classes.") — hạn chế phía BE,
+      // không phải bug FE, hiện thẳng message thật để biết chính xác lý do thay vì "try again" chung chung.
+      toast.error('Failed to open session', err instanceof Error ? err.message : 'Please try again in a few seconds.');
     } finally {
       setActionLoading(false);
     }
@@ -191,9 +280,10 @@ export default function AttendanceSessionPage() {
     if (!session) return;
     setActionLoading(true);
     try {
-      await endAttendanceSession(session.id);
+      await endAttendanceSession(session.id, computeEndTime(session.examEndTime));
       setSession(null);
       toast.info('Session ended', 'Attendance data has been saved.');
+      void loadOpenSessions();
     } catch {
       toast.error('Failed to close session', 'Please try again in a few seconds.');
     } finally {
@@ -207,7 +297,10 @@ export default function AttendanceSessionPage() {
     setMarkingId(studentId);
     try {
       await createAttendanceRecord(session.id, studentId, status);
-      const refreshed = await fetchActiveAttendanceSession(session.classId);
+      // Refresh đúng session này theo ID — không dò lại "active session của classId", vì nếu có
+      // nhiều session cùng mở cho 1 lớp (quên End Session ở lần trước), dò theo classId có thể
+      // trả về session KHÁC với session đang hiển thị, khiến record vừa tạo "biến mất" trên UI.
+      const refreshed = await fetchAttendanceSessionById(session.id);
       setSession(refreshed);
       toast.success('Marked', `Attendance recorded as ${status}.`);
     } catch (err) {
@@ -242,7 +335,7 @@ export default function AttendanceSessionPage() {
       <PageHeader
         eyebrow="Attendance Session"
         title="Attendance Session"
-        subtitle="Open attendance sessions for classes and track student presence in real time."
+        subtitle="Open attendance sessions for exams you're proctoring and track student presence in real time."
         actions={
           <PrimaryButton variant="ghost" onClick={loadData} disabled={loading}>
             <FiRefreshCw className={`text-sm ${loading ? 'animate-spin' : ''}`} />
@@ -255,31 +348,39 @@ export default function AttendanceSessionPage() {
         <SectionTitle
           icon={<FiUsers className="text-green" />}
           title="Session Control"
-          subtitle="Select course and start attendance"
+          subtitle="Select an exam you're proctoring and start attendance"
         />
 
-        {classes.length === 0 && !loading ? (
+        {exams.length === 0 && !loading ? (
           <div className="flex items-center gap-3 bg-gold/5 border border-gold/20 rounded-xl px-4 py-3 text-sm text-gold">
             <span className="text-lg">⚠️</span>
-            <span>No classes are assigned to your account. Please contact your administrator to link your lecturer profile to an institution.</span>
+            <span>You are not assigned as proctor for any currently ongoing exam. Attendance can only be opened while the exam is in progress.</span>
           </div>
         ) : (
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-end">
             <div className="flex-1 w-full">
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Course</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-widest mb-2">Exam</label>
               <CustomSelect
-                value={selectedClassId}
-                onChange={setSelectedClassId}
-                disabled={!!session || classes.length === 0}
-                options={classes.length === 0
-                  ? [{value:'', label:'— No classes available —'}]
-                  : classes.map((c) => ({value:c.id, label:`${c.code} — ${c.name} · Room ${c.room}`}))
+                value={selectedExamId}
+                onChange={setSelectedExamId}
+                disabled={!!session || exams.length === 0}
+                options={exams.length === 0
+                  ? [{value:'', label:'— No exams available —'}]
+                  : exams.map((e) => ({
+                      value: e.id,
+                      label: `${e.examName} — ${e.classCode} ${e.className} (Ongoing)`,
+                    }))
                 }
               />
+              {session && (
+                <p className="text-[11px] text-muted mt-1.5">
+                  Locked while a session is active — click "End Session" to switch to another exam.
+                </p>
+              )}
             </div>
 
             {!session ? (
-              <PrimaryButton variant="success" onClick={handleStartSession} disabled={actionLoading || !selectedClassId || classes.length === 0}>
+              <PrimaryButton variant="success" onClick={handleStartSession} disabled={actionLoading || !selectedExamId || exams.length === 0}>
                 <FiPlay /> {actionLoading ? 'Starting...' : 'Start Attendance Session'}
               </PrimaryButton>
             ) : (
@@ -298,6 +399,11 @@ export default function AttendanceSessionPage() {
               </span>
               <span className="course-code-badge text-xs">{session.classCode}</span>
               <span className="text-sm text-white-soft font-semibold">{session.className}</span>
+              {session.examName && (
+                <span className="text-xs font-semibold text-gold bg-gold/10 border border-gold/25 px-2.5 py-1 rounded-full">
+                  📝 {session.examName}
+                </span>
+              )}
               <span className="text-xs text-muted">📍 Room {session.room} · 🕐 {session.startTime}</span>
             </div>
             <SessionStats session={session} />
@@ -354,6 +460,54 @@ export default function AttendanceSessionPage() {
           </div>
         )}
       </UniCard>
+
+      {/* Hệ thống không tự đóng session theo giờ ca thi hết hạn — panel này cho thấy hết mọi
+          session mình từng mở mà quên End, để dọn tay thay vì chỉ thấy được 1 cái "mới nhất". */}
+      {!loadingOpenSessions && openSessions.length > 0 && (
+        <UniCard accent="gold" hover={false} className="!p-6">
+          <SectionTitle
+            icon={<FiFolder className="text-gold" />}
+            title={`Open Sessions (${openSessions.length})`}
+            subtitle="Sessions linked to an exam auto-close once the exam ends while this page is open. Sessions without a linked exam (or closed while you were away) need ending manually."
+          />
+          <div className="space-y-2 mt-4">
+            {openSessions.map((s) => {
+              const isCurrent = s.id === session?.id;
+              const isEnding = endingOpenId === s.id;
+              return (
+                <div key={s.id} className="roster-item">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="course-code-badge text-xs">{s.classCode}</span>
+                      <span className="text-sm font-semibold text-white-soft">{s.className}</span>
+                      {s.examName && (
+                        <span className="text-[10px] font-semibold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full">
+                          📝 {s.examName}
+                        </span>
+                      )}
+                      {isCurrent && (
+                        <span className="text-[10px] font-semibold text-green bg-green/10 border border-green/25 px-2 py-0.5 rounded-full">
+                          Currently shown above
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted mt-0.5">
+                      Opened {new Date(s.startTime).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => void handleEndOpenSession(s.id)}
+                    disabled={isEnding}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red/30 text-red text-xs font-semibold cursor-pointer hover:bg-red/10 transition-colors disabled:opacity-40 bg-transparent shrink-0"
+                  >
+                    <FiStopCircle className="text-xs" /> {isEnding ? 'Ending...' : 'End'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </UniCard>
+      )}
 
       {session && (
         <>
@@ -443,7 +597,7 @@ export default function AttendanceSessionPage() {
         <EmptyState
           icon="📋"
           title="No Active Attendance Session"
-          description='Select a course above and click "Start Attendance Session" to begin.'
+          description='Select an exam above and click "Start Attendance Session" to begin.'
         />
       )}
     </PageShell>

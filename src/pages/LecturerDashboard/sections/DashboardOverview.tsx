@@ -128,7 +128,7 @@ export default function DashboardOverview() {
         return { mode: 'schoolAdmin' as const, stats };
       }
       const [rawKpis, violationLogs] = await Promise.all([
-        fetchLecturerKpis(),
+        fetchLecturerKpis(user?.id),
         fetchViolationLogs({ pageSize: 30 }),
       ]);
 

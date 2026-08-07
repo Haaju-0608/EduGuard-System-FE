@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX,
+  FiChevronLeft, FiChevronRight, FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
@@ -13,8 +13,19 @@ import {
   deleteUser,
   fetchUsers,
   updateUser,
+  type FetchUsersParams,
 } from '../../../services/schoolAdminApi';
 import type { ApiInstitution, ApiUser } from '../../../types/api';
+
+const PAGE_SIZE = 20;
+
+const SORT_OPTIONS: { value: string; label: string }[] = [
+  { value: '',          label: 'Newest First' },
+  { value: 'fullname',  label: 'Name (A–Z)' },
+  { value: '-fullname', label: 'Name (Z–A)' },
+  { value: 'email',     label: 'Email (A–Z)' },
+  { value: '-email',    label: 'Email (Z–A)' },
+];
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -100,8 +111,9 @@ function UserFormModal({
         toast.success('Created', 'User created successfully.');
       }
       onSaved(); onClose();
-    } catch {
-      toast.error('Error', `Failed to ${isEdit ? 'update' : 'create'} user.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} user.`;
+      toast.error('Error', msg);
     } finally { setSaving(false); }
   };
 
@@ -189,41 +201,75 @@ function UserFormModal({
 export default function UserManagementPage() {
   const toast = useToast();
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState('all');
   const [institutionFilter, setInstitutionFilter] = useState('all');
+  const [sort, setSort] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<ApiUser | null>(null);
 
+  // Debounce ô search 350ms trước khi gọi BE — gõ liên tục không nên bắn 1 request/ký tự.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Đổi search/sort/filter → luôn quay lại trang 1, tránh đứng ở trang 5 mà kết quả lọc mới chỉ có 2 trang.
+  useEffect(() => { setPage(1); }, [debouncedSearch, sort, roleFilter, institutionFilter]);
+
+  // BE (UserRepository.GetAllAsync) chưa hỗ trợ filter theo role/institution qua query param, chỉ có
+  // search + sort + pagination thật. Nên khi có filter role/institution, phải tải hết danh sách khớp
+  // search (fetchUsers pageSize > 100 tự động gộp nhiều trang) rồi tự phân trang lại ở FE; khi KHÔNG
+  // filter gì (trường hợp phổ biến nhất — toàn bộ user) thì dùng phân trang thật từ BE, không tải dư.
+  const hasClientFilter = roleFilter !== 'all' || institutionFilter !== 'all';
+
+  const sortParam = (sort || undefined) as FetchUsersParams['sort'];
+
   const { data, loading, reload } = useAsyncData(
-    () => fetchUsers({ page: 1, pageSize: 200 }),
-    [],
+    () => fetchUsers(
+      hasClientFilter
+        ? { pageSize: 1000, search: debouncedSearch || undefined, sort: sortParam }
+        : { page, pageSize: PAGE_SIZE, search: debouncedSearch || undefined, sort: sortParam },
+    ),
+    [page, debouncedSearch, sort, hasClientFilter],
   );
   const { data: instData } = useAsyncData(
     () => fetchInstitutions({ page: 1, pageSize: 100 }),
     [],
   );
-  const users: ApiUser[] = data?.items ?? [];
+  const fetchedUsers: ApiUser[] = data?.items ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
   const institutionNameById = new Map(institutions.map((inst) => [inst.id, inst.name ?? inst.id]));
 
-  // Ẩn SuperAdmin khỏi filter — không phải role có thể tạo/gán qua UI này (chỉ tồn tại do seed
-  // sẵn ở BE), hiện ra dễ gây hiểu lầm là tạo/lọc được role này qua đây.
-  const roles = ['all', ...Array.from(new Set(users.map((u) => u.role))).filter((r) => r?.toLowerCase() !== 'superadmin').sort()];
+  // Danh sách cố định (không suy ra từ trang dữ liệu hiện tại nữa — với phân trang thật, trang đang
+  // xem có thể chỉ chứa 1-2 role, khiến dropdown "biến mất" role không có mặt trên trang đó). Ẩn
+  // SuperAdmin — không phải role có thể tạo/gán qua UI này (chỉ tồn tại do seed sẵn ở BE).
+  const roles = ['all', 'Student', 'Lecturer', 'SchoolAdmin'];
   const institutionOptions = [
     { value: 'all', label: 'All Institutions' },
     ...institutions.map((inst) => ({ value: inst.id, label: inst.name ?? inst.id })),
   ];
 
-  const filtered = users.filter((u) => {
-    const matchRole = roleFilter === 'all' || u.role === roleFilter;
-    const matchInstitution = institutionFilter === 'all' || u.institutionId === institutionFilter;
-    const q = search.toLowerCase();
-    const matchSearch = !q || (u.fullName ?? '').toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.studentCode ?? '').toLowerCase().includes(q);
-    return matchRole && matchInstitution && matchSearch;
-  });
+  const clientFiltered = hasClientFilter
+    ? fetchedUsers.filter((u) => {
+        const matchRole = roleFilter === 'all' || u.role === roleFilter;
+        const matchInstitution = institutionFilter === 'all' || u.institutionId === institutionFilter;
+        return matchRole && matchInstitution;
+      })
+    : fetchedUsers;
+
+  const totalItems = hasClientFilter ? clientFiltered.length : (data?.pagination.totalItems ?? fetchedUsers.length);
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+  // Trang hiện tại có thể vượt quá totalPages mới (vd vừa lọc còn ít kết quả hơn) — kẹp lại để không
+  // render 1 trang trống trong lúc effect reset page về 1 chưa kịp chạy.
+  const safePage = Math.min(page, totalPages);
+  const filtered = hasClientFilter
+    ? clientFiltered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE)
+    : fetchedUsers;
 
   const confirmDeleteUser = async () => {
     if (!deleteUserTarget) return;
@@ -257,12 +303,11 @@ export default function UserManagementPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[
-          { label: 'Total Users', value: users.length, color: 'text-blue-bright' },
-          { label: 'Students', value: users.filter((u) => u.role?.toLowerCase() === 'student').length, color: 'text-cyan' },
-          { label: 'Lecturers', value: users.filter((u) => ['lecturer','instructor'].includes(u.role?.toLowerCase())).length, color: 'text-gold' },
-          { label: 'Active', value: users.filter((u) => u.status?.toLowerCase() === 'active').length, color: 'text-green' },
+          { label: 'Total Users', value: totalItems, color: 'text-blue-bright' },
+          { label: 'On This Page', value: filtered.length, color: 'text-cyan' },
+          { label: 'Page', value: `${safePage} / ${totalPages}`, color: 'text-gold' },
         ].map((k) => (
           <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4 text-center">
             <p className={`font-syne font-extrabold text-2xl ${k.color}`}>{loading ? '…' : k.value}</p>
@@ -287,6 +332,11 @@ export default function UserManagementPage() {
           onChange={setInstitutionFilter}
           options={institutionOptions}
         />
+        <CustomSelect
+          value={sort}
+          onChange={setSort}
+          options={SORT_OPTIONS}
+        />
         <button onClick={reload} disabled={loading} className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent disabled:opacity-50">
           <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
@@ -296,7 +346,7 @@ export default function UserManagementPage() {
       <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <p className="text-sm font-bold text-white-soft">Users</p>
-          <span className="text-xs text-muted">{filtered.length} of {users.length}</span>
+          <span className="text-xs text-muted">{filtered.length} of {totalItems}</span>
         </div>
         {loading ? (
           <div className="divide-y divide-border">
@@ -336,6 +386,28 @@ export default function UserManagementPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border">
+            <p className="text-xs text-muted">Page {safePage} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronLeft />
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronRight />
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -10,9 +10,14 @@ import {
   FiUser,
 } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
-import { fetchMyApprovedBiometricPhoto } from '../../../services/schoolAdminApi';
+import {
+  createExamParticipation,
+  fetchExamParticipations,
+  fetchMyApprovedBiometricPhoto,
+  joinExamParticipation,
+} from '../../../services/schoolAdminApi';
 import { MediaPipeFaceLandmarkerService } from '../../../ai/services/MediaPipeFaceLandmarkerService';
-import { computeFaceSimilarity, extractLandmarksFromImage, type LandmarkSet } from '../../../ai/services/FaceVerificationService';
+import { captureLiveFrame, computeFaceSimilarity, extractLandmarksFromImage, type LandmarkSet } from '../../../ai/services/FaceVerificationService';
 
 // Điểm tương đồng tối thiểu (0-1) để tính 1 frame là khớp mặt — tăng từ 0.55 lên 0.72 sau khi phát
 // hiện ngưỡng cũ + thuật toán cũ (10 điểm mốc) để lọt người khác mặt vẫn "Identity Verified" được.
@@ -24,7 +29,10 @@ const VERIFY_FRAMES_NEEDED = 60;
 // Quá thời gian này mà chưa verify được thì dừng lại báo lỗi, tránh treo "Verifying…" vô thời hạn
 const SCAN_TIMEOUT_MS = 25_000;
 
-type VerifyStep = 'loading' | 'no-biometric' | 'idle' | 'starting' | 'scanning' | 'verified' | 'failed';
+// 'confirming' = đã qua bước quét local (MediaPipe, chỉ để hiện thanh confidence mượt trên UI),
+// đang chờ BE + AI service thật xác nhận khuôn mặt (POST /join kèm liveCapture) — đây mới là bước
+// quyết định cuối cùng, không phải điểm similarity tính tay ở trên trình duyệt.
+type VerifyStep = 'loading' | 'no-biometric' | 'idle' | 'starting' | 'scanning' | 'confirming' | 'verified' | 'failed';
 
 export default function StudentExamVerifyPage() {
   const { examId } = useParams<{ examId: string }>();
@@ -36,6 +44,7 @@ export default function StudentExamVerifyPage() {
   const rafRef = useRef<number>(0);
   const refLandmarksRef = useRef<LandmarkSet | null>(null);
   const goodFramesRef = useRef(0);
+  const participationIdRef = useRef<string | null>(null);
 
   const [step, setStep] = useState<VerifyStep>('loading');
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -109,7 +118,58 @@ export default function StudentExamVerifyPage() {
     }
   }, [referencePhotoUrl, hasRefPhoto]);
 
-  // Vòng lặp nhận diện / so sánh khuôn mặt
+  // Lấy participationId để gọi /join — tạo mới nếu chưa có, hoặc tìm lại bản ghi cũ nếu tạo bị từ
+  // chối (thường do đã tồn tại từ lần verify trước đó bị thoát giữa chừng). Cache trong ref để không
+  // tạo trùng participation mỗi lần retry.
+  const ensureParticipationId = useCallback(async (): Promise<string | null> => {
+    if (participationIdRef.current) return participationIdRef.current;
+    if (!examId || !user?.id) return null;
+    try {
+      const p = await createExamParticipation({ examSlotId: examId, studentId: user.id });
+      participationIdRef.current = p.id;
+      return p.id;
+    } catch {
+      try {
+        const { items } = await fetchExamParticipations(examId, { pageSize: 100 });
+        const existing = items.find((p) => p.examSlotId === examId && p.studentId === user.id);
+        if (existing) {
+          participationIdRef.current = existing.id;
+          return existing.id;
+        }
+      } catch { /* bỏ qua */ }
+    }
+    return null;
+  }, [examId, user?.id]);
+
+  // Bước quyết định thật — gọi đúng AI service BE vừa push (POST /exam-participations/{id}/join kèm
+  // liveCapture): quét local (computeFaceSimilarity) ở trên chỉ là ước lượng để hiện thanh confidence
+  // mượt, không phải nguồn xác nhận cuối; đạt ngưỡng local rồi mới chụp 1 frame gửi lên cho BE so với
+  // BiometricData.FaceVector thật sự đã duyệt, BE từ chối thì hiện thẳng lý do thật (vd distance).
+  const confirmWithBackend = useCallback(async () => {
+    setStep('confirming');
+    try {
+      const participationId = await ensureParticipationId();
+      if (!participationId) {
+        setCameraError('Could not start your exam session. Please go back and try again.');
+        setStep('failed');
+        return;
+      }
+      const frame = await captureLiveFrame(videoRef.current);
+      if (!frame) {
+        setCameraError('Could not capture a clear frame from your camera. Please retry.');
+        setStep('failed');
+        return;
+      }
+      await joinExamParticipation(participationId, frame);
+      setStep('verified');
+    } catch (err) {
+      setCameraError(err instanceof Error ? err.message : 'Face verification failed. Please retry.');
+      setStep('failed');
+    }
+  }, [ensureParticipationId]);
+
+  // Vòng lặp nhận diện / so sánh khuôn mặt (local, chỉ để hiện thanh confidence — quyết định thật
+  // nằm ở confirmWithBackend phía trên)
   useEffect(() => {
     if (step !== 'scanning') {
       cancelAnimationFrame(rafRef.current);
@@ -138,7 +198,7 @@ export default function StudentExamVerifyPage() {
         if (score >= SIMILARITY_THRESHOLD) {
           goodFramesRef.current += 1;
           if (goodFramesRef.current >= VERIFY_FRAMES_NEEDED) {
-            setStep('verified');
+            void confirmWithBackend();
             return;
           }
         } else {
@@ -154,7 +214,7 @@ export default function StudentExamVerifyPage() {
 
     rafRef.current = requestAnimationFrame(detect);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [step]);
+  }, [step, confirmWithBackend]);
 
   // Timeout cho bước quét — không verify được trong SCAN_TIMEOUT_MS thì dừng và báo lỗi rõ ràng,
   // thay vì để "Verifying…" treo vô thời hạn khi điểm khớp không bao giờ đạt ngưỡng.
@@ -188,7 +248,7 @@ export default function StudentExamVerifyPage() {
 
   const stepIdx =
     step === 'idle' || step === 'starting' ? 0
-    : step === 'scanning' ? 1
+    : step === 'scanning' || step === 'confirming' ? 1
     : step === 'verified' ? 2
     : 0;
 
@@ -221,14 +281,14 @@ export default function StudentExamVerifyPage() {
             {/* Hiệu ứng phát sáng nền */}
             <div className={`absolute inset-0 rounded-[28px] blur-2xl transition-all duration-700 pointer-events-none ${
               step === 'verified' ? 'bg-green/25'
-              : step === 'scanning' ? 'bg-blue/20'
+              : step === 'scanning' || step === 'confirming' ? 'bg-blue/20'
               : 'bg-transparent'
             }`} />
 
             {/* Khung camera — tỉ lệ 4:5 */}
             <div className={`relative w-full aspect-4/5 rounded-[20px] overflow-hidden border-2 transition-all duration-500 ${
               step === 'verified' ? 'border-green shadow-[0_0_40px_rgba(34,197,94,0.25)]'
-              : step === 'scanning' ? 'border-blue-bright shadow-[0_0_30px_rgba(99,179,237,0.2)]'
+              : step === 'scanning' || step === 'confirming' ? 'border-blue-bright shadow-[0_0_30px_rgba(99,179,237,0.2)]'
               : 'border-border'
             }`}>
               <video
@@ -286,6 +346,14 @@ export default function StudentExamVerifyPage() {
                 </>
               )}
 
+              {/* Đang gửi lên BE cho AI service thật xác nhận — bước quyết định cuối cùng */}
+              {step === 'confirming' && (
+                <div className="absolute inset-0 bg-navy/80 flex flex-col items-center justify-center gap-3">
+                  <div className="w-10 h-10 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+                  <p className="text-sm text-muted">Confirming with AI service…</p>
+                </div>
+              )}
+
               {/* Đã xác minh */}
               {step === 'verified' && (
                 <div className="absolute inset-0 bg-green/10 flex flex-col items-center justify-center gap-3 pointer-events-none">
@@ -305,8 +373,9 @@ export default function StudentExamVerifyPage() {
               )}
             </div>
 
-            {/* Thanh độ tin cậy khớp mặt */}
-            {step === 'scanning' && (
+            {/* Thanh độ tin cậy khớp mặt (local, ước lượng) — giữ hiển thị luôn trong lúc chờ BE
+                confirm, đóng băng ở mức % local cuối cùng đã đạt ngưỡng */}
+            {(step === 'scanning' || step === 'confirming') && (
               <div className="mt-4 space-y-1.5">
                 <div className="flex justify-between text-xs text-muted">
                   <span>{hasRefPhoto ? 'Match confidence' : 'Face detected'}</span>
@@ -360,7 +429,7 @@ export default function StudentExamVerifyPage() {
             {/* Thông báo trạng thái */}
             <div className={`rounded-xl px-4 py-3 border text-sm transition-all ${
               step === 'verified' ? 'bg-green/10 border-green/30 text-green'
-              : step === 'scanning' ? 'bg-blue/10 border-blue-bright/30 text-blue-bright'
+              : step === 'scanning' || step === 'confirming' ? 'bg-blue/10 border-blue-bright/30 text-blue-bright'
               : step === 'failed' ? 'bg-red/10 border-red/30 text-red'
               : step === 'no-biometric' ? 'bg-gold/10 border-gold/30 text-gold'
               : 'bg-navy border-border text-muted'
@@ -374,6 +443,7 @@ export default function StudentExamVerifyPage() {
               {step === 'scanning' && (hasRefPhoto
                 ? 'Look directly at the camera and keep still.'
                 : 'Face detected — hold still to verify.')}
+              {step === 'confirming' && 'Confirming your identity with our AI verification service…'}
               {step === 'verified' && 'Identity verified! You can now start the exam.'}
               {step === 'failed' && (cameraError ?? 'Verification failed. Please retry.')}
             </div>
@@ -450,9 +520,9 @@ export default function StudentExamVerifyPage() {
                 <FiCheck /> Start Exam Now
               </button>
             )}
-            {(step === 'starting' || step === 'scanning') && (
+            {(step === 'starting' || step === 'scanning' || step === 'confirming') && (
               <div className="w-full py-3 rounded-xl border border-border text-muted text-sm text-center opacity-50">
-                {step === 'starting' ? 'Opening camera…' : 'Verifying…'}
+                {step === 'starting' ? 'Opening camera…' : step === 'confirming' ? 'Confirming…' : 'Scanning…'}
               </div>
             )}
           </div>

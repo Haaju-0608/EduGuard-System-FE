@@ -3,14 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import { FiCalendar, FiClock, FiSearch } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchExamParticipations, fetchStudentExamRecords, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import {
+  fetchExamParticipations,
+  fetchMyExamAttendanceStatus,
+  fetchStudentExamRecords,
+  fetchStudentExamSlots,
+  type StudentAttendanceRecord,
+} from '../../../services/schoolAdminApi';
 import { useToast } from '../../../contexts/ToastContext';
 import type { ExamSlot } from '../../../types/lecturer';
 import type { ApiStudentExamRecord, ParticipationStatus } from '../../../types/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-type StudentStatus = 'upcoming' | 'available' | 'completed' | 'missed' | 'submitted' | 'disqualified';
+type StudentStatus = 'upcoming' | 'available' | 'no-attendance' | 'missed' | 'submitted' | 'disqualified';
 
 /** Lấy maxScore đã lưu kèm trong examRecord (JSON) lúc BE chấm điểm — tránh phải gọi thêm API câu hỏi */
 function extractMaxScore(examRecord: string | null): number | null {
@@ -21,7 +27,12 @@ function extractMaxScore(examRecord: string | null): number | null {
   } catch { return null; }
 }
 
-function deriveStudentStatus(slot: ExamSlot, participationStatus: ParticipationStatus | undefined, hasRecord: boolean): StudentStatus {
+function deriveStudentStatus(
+  slot: ExamSlot,
+  participationStatus: ParticipationStatus | undefined,
+  hasRecord: boolean,
+  attendanceStatus: StudentAttendanceRecord['status'] | undefined,
+): StudentStatus {
   // Có StudentExamRecord (đã nộp bài, BE đã chấm) hoặc participation Submitted → coi là đã nộp
   if (hasRecord || participationStatus === 'Submitted') return 'submitted';
   if (participationStatus === 'Disqualified') return 'disqualified';
@@ -30,12 +41,18 @@ function deriveStudentStatus(slot: ExamSlot, participationStatus: ParticipationS
   const start = new Date(slot.startTime).getTime();
   const end = new Date(slot.endTime).getTime();
 
-  if (slot.status === 'completed') return 'completed';
+  // slot.status === 'completed' chỉ nghĩa là giờ thi đã hết, KHÔNG phải sinh viên đã hoàn thành —
+  // không có record/participation nghĩa là họ không thi, phải tính là "missed" (Absent).
+  if (slot.status === 'completed') return 'missed';
   if (slot.status === 'cancelled') return 'missed';
-  if (slot.status === 'ongoing') return 'available';
+
+  // Phải được lecturer điểm danh Present/Late trước mới cho vào thi — đây là gate ở FE, chặn thật
+  // cần BE (ExamWorkflowService.JoinAsync hiện chưa kiểm tra điều kiện này, đã báo Giang).
+  const isCheckedIn = attendanceStatus === 'present' || attendanceStatus === 'late';
+  if (slot.status === 'ongoing') return isCheckedIn ? 'available' : 'no-attendance';
   // scheduled: derive from time
   if (now < start) return 'upcoming';
-  if (now <= end) return 'available';
+  if (now <= end) return isCheckedIn ? 'available' : 'no-attendance';
   return 'missed';
 }
 
@@ -47,12 +64,12 @@ function fmtDT(iso: string) {
 }
 
 const STATUS_CONFIG: Record<StudentStatus, { label: string; cls: string; dot: string }> = {
-  available:    { label: 'Available',    cls: 'text-green bg-green/10 border-green/25',    dot: 'bg-green animate-pulse' },
-  upcoming:     { label: 'Upcoming',     cls: 'text-gold bg-gold/10 border-gold/25',        dot: 'bg-gold' },
-  completed:    { label: 'Completed',    cls: 'text-muted bg-white/5 border-border',        dot: 'bg-muted' },
-  missed:       { label: 'Missed',       cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
-  submitted:    { label: 'Submitted',    cls: 'text-cyan bg-cyan/10 border-cyan/25',        dot: 'bg-cyan' },
-  disqualified: { label: 'Disqualified', cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
+  available:      { label: 'Available',           cls: 'text-green bg-green/10 border-green/25',    dot: 'bg-green animate-pulse' },
+  upcoming:       { label: 'Upcoming',             cls: 'text-gold bg-gold/10 border-gold/25',        dot: 'bg-gold' },
+  'no-attendance': { label: 'Awaiting Attendance', cls: 'text-gold bg-gold/10 border-gold/25',        dot: 'bg-gold animate-pulse' },
+  missed:         { label: 'Absent',               cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
+  submitted:      { label: 'Submitted',            cls: 'text-cyan bg-cyan/10 border-cyan/25',        dot: 'bg-cyan' },
+  disqualified:   { label: 'Disqualified',         cls: 'text-red bg-red/10 border-red/25',           dot: 'bg-red' },
 };
 
 // ─── Page ─────────────────────────────────────────────────────────────────
@@ -67,9 +84,14 @@ export default function StudentExamsPage() {
 
   const { data, loading, error, reload } = useAsyncData(async () => {
     if (!user?.id) {
-      return { slots: [], participations: {} as Record<string, ParticipationStatus>, records: {} as Record<string, ApiStudentExamRecord> };
+      return {
+        slots: [], participations: {} as Record<string, ParticipationStatus>,
+        records: {} as Record<string, ApiStudentExamRecord>,
+        attendance: {} as Record<string, StudentAttendanceRecord['status']>,
+      };
     }
     const slots = await fetchStudentExamSlots(user.id);
+    const attendance = await fetchMyExamAttendanceStatus(user.id).catch(() => ({} as Record<string, StudentAttendanceRecord['status']>));
 
     // StudentExamRecord tồn tại = đã nộp bài và được BE chấm điểm — nguồn xác định "submitted" đáng tin nhất
     const records: Record<string, ApiStudentExamRecord> = {};
@@ -101,12 +123,13 @@ export default function StudentExamsPage() {
       }),
     );
 
-    return { slots, participations, records };
+    return { slots, participations, records, attendance };
   }, [user?.id]);
 
   const slots = data?.slots ?? [];
   const participations = data?.participations ?? {};
   const records = data?.records ?? {};
+  const attendance = data?.attendance ?? {};
 
   const filtered = slots.filter((slot) => {
     const q = search.toLowerCase();
@@ -115,13 +138,20 @@ export default function StudentExamsPage() {
       slot.examName.toLowerCase().includes(q) ||
       slot.classCode.toLowerCase().includes(q) ||
       slot.className.toLowerCase().includes(q);
-    const status = deriveStudentStatus(slot, participations[slot.id], !!records[slot.id]);
+    const status = deriveStudentStatus(slot, participations[slot.id], !!records[slot.id], attendance[slot.id]);
     const matchFilter = filter === 'all' || status === filter;
     return matchSearch && matchFilter;
   });
 
   const handleStart = async (slot: ExamSlot) => {
     if (!user?.id || checkingId) return;
+    // Chặn lại lần nữa ở đây (ngoài việc nút đã disabled) — phòng khi attendance vừa đổi giữa lúc
+    // trang đang mở. Chặn thật vẫn cần BE (JoinAsync chưa kiểm tra điều kiện này).
+    const att = attendance[slot.id];
+    if (att !== 'present' && att !== 'late') {
+      toast.warning('Attendance required', 'You must be marked present by your proctor before starting this exam.');
+      return;
+    }
     setCheckingId(slot.id);
     try {
       if (records[slot.id]) {
@@ -145,12 +175,13 @@ export default function StudentExamsPage() {
     navigate(`/student/exams/${slot.id}/verify`);
   };
 
+  const statusOf = (s: ExamSlot) => deriveStudentStatus(s, participations[s.id], !!records[s.id], attendance[s.id]);
   const counts = {
     total:     slots.length,
-    available: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'available').length,
-    upcoming:  slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'upcoming').length,
-    submitted: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'submitted').length,
-    completed: slots.filter((s) => deriveStudentStatus(s, participations[s.id], !!records[s.id]) === 'completed').length,
+    available: slots.filter((s) => statusOf(s) === 'available').length,
+    upcoming:  slots.filter((s) => statusOf(s) === 'upcoming').length,
+    submitted: slots.filter((s) => statusOf(s) === 'submitted').length,
+    missed:    slots.filter((s) => statusOf(s) === 'missed').length,
   };
 
   return (
@@ -189,17 +220,17 @@ export default function StudentExamsPage() {
           />
         </div>
         <div className="flex gap-2 flex-wrap">
-          {(['all', 'available', 'upcoming', 'submitted', 'completed'] as const).map((s) => (
+          {(['all', 'available', 'no-attendance', 'upcoming', 'submitted', 'missed'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilter(s)}
-              className={`px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-all capitalize ${
+              className={`px-3 py-2 rounded-xl text-xs font-bold border cursor-pointer transition-all ${
                 filter === s
                   ? 'bg-blue text-white border-blue'
                   : 'bg-transparent text-muted border-border hover:border-blue/40'
               }`}
             >
-              {s === 'all' ? 'All' : s.charAt(0).toUpperCase() + s.slice(1)}
+              {s === 'all' ? 'All' : STATUS_CONFIG[s].label}
             </button>
           ))}
         </div>
@@ -227,7 +258,7 @@ export default function StudentExamsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {filtered.map((slot) => {
             const record = records[slot.id];
-            const studentStatus = deriveStudentStatus(slot, participations[slot.id], !!record);
+            const studentStatus = deriveStudentStatus(slot, participations[slot.id], !!record, attendance[slot.id]);
             const cfg = STATUS_CONFIG[studentStatus];
             const canStart = studentStatus === 'available';
             const maxScore = record ? extractMaxScore(record.examRecord) : null;
@@ -277,11 +308,9 @@ export default function StudentExamsPage() {
                             ? 'text-cyan border-cyan/30'
                             : studentStatus === 'disqualified'
                               ? 'text-red border-red/30'
-                              : studentStatus === 'completed'
-                                ? 'text-muted border-border'
-                                : studentStatus === 'missed'
-                                  ? 'text-red border-red/30'
-                                  : 'text-gold border-gold/30'
+                              : studentStatus === 'missed'
+                                ? 'text-red border-red/30'
+                                : 'text-gold border-gold/30'
                         )
                   }`}
                 >
@@ -293,10 +322,10 @@ export default function StudentExamsPage() {
                         ? '✅ Submitted'
                         : studentStatus === 'disqualified'
                           ? '🚫 Disqualified'
-                          : studentStatus === 'completed'
-                            ? '✅ Completed'
-                            : studentStatus === 'missed'
-                              ? '❌ Missed'
+                          : studentStatus === 'missed'
+                            ? '❌ Absent'
+                            : studentStatus === 'no-attendance'
+                              ? '🙋 Waiting for Attendance'
                               : '⏳ Not Started Yet'}
                 </button>
               </div>

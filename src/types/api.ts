@@ -21,7 +21,8 @@ export interface ApiClass {
   institutionId: string | null;
   lecturerId: string;
   courseName: string;
-  courseCode: string;
+  /** BE: string? — có thể null nếu tạo lớp mà bỏ trống Course Code */
+  courseCode: string | null;
   semester: string;
   academicYear: string;
   startDate: string;
@@ -80,8 +81,10 @@ export interface ApiExamSlot {
   status: string;
   createdAt: string;
   updatedAt: string;
-  proctorId?: string;
   lecturer?: { id: string; fullName: string; email: string; studentCode: string | null } | null;
+  /** BE mới thêm — giám thị coi thi riêng cho buổi thi này, khác với lecturer (giảng viên phụ
+   *  trách lớp). null nếu School Admin không chỉ định riêng, mặc định giảng viên lớp sẽ coi thi. */
+  proctor?: { id: string; fullName: string; email: string; studentCode: string | null } | null;
 }
 
 /** Biometric request từ GET /api/biometric-requests */
@@ -130,6 +133,8 @@ export interface ApiTransaction {
 export interface ApiAttendanceSession {
   id: string;
   classId: string;
+  examSlotId: string | null;
+  createdBy: string;
   startTime: string;
   endTime: string | null;
   videoPath: string | null;
@@ -193,6 +198,7 @@ export interface ApiPricingConfig {
   serviceType: string;
   unitPrice: number;
   effectiveDate: string;
+  isActive: boolean;
   createdAt: string;
 }
 

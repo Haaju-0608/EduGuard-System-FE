@@ -224,6 +224,12 @@ function ExamFormModal({
     setClassSearch('');
   }, [target]);
 
+  // Số phút tối đa hợp lệ cho Duration — không được vượt quá khoảng Start → End Time.
+  // Tính lại mỗi lần render nên tự "cập nhật real-time" theo form.startTime/endTime.
+  const windowMinutes = form.startTime && form.endTime && new Date(form.endTime) > new Date(form.startTime)
+    ? Math.floor((new Date(form.endTime).getTime() - new Date(form.startTime).getTime()) / 60000)
+    : null;
+
   const classSearchQuery = classSearch.trim().toLowerCase();
   const filteredClasses = classSearchQuery
     ? classes.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
@@ -243,8 +249,17 @@ function ExamFormModal({
       toast.warning('Required', 'Exam name, start and end time are required.');
       return;
     }
+    // BE (CreateExamSlotDto/UpdateExamSlotDto) giới hạn ExamName tối đa 255 ký tự.
+    if (form.examName.trim().length > 255) {
+      toast.warning('Invalid', 'Exam name must be 255 characters or fewer.');
+      return;
+    }
     if (new Date(form.endTime) <= new Date(form.startTime)) {
       toast.warning('Invalid', 'End time must be after start time.');
+      return;
+    }
+    if (form.durationMinutes && windowMinutes !== null && Number(form.durationMinutes) > windowMinutes) {
+      toast.warning('Invalid', `Duration cannot exceed the exam window (${windowMinutes} minutes).`);
       return;
     }
     // Chỉ chặn khi tạo mới — sửa đề đã diễn ra/kết thúc trong quá khứ vẫn cần giữ nguyên startTime cũ.
@@ -267,7 +282,10 @@ function ExamFormModal({
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString(),
         expectedDurationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
-        lecturerId: form.proctorId || undefined,
+        // proctorId (không phải lecturerId!) — BE dùng lecturerId để ghi đè giảng viên phụ trách
+        // của CẢ LỚP, không phải riêng buổi thi này. Gửi nhầm field này từng làm School Admin vô
+        // tình đổi luôn giảng viên chính của lớp mỗi khi chỉ định 1 giám thị khác cho 1 buổi thi.
+        proctorId: form.proctorId || undefined,
       };
       if (isEdit) {
         await updateExamSlot(target!.id, { classId: form.classId, ...base });
@@ -392,12 +410,15 @@ function ExamFormModal({
 
           {/* Exam Name */}
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Exam Name *</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+              Exam Name * <span className="normal-case font-normal">({form.examName.length}/255)</span>
+            </label>
             <input
               type="text"
               value={form.examName}
               onChange={(e) => setForm((f) => ({ ...f, examName: e.target.value }))}
               placeholder="e.g. Midterm Exam"
+              maxLength={255}
               className={inp}
               required
             />
@@ -424,15 +445,24 @@ function ExamFormModal({
 
           {/* Duration */}
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Duration (minutes)</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
+              Duration (minutes)
+              {windowMinutes !== null && (
+                <span className="text-muted font-normal normal-case tracking-normal ml-1">— max {windowMinutes} min (exam window)</span>
+              )}
+            </label>
             <input
               type="number"
               min="1"
+              max={windowMinutes ?? undefined}
               value={form.durationMinutes}
               onChange={(e) => setForm((f) => ({ ...f, durationMinutes: e.target.value }))}
               placeholder="e.g. 90"
               className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
             />
+            {windowMinutes !== null && form.durationMinutes !== '' && Number(form.durationMinutes) > windowMinutes && (
+              <p className="text-[11px] text-gold mt-1">Duration exceeds the exam window ({windowMinutes} min max).</p>
+            )}
           </div>
 
           {/* Proctor dropdown */}
