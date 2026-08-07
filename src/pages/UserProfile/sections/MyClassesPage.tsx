@@ -94,7 +94,7 @@ export default function MyClassesPage() {
         </div>
       ) : error ? (
         <div className="text-center py-16 text-muted">
-          <p className="text-red mb-2">Failed to load classes.</p>
+          <p className="text-red mb-2">Failed to load classes. {error}</p>
           <button onClick={reload} className="text-sm text-blue-bright underline bg-transparent border-none cursor-pointer">Retry</button>
         </div>
       ) : enrollments.length === 0 ? (

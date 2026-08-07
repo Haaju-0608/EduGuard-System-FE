@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiCalendar, FiClock, FiEdit3, FiFileText, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
+import { useAuth } from '../../../contexts/AuthContext';
 import {
   CourseCodeBadge,
   EmptyState,
@@ -107,6 +108,7 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
 
 export default function ExamSlotsPage() {
   const { facultyId } = useLecturerFaculty();
+  const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
 
@@ -115,7 +117,9 @@ export default function ExamSlotsPage() {
     return result.items;
   }, []);
 
-  const slots = data ?? [];
+  // BE /api/exam-slots chưa scope theo proctor — trả về TOÀN BỘ exam slot của cả hệ thống cho
+  // bất kỳ ai gọi. Lọc client-side để lecturer chỉ thấy đề mình được phân công coi thi.
+  const slots = (data ?? []).filter((s) => !user?.id || s.proctorId === user.id);
 
   const predicates = useMemo(
     () => [(slot: ExamSlot) => statusFilter === 'all' || slot.status === statusFilter],

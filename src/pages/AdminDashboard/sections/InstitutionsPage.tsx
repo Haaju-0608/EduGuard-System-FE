@@ -126,7 +126,16 @@ function InstitutionFormModal({
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Sub Domain *</label>
-            <input type="text" value={form.subDomain} onChange={set('subDomain')} placeholder="e.g. hanu" className={inp} required />
+            <input
+              type="text"
+              value={form.subDomain}
+              // BE (07/08) giờ validate SubDomain phải khớp ^[a-z0-9-]+$ — tự lowercase + bỏ ký tự
+              // lạ ngay lúc gõ, tránh admin gõ hoa/khoảng trắng rồi bị 400 lúc submit.
+              onChange={(e) => setForm((f) => ({ ...f, subDomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+              placeholder="e.g. hanu"
+              className={inp}
+              required
+            />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Contact Email *</label>

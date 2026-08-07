@@ -11,6 +11,7 @@ import {
   fetchParticipationById,
   fetchExamSlotById,
   disqualifyParticipation,
+  voidExamParticipation,
   reviewViolationLog,
   resolveEvidenceUrl,
 } from '../../../services/lecturerApi';
@@ -194,15 +195,17 @@ interface EvidenceModalProps {
   examName: string | null;
   onClose: () => void;
   onDisqualify: (log: ApiViolationLog) => void;
+  onVoid: (log: ApiViolationLog) => void;
   disqualifying: boolean;
+  voiding: boolean;
   alreadyDisqualified: boolean;
   isReviewed: boolean;
   reviewedByName: string | null;
 }
 
 function EvidenceModal({
-  log, participation, examName, onClose, onDisqualify,
-  disqualifying, alreadyDisqualified, isReviewed, reviewedByName,
+  log, participation, examName, onClose, onDisqualify, onVoid,
+  disqualifying, voiding, alreadyDisqualified, isReviewed, reviewedByName,
 }: EvidenceModalProps) {
   const viol = getViolationLabel(log.violationType);
   const sev = severityConfig(log.severity);
@@ -298,11 +301,11 @@ function EvidenceModal({
         {(() => {
           const status = participation?.status;
           const canDisqualify = !alreadyDisqualified && status === 'Joined';
-          const statusLabel =
+          const canVoid = !alreadyDisqualified && status === 'Submitted';
+          const deadLabel =
             alreadyDisqualified ? '✅ Already Disqualified' :
-            status === 'Submitted' ? '📋 Student Already Submitted' :
-            status === 'Left'      ? '🚪 Student Left The Exam' :
-            status === 'Absent'    ? '❌ Student Was Absent' :
+            status === 'Left'   ? '🚪 Student Left The Exam' :
+            status === 'Absent' ? '❌ Student Was Absent' :
             null;
           return (
             <div className="flex gap-3 p-5 border-t border-border shrink-0">
@@ -312,18 +315,27 @@ function EvidenceModal({
               >
                 Close
               </button>
-              <button
-                onClick={() => onDisqualify(log)}
-                disabled={disqualifying || !canDisqualify}
-                title={!canDisqualify && !alreadyDisqualified ? 'Disqualify only works while the student is actively in the exam (status: Joined)' : undefined}
-                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
-              >
-                {disqualifying ? (
-                  <><span className="animate-spin">⏳</span> Disqualifying…</>
-                ) : statusLabel ? statusLabel : (
-                  <><FiSlash size={14} /> Disqualify Student</>
-                )}
-              </button>
+              {canDisqualify || canVoid ? (
+                <button
+                  onClick={() => (canVoid ? onVoid(log) : onDisqualify(log))}
+                  disabled={disqualifying || voiding}
+                  className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
+                >
+                  {disqualifying ? (
+                    <><span className="animate-spin">⏳</span> Disqualifying…</>
+                  ) : voiding ? (
+                    <><span className="animate-spin">⏳</span> Voiding…</>
+                  ) : canVoid ? (
+                    <><FiSlash size={14} /> Void Result</>
+                  ) : (
+                    <><FiSlash size={14} /> Disqualify Student</>
+                  )}
+                </button>
+              ) : (
+                <button disabled className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold opacity-60 cursor-not-allowed">
+                  {deadLabel}
+                </button>
+              )}
             </div>
           );
         })()}
@@ -355,22 +367,24 @@ interface ParticipationDetailModalProps {
   onClose: () => void;
   onViewLog: (log: ApiViolationLog) => void;
   onDisqualify: () => void;
+  onVoid: () => void;
   disqualifying: boolean;
+  voiding: boolean;
   alreadyDisqualified: boolean;
 }
 
 function ParticipationDetailModal({
   group, participation, examName, reviewedLogIds,
-  onClose, onViewLog, onDisqualify, disqualifying, alreadyDisqualified,
+  onClose, onViewLog, onDisqualify, onVoid, disqualifying, voiding, alreadyDisqualified,
 }: ParticipationDetailModalProps) {
   const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
   const status = participation?.status;
   const canDisqualify = !alreadyDisqualified && status === 'Joined';
-  const statusLabel =
+  const canVoid = !alreadyDisqualified && status === 'Submitted';
+  const deadLabel =
     alreadyDisqualified ? '✅ Already Disqualified' :
-    status === 'Submitted' ? '📋 Student Already Submitted' :
-    status === 'Left'      ? '🚪 Student Left The Exam' :
-    status === 'Absent'    ? '❌ Student Was Absent' :
+    status === 'Left'   ? '🚪 Student Left The Exam' :
+    status === 'Absent' ? '❌ Student Was Absent' :
     null;
 
   return createPortal(
@@ -440,18 +454,27 @@ function ParticipationDetailModal({
           >
             Close
           </button>
-          <button
-            onClick={onDisqualify}
-            disabled={disqualifying || !canDisqualify}
-            title={!canDisqualify && !alreadyDisqualified ? 'Disqualify only works while the student is actively in the exam (status: Joined)' : undefined}
-            className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
-          >
-            {disqualifying ? (
-              <><span className="animate-spin">⏳</span> Disqualifying…</>
-            ) : statusLabel ? statusLabel : (
-              <><FiSlash size={14} /> Disqualify Student</>
-            )}
-          </button>
+          {canDisqualify || canVoid ? (
+            <button
+              onClick={canVoid ? onVoid : onDisqualify}
+              disabled={disqualifying || voiding}
+              className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold border border-red hover:bg-red/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
+            >
+              {disqualifying ? (
+                <><span className="animate-spin">⏳</span> Disqualifying…</>
+              ) : voiding ? (
+                <><span className="animate-spin">⏳</span> Voiding…</>
+              ) : canVoid ? (
+                <><FiSlash size={14} /> Void Result</>
+              ) : (
+                <><FiSlash size={14} /> Disqualify Student</>
+              )}
+            </button>
+          ) : (
+            <button disabled className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold opacity-60 cursor-not-allowed">
+              {deadLabel}
+            </button>
+          )}
         </div>
       </div>
     </div>,
@@ -459,33 +482,43 @@ function ParticipationDetailModal({
   );
 }
 
-// ─── Confirm Disqualify Dialog ────────────────────────────────────────────────
+// ─── Confirm Action Dialog (Disqualify / Void) ─────────────────────────────────
 
 interface ConfirmDialogProps {
   log: ApiViolationLog;
   violationCount: number;
   studentName: string | null;
+  mode: 'disqualify' | 'void';
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }
 
-function ConfirmDialog({ log, violationCount, studentName, onConfirm, onCancel }: ConfirmDialogProps) {
+function ConfirmDialog({ log, violationCount, studentName, mode, onConfirm, onCancel }: ConfirmDialogProps) {
   const viol = getViolationLabel(log.violationType);
   const defaultReason = violationCount > 1
     ? `${violationCount} violations detected by AI proctoring (latest: ${viol.label})`
     : `${viol.label} violation detected by AI proctoring`;
   const [reason, setReason] = useState(defaultReason);
+  const isVoid = mode === 'void';
 
   return createPortal(
     <div className="fixed inset-0 z-170 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onCancel} />
       <div className="relative z-10 bg-navy-card border border-red/40 rounded-[20px] w-full max-w-sm p-6 shadow-2xl">
         <div className="text-center mb-5">
-          <div className="text-4xl mb-3">⛔</div>
-          <h3 className="font-syne font-bold text-white-soft text-lg">Disqualify Student?</h3>
+          <div className="text-4xl mb-3">{isVoid ? '🗑️' : '⛔'}</div>
+          <h3 className="font-syne font-bold text-white-soft text-lg">
+            {isVoid ? 'Void Exam Result?' : 'Disqualify Student?'}
+          </h3>
           <p className="text-muted text-sm mt-2">
-            This will set the participation status to <span className="text-red font-bold">Disqualified</span>.
-            The student cannot retake the exam.
+            {isVoid ? (
+              <>This will invalidate the student's submitted answers and set the participation to{' '}
+                <span className="text-red font-bold">Disqualified</span>. The submission will no longer
+                count toward grading, but the record is kept for audit.</>
+            ) : (
+              <>This will set the participation status to <span className="text-red font-bold">Disqualified</span>.
+                The student cannot retake the exam.</>
+            )}
           </p>
         </div>
         <div className="bg-navy border border-border rounded-xl p-3 mb-4 text-sm text-muted space-y-1">
@@ -494,7 +527,7 @@ function ConfirmDialog({ log, violationCount, studentName, onConfirm, onCancel }
         </div>
         <div className="mb-5">
           <label className="text-[10px] font-bold text-muted uppercase tracking-wide block mb-1.5">
-            Disqualification Reason
+            {isVoid ? 'Void Reason' : 'Disqualification Reason'}
           </label>
           <textarea
             value={reason}
@@ -511,7 +544,7 @@ function ConfirmDialog({ log, violationCount, studentName, onConfirm, onCancel }
             onClick={() => onConfirm(reason.trim() || defaultReason)}
             className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-bold border border-red hover:bg-red/80 transition-all cursor-pointer"
           >
-            Disqualify
+            {isVoid ? 'Void Result' : 'Disqualify'}
           </button>
         </div>
       </div>
@@ -602,15 +635,18 @@ export default function ViolationReviewPage() {
   const [participationCache, setParticipationCache] = useState<Record<string, ApiExamParticipation | null>>({});
   // keyed by examSlotId
   const [examSlotCache, setExamSlotCache] = useState<Record<string, ApiExamSlot | null>>({});
+  // "Disqualified" ở đây gồm cả disqualify-lúc-đang-thi VÀ void-sau-khi-nộp — BE trả về cùng 1
+  // participation.Status = Disqualified cho cả 2 hành động, không phân biệt riêng field nào khác.
   const [disqualifiedIds, setDisqualifiedIds] = useState<Set<string>>(new Set());
   const [disqualifyingId, setDisqualifyingId] = useState<string | null>(null);
+  const [voidingId, setVoidingId] = useState<string | null>(null);
 
   // log IDs reviewed in this session (local optimistic state)
   const [reviewedLogIds, setReviewedLogIds] = useState<Set<string>>(new Set());
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<ApiViolationLog | null>(null);
-  const [confirmLog, setConfirmLog] = useState<{ log: ApiViolationLog; violationCount: number } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ log: ApiViolationLog; violationCount: number; mode: 'disqualify' | 'void' } | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(
     () => fetchViolationLogs({ page: 1, pageSize: LOG_FETCH_SIZE }),
@@ -692,6 +728,16 @@ export default function ViolationReviewPage() {
     });
   }, [filtered, participationCache]);
 
+  // participationCache chỉ fetch 1 LẦN DUY NHẤT cho mỗi participationId rồi giữ mãi — nếu học sinh
+  // Submit/Left SAU lúc cache được tạo, UI vẫn hiện trạng thái cũ (Joined), khiến nút "Disqualify
+  // Student" vẫn hiện enabled dù thực ra hành động đó BE sẽ từ chối. Gọi hàm này để lấy lại đúng
+  // status mới nhất — dùng ngay trước khi lecturer xem chi tiết 1 participation, và sau khi thử
+  // disqualify (dù thành công hay thất bại) để UI luôn phản ánh đúng thực tế.
+  const refreshParticipation = useCallback(async (participationId: string) => {
+    const p = await fetchParticipationById(participationId).catch(() => null);
+    setParticipationCache((prev) => ({ ...prev, [participationId]: p }));
+  }, []);
+
   const allTypes = [...new Set(logs.map((l) => l.violationType).filter(Boolean))];
 
   const severeCount = logs.filter((l) => l.severity === 'Severe').length;
@@ -701,6 +747,7 @@ export default function ViolationReviewPage() {
   // Open evidence modal and auto-mark as reviewed
   const handleOpenEvidence = useCallback(async (log: ApiViolationLog) => {
     setSelectedLog(log);
+    void refreshParticipation(log.participationId);
     const alreadyReviewed = log.reviewedBy != null || reviewedLogIds.has(log.id);
     if (!alreadyReviewed && user?.id) {
       try {
@@ -710,33 +757,61 @@ export default function ViolationReviewPage() {
         // silently ignore — evidence is still shown
       }
     }
-  }, [reviewedLogIds, user?.id]);
+  }, [reviewedLogIds, user?.id, refreshParticipation]);
 
   const handleDisqualify = useCallback((log: ApiViolationLog) => {
     const group = groups.find((g) => g.participationId === log.participationId);
     setSelectedLog(null);
-    setConfirmLog({ log, violationCount: group?.logs.length ?? 1 });
+    setConfirmAction({ log, violationCount: group?.logs.length ?? 1, mode: 'disqualify' });
   }, [groups]);
 
   const handleDisqualifyGroup = useCallback((group: ParticipationGroup) => {
-    setConfirmLog({ log: group.logs[0], violationCount: group.logs.length });
+    setConfirmAction({ log: group.logs[0], violationCount: group.logs.length, mode: 'disqualify' });
   }, []);
 
-  const handleConfirmDisqualify = useCallback(async (reason: string) => {
-    if (!confirmLog) return;
-    const { log } = confirmLog;
-    setConfirmLog(null);
-    setDisqualifyingId(log.participationId);
+  const handleVoid = useCallback((log: ApiViolationLog) => {
+    const group = groups.find((g) => g.participationId === log.participationId);
+    setSelectedLog(null);
+    setConfirmAction({ log, violationCount: group?.logs.length ?? 1, mode: 'void' });
+  }, [groups]);
+
+  const handleVoidGroup = useCallback((group: ParticipationGroup) => {
+    setConfirmAction({ log: group.logs[0], violationCount: group.logs.length, mode: 'void' });
+  }, []);
+
+  const handleConfirmAction = useCallback(async (reason: string) => {
+    if (!confirmAction) return;
+    const { log, mode } = confirmAction;
+    setConfirmAction(null);
+    const isVoid = mode === 'void';
+    if (isVoid) setVoidingId(log.participationId);
+    else setDisqualifyingId(log.participationId);
     try {
-      await disqualifyParticipation(log.participationId, reason);
+      if (isVoid) {
+        await voidExamParticipation(log.participationId, reason);
+        toast.success('Exam result voided', "The student's submitted answers have been invalidated.");
+      } else {
+        await disqualifyParticipation(log.participationId, reason);
+        toast.success('Student disqualified', 'Participation has been marked as Disqualified.');
+      }
+      // Cả 2 hành động đều đưa participation về cùng status Disqualified ở BE.
       setDisqualifiedIds((prev) => new Set([...prev, log.participationId]));
-      toast.success('Student disqualified', 'Participation has been marked as Disqualified.');
-    } catch {
-      toast.error('Failed', 'Could not disqualify the student. Please try again.');
+    } catch (err) {
+      // BE từ chối rõ ràng nếu participation không còn đúng trạng thái yêu cầu (Joined cho
+      // disqualify, Submitted cho void) — hiện đúng message thật thay vì "try again" chung chung,
+      // vì retry không giúp được gì trong trường hợp đó.
+      toast.error(
+        isVoid ? 'Failed to void result' : 'Failed to disqualify',
+        err instanceof Error ? err.message : `Could not ${isVoid ? 'void the exam result' : 'disqualify the student'}.`,
+      );
     } finally {
+      // Lấy lại đúng status mới nhất — dù thành công hay thất bại (status thật đã đổi từ trước,
+      // khiến participationCache cũ hiện sai).
+      void refreshParticipation(log.participationId);
       setDisqualifyingId(null);
+      setVoidingId(null);
     }
-  }, [confirmLog, toast]);
+  }, [confirmAction, toast, refreshParticipation]);
 
   return (
     <div className="space-y-6">
@@ -847,7 +922,7 @@ export default function ViolationReviewPage() {
                   examName={examSlot?.examName ?? null}
                   isDisqualified={isDisqualified}
                   reviewedLogIds={reviewedLogIds}
-                  onClick={() => setSelectedGroupId(group.participationId)}
+                  onClick={() => { setSelectedGroupId(group.participationId); void refreshParticipation(group.participationId); }}
                 />
               );
             })}
@@ -893,7 +968,9 @@ export default function ViolationReviewPage() {
           onClose={() => setSelectedGroupId(null)}
           onViewLog={(log) => void handleOpenEvidence(log)}
           onDisqualify={() => handleDisqualifyGroup(selectedGroup)}
+          onVoid={() => handleVoidGroup(selectedGroup)}
           disqualifying={disqualifyingId === selectedGroup.participationId}
+          voiding={voidingId === selectedGroup.participationId}
           alreadyDisqualified={
             disqualifiedIds.has(selectedGroup.participationId) ||
             participationCache[selectedGroup.participationId]?.status === 'Disqualified'
@@ -912,7 +989,9 @@ export default function ViolationReviewPage() {
           })()}
           onClose={() => setSelectedLog(null)}
           onDisqualify={handleDisqualify}
+          onVoid={handleVoid}
           disqualifying={disqualifyingId === selectedLog.participationId}
+          voiding={voidingId === selectedLog.participationId}
           alreadyDisqualified={
             disqualifiedIds.has(selectedLog.participationId) ||
             participationCache[selectedLog.participationId]?.status === 'Disqualified'
@@ -922,18 +1001,19 @@ export default function ViolationReviewPage() {
         />
       )}
 
-      {/* Confirm Disqualify Dialog */}
-      {confirmLog && (
+      {/* Confirm Disqualify / Void Dialog */}
+      {confirmAction && (
         <ConfirmDialog
-          log={confirmLog.log}
-          violationCount={confirmLog.violationCount}
+          log={confirmAction.log}
+          violationCount={confirmAction.violationCount}
+          mode={confirmAction.mode}
           studentName={
-            participationCache[confirmLog.log.participationId]?.student?.fullName ??
-            participationCache[confirmLog.log.participationId]?.student?.email ??
+            participationCache[confirmAction.log.participationId]?.student?.fullName ??
+            participationCache[confirmAction.log.participationId]?.student?.email ??
             null
           }
-          onConfirm={(reason) => void handleConfirmDisqualify(reason)}
-          onCancel={() => setConfirmLog(null)}
+          onConfirm={(reason) => void handleConfirmAction(reason)}
+          onCancel={() => setConfirmAction(null)}
         />
       )}
     </div>

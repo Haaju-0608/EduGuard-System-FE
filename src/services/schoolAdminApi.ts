@@ -3,7 +3,7 @@
  * Enrollment là optional (SchoolAdmin có thể bị 403 — không làm fail các API khác).
  */
 import { getInitialsFromName } from './authApi';
-import { ApiError, apiDelete, apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
+import { ApiError, apiDelete, apiGet, apiGetAllPages, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import type {
   ApiBiometricRequest,
   ApiAttendanceRecord,
@@ -54,6 +54,21 @@ const EMPTY_PAGINATION: PaginationMeta = {
   totalPages: 0,
 };
 
+/** BE giới hạn pageSize tối đa 100 (mọi endpoint phân trang) — nếu caller xin nhiều hơn (ý muốn
+ *  "lấy hết" trong 1 lần thay vì phân trang thật), tự động gộp nhiều trang 100 qua apiGetAllPages
+ *  thay vì gọi thẳng 1 trang lớn (sẽ bị BE trả 400). */
+async function fetchPagedOrAll<T>(
+  pathBuilder: (page: number, pageSize: number) => string,
+  page: number,
+  pageSize: number,
+): Promise<{ data: T[]; pagination: PaginationMeta }> {
+  if (pageSize <= 100) {
+    return apiGetPaginated<T[]>(pathBuilder(page, pageSize));
+  }
+  const data = await apiGetAllPages<T>(pathBuilder);
+  return { data, pagination: { page: 1, pageSize: data.length || 1, totalItems: data.length, totalPages: 1 } };
+}
+
 function deriveClassStatus(startDate: string, endDate: string): ClassStatus {
   const now = new Date();
   const start = new Date(startDate);
@@ -86,7 +101,7 @@ export function mapApiClassToLecturerClass(item: ApiClass): LecturerClass {
   const enrollments = Array.isArray(item.enrollments) ? item.enrollments : [];
   return {
     id: item.id,
-    code: item.courseCode,
+    code: item.courseCode ?? '—',
     name: item.courseName,
     facultyId: getFacultyByCourseCode(item.courseCode).id,
     semester: `${item.semester} · ${item.academicYear}`,
@@ -116,6 +131,7 @@ export function mapApiUserToLecturerStudent(item: ApiUser): LecturerStudent {
     attendanceRate: 0,
     avatar: null,
     initials: getInitialsFromName(name),
+    createdAt: item.createdAt,
   };
 }
 
@@ -131,7 +147,7 @@ function mapApiExamSlot(slot: ApiExamSlot, classMap: Map<string, LecturerClass>)
     endTime: slot.endTime,
     durationMinutes: slot.expectedDurationMinutes,
     status: deriveExamSlotStatus(slot),
-    proctorId: slot.proctorId ?? slot.lecturer?.id,
+    proctorId: slot.proctor?.id ?? slot.lecturer?.id,
   };
 }
 
@@ -192,8 +208,9 @@ async function fetchApiClassesRaw(params: ListQueryParams = {}) {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
   try {
-    return await apiGetPaginated<ApiClass[]>(
-      `/api/classes${buildQueryParams({ page, pageSize })}`,
+    return await fetchPagedOrAll<ApiClass>(
+      (p, ps) => `/api/classes${buildQueryParams({ page: p, pageSize: ps })}`,
+      page, pageSize,
     );
   } catch (e) {
     // Backend trả về lỗi (403 no-institution, 400 success:false, v.v.) → trả rỗng
@@ -206,15 +223,16 @@ async function fetchApiClassesRaw(params: ListQueryParams = {}) {
 async function fetchApiUsersRaw(params: ListQueryParams = {}) {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
-  return apiGetPaginated<ApiUser[]>(
-    `/api/users${buildQueryParams({ page, pageSize })}`,
+  return fetchPagedOrAll<ApiUser>(
+    (p, ps) => `/api/users${buildQueryParams({ page: p, pageSize: ps })}`,
+    page, pageSize,
   );
 }
 
 /** Lấy số lượng student + lecturer trong một lần fetch (dùng cho dashboard KPI) */
 export async function fetchUserRoleCounts(): Promise<{ students: number; lecturers: number }> {
-  const { data } = await apiGetPaginated<ApiUser[]>(
-    `/api/users${buildQueryParams({ page: 1, pageSize: 500 })}`,
+  const data = await apiGetAllPages<ApiUser>(
+    (page, pageSize) => `/api/users${buildQueryParams({ page, pageSize })}`,
   );
   const students  = data.filter((u) => u.role.trim().toLowerCase() === 'student').length;
   const lecturers = data.filter((u) =>
@@ -303,8 +321,9 @@ export async function fetchExamSlots(
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
 
   const [slotRes, classRes] = await Promise.all([
-    apiGetPaginated<ApiExamSlot[]>(
-      `/api/exam-slots${buildQueryParams({ page, pageSize })}`,
+    fetchPagedOrAll<ApiExamSlot>(
+      (p, ps) => `/api/exam-slots${buildQueryParams({ page: p, pageSize: ps })}`,
+      page, pageSize,
     ),
     fetchApiClassesRaw({ page: 1, pageSize: DEFAULT_PAGE_SIZE }),
   ]);
@@ -336,7 +355,11 @@ export interface CreateExamSlotPayload {
   endTime: string;
   expectedDurationMinutes?: number;
   status?: 'Scheduled' | 'InProgress' | 'Completed' | 'Cancelled';
+  // lecturerId KHÔNG dùng để gán giám thị coi thi — BE dùng field này để ghi đè luôn giảng viên
+  // phụ trách của CẢ LỚP (Class.LecturerId), không phải riêng buổi thi. Dùng proctorId bên dưới
+  // (cột proctor_id riêng ở BE, thêm 07/08) để chỉ định giám thị coi thi khác giảng viên lớp.
   lecturerId?: string;
+  proctorId?: string;
 }
 
 /** POST /api/exam-slots */
@@ -517,14 +540,23 @@ export async function fetchMyApprovedBiometricPhoto(studentUuid: string): Promis
 
 // ─── User CRUD ────────────────────────────────────────────────────────────
 
+/** sort BE hỗ trợ (UserRepository.GetAllAsync): 'fullname' | '-fullname' | 'email' | '-email' —
+ *  bất kỳ giá trị nào khác (kể cả undefined) đều rơi về mặc định OrderByDescending(CreatedAt). */
+export interface FetchUsersParams extends ListQueryParams {
+  search?: string;
+  sort?: 'fullname' | '-fullname' | 'email' | '-email';
+}
+
 /** GET /api/users — tất cả users (admin scope) */
 export async function fetchUsers(
-  params: ListQueryParams = {},
+  params: FetchUsersParams = {},
 ): Promise<PagedResult<ApiUser>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
-  const { data, pagination } = await apiGetPaginated<ApiUser[]>(
-    `/api/users${buildQueryParams({ page, pageSize })}`,
+  const { search, sort } = params;
+  const { data, pagination } = await fetchPagedOrAll<ApiUser>(
+    (p, ps) => `/api/users${buildQueryParams({ page: p, pageSize: ps, search, sort })}`,
+    page, pageSize,
   );
   return { items: data, pagination };
 }
@@ -588,8 +620,9 @@ export async function fetchLecturers(
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? DEFAULT_PAGE_SIZE;
   const { institutionId } = params;
-  const { data, pagination } = await apiGetPaginated<ApiUser[]>(
-    `/api/users${buildQueryParams({ page, pageSize })}`,
+  const { data, pagination } = await fetchPagedOrAll<ApiUser>(
+    (p, ps) => `/api/users${buildQueryParams({ page: p, pageSize: ps })}`,
+    page, pageSize,
   );
   // Filter client-side theo institution — backend /api/users chưa scope theo institution
   const lecturers = data
@@ -747,7 +780,8 @@ export async function fetchExamParticipations(
   return { items: data, pagination };
 }
 
-/** POST /api/exam-participations — thêm sinh viên vào kỳ thi (status mặc định Joined do BE set) */
+/** POST /api/exam-participations — thêm sinh viên vào kỳ thi (status mặc định Absent, chỉ chuyển
+ *  Joined khi gọi /join — BE giờ từ chối tạo participation nếu gửi kèm status khác Absent). */
 export async function createExamParticipation(payload: {
   examSlotId: string;
   studentId: string;
@@ -755,9 +789,14 @@ export async function createExamParticipation(payload: {
   return apiPost<ApiExamParticipation>('/api/exam-participations', payload);
 }
 
-/** POST /api/exam-participations/{id}/join — student vào phòng thi, BE ghi actualStart + status=Joined */
-export async function joinExamParticipation(participationId: string): Promise<void> {
-  await apiPost(`/api/exam-participations/${participationId}/join`);
+/** POST /api/exam-participations/{id}/join — student vào phòng thi, BE ghi actualStart + status=Joined.
+ *  BE giờ bắt buộc kèm ảnh liveCapture để verify khuôn mặt (so với BiometricData.FaceVector đã approved)
+ *  trước khi cho join — thiếu file này BE trả 400. Gửi multipart/form-data field tên "liveCapture" đúng
+ *  tên param IFormFile ở ExamparticipationController.Join. */
+export async function joinExamParticipation(participationId: string, liveCapture: Blob): Promise<void> {
+  const formData = new FormData();
+  formData.append('liveCapture', liveCapture, 'live-capture.jpg');
+  await apiPost(`/api/exam-participations/${participationId}/join`, formData);
 }
 
 /** POST /api/exam-participations/{id}/heartbeat — ping định kỳ để báo student còn online */
@@ -827,6 +866,17 @@ export async function disqualifyParticipation(
   await apiPost(`/api/exam-participations/${participationId}/disqualify`, { reason });
 }
 
+/** POST /api/exam-participations/{id}/void — huỷ kết quả bài thi ĐÃ NỘP (participation.Status ==
+ *  Submitted) sau khi lecturer xem lại evidence và phát hiện vi phạm nghiêm trọng — khác với
+ *  disqualify (chỉ áp dụng được khi còn đang thi, status Joined). BE chuyển status → Disqualified
+ *  và đánh dấu các StudentExamRecord liên quan là Deleted (giữ lại để audit, không tính điểm/báo cáo). */
+export async function voidExamParticipation(
+  participationId: string,
+  reason: string,
+): Promise<void> {
+  await apiPost(`/api/exam-participations/${participationId}/void`, { reason });
+}
+
 /** DELETE /api/exam-participations/{participationId} — xóa tham gia */
 export async function deleteExamParticipation(participationId: string): Promise<void> {
   await apiDelete(`/api/exam-participations/${participationId}`);
@@ -867,8 +917,9 @@ export async function fetchExamQuestions(
 ): Promise<PagedResult<ApiExamQuestion>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 100;
-  const { data, pagination } = await apiGetPaginated<ApiExamQuestion[]>(
-    `/api/exam-questions${buildQueryParams({ examSlotId, page, pageSize })}`,
+  const { data, pagination } = await fetchPagedOrAll<ApiExamQuestion>(
+    (p, ps) => `/api/exam-questions${buildQueryParams({ examSlotId, page: p, pageSize: ps })}`,
+    page, pageSize,
   );
   return { items: data, pagination };
 }
@@ -933,13 +984,14 @@ export async function fetchStudentExamRecords(
 ): Promise<PagedResult<ApiStudentExamRecord>> {
   const page = params.page ?? 1;
   const pageSize = params.pageSize ?? 100;
-  const { data, pagination } = await apiGetPaginated<ApiStudentExamRecord[]>(
-    `/api/student-exam-records${buildQueryParams({
+  const { data, pagination } = await fetchPagedOrAll<ApiStudentExamRecord>(
+    (p, ps) => `/api/student-exam-records${buildQueryParams({
       studentId: params.studentId,
       examSlotId: params.examSlotId,
-      page,
-      pageSize,
+      page: p,
+      pageSize: ps,
     })}`,
+    page, pageSize,
   );
   return { items: data, pagination };
 }
@@ -999,6 +1051,29 @@ export interface StudentAttendanceRecord {
   startTime: string;   // 'HH:MM'
   status: 'present' | 'absent' | 'late' | 'excused';
   checkInTime: string | null;
+  examName: string | null;
+}
+
+/**
+ * BE hiện trả `session.examSlotId` LUÔN null trong response của /api/attendance-records?expand=session
+ * (AcademicMapper.MapRecordAsync quên gán field này khi build AttendanceSessionSummaryDto — đã báo BE
+ * sửa, chỉ cần thêm `ExamSlotId = session.ExamSlotId` là xong). Trong lúc chờ fix, suy luận bài thi
+ * bằng cách khớp thời điểm (checkin, hoặc startTime của session nếu absent/excused không có checkin)
+ * với khung giờ [startTime, endTime] của các exam slot CÙNG lớp — 2 exam của cùng 1 lớp thường không
+ * trùng giờ nhau nên đủ chính xác cho mục đích hiển thị. Ưu tiên slot có startTime gần mốc nhất nếu
+ * (hiếm khi) có nhiều slot cùng chứa mốc thời gian đó.
+ */
+function findExamSlotByTime(classId: string, referenceIso: string | null, slots: ExamSlot[]): ExamSlot | null {
+  if (!referenceIso) return null;
+  const t = new Date(referenceIso).getTime();
+  const candidates = slots.filter((s) => {
+    if (s.classId !== classId) return false;
+    const start = new Date(s.startTime).getTime();
+    const end = new Date(s.endTime).getTime();
+    return t >= start && t <= end;
+  });
+  if (candidates.length === 0) return null;
+  return candidates.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime())[0];
 }
 
 function mapAttendanceStatus(s: string): StudentAttendanceRecord['status'] {
@@ -1007,6 +1082,28 @@ function mapAttendanceStatus(s: string): StudentAttendanceRecord['status'] {
   if (v === 'late') return 'late';
   if (v === 'excused') return 'excused';
   return 'absent';
+}
+
+/**
+ * Map examSlotId → trạng thái điểm danh của CHÍNH student đang gọi, cho những session có gắn
+ * examSlotId (điểm danh mở cho đúng bài thi đó). Dùng để chặn ở FE: chưa được lecturer điểm danh
+ * Present/Late thì chưa cho vào thi. Đây chỉ là gate UX — chặn thật cần BE (ExamWorkflowService.
+ * JoinAsync hiện chưa kiểm tra điều kiện này).
+ */
+export async function fetchMyExamAttendanceStatus(
+  studentId: string,
+): Promise<Record<string, StudentAttendanceRecord['status']>> {
+  const records = await apiGetAllPages<ApiAttendanceRecord>(
+    (page, pageSize) => `/api/attendance-records${buildQueryParams({ studentId, expand: 'session', page, pageSize })}`,
+  ).catch(() => [] as ApiAttendanceRecord[]);
+
+  const result: Record<string, StudentAttendanceRecord['status']> = {};
+  records.forEach((rec) => {
+    const examSlotId = rec.session?.examSlotId;
+    if (!examSlotId) return;
+    result[examSlotId] = mapAttendanceStatus(rec.status);
+  });
+  return result;
 }
 
 function timePart(iso: string) {
@@ -1029,29 +1126,36 @@ function datePart(iso: string) {
 export async function fetchStudentAttendanceHistory(
   studentId: string,
 ): Promise<StudentAttendanceRecord[]> {
-  const [recordRes, classRes] = await Promise.all([
-    apiGetPaginated<ApiAttendanceRecord[]>(
-      `/api/attendance-records${buildQueryParams({ studentId, expand: 'session', page: 1, pageSize: 200 })}`,
-    ).catch(() => ({ data: [] as ApiAttendanceRecord[], pagination: EMPTY_PAGINATION })),
-    apiGetPaginated<ApiClass[]>(
-      `/api/classes/my-classes${buildQueryParams({ expand: 'lecturer', page: 1, pageSize: 200 })}`,
-    ).catch(() => ({ data: [] as ApiClass[], pagination: EMPTY_PAGINATION })),
+  const [records, classes, examSlots] = await Promise.all([
+    apiGetAllPages<ApiAttendanceRecord>(
+      (page, pageSize) => `/api/attendance-records${buildQueryParams({ studentId, expand: 'session', page, pageSize })}`,
+    ).catch(() => [] as ApiAttendanceRecord[]),
+    apiGetAllPages<ApiClass>(
+      (page, pageSize) => `/api/classes/my-classes${buildQueryParams({ expand: 'lecturer', page, pageSize })}`,
+    ).catch(() => [] as ApiClass[]),
+    fetchStudentExamSlots(studentId).catch(() => [] as ExamSlot[]),
   ]);
 
   // Nếu studentId param không được hỗ trợ → filter client-side
-  const myRecords = recordRes.data.filter(
+  const myRecords = records.filter(
     (r) => !studentId || r.studentId === studentId,
   );
 
   if (myRecords.length === 0) return [];
 
-  const classMap = new Map(classRes.data.map((c) => [c.id, c]));
+  const classMap = new Map(classes.map((c) => [c.id, c]));
 
   return myRecords
     .map((rec): StudentAttendanceRecord | null => {
       const session = rec.session;
       if (!session) return null;
       const cls = classMap.get(session.classId);
+      // BE (commit a786b9e "Fix bug thiếu mapper") giờ trả đúng session.examSlotId — ưu tiên dùng
+      // thẳng field này (chính xác 100%). Fallback về suy luận khung giờ chỉ khi field vẫn null
+      // (vd BE production chưa deploy bản fix, hoặc session không gắn với exam nào).
+      const examSlot = session.examSlotId
+        ? examSlots.find((s) => s.id === session.examSlotId) ?? null
+        : findExamSlotByTime(session.classId, rec.checkinAt ?? session.startTime, examSlots);
       return {
         id: rec.id,
         date: datePart(session.startTime),
@@ -1061,6 +1165,7 @@ export async function fetchStudentAttendanceHistory(
         startTime: timePart(session.startTime),
         status: mapAttendanceStatus(rec.status),
         checkInTime: rec.checkinAt ? timePart(rec.checkinAt) : null,
+        examName: examSlot?.examName ?? null,
       };
     })
     .filter((r): r is StudentAttendanceRecord => r !== null)

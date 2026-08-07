@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FiCheckCircle,
+  FiChevronLeft,
+  FiChevronRight,
   FiEdit2,
   FiRefreshCw,
   FiSearch,
@@ -11,6 +13,7 @@ import {
   FiX,
   FiXCircle,
 } from 'react-icons/fi';
+import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
@@ -23,6 +26,26 @@ import {
   updateUser,
 } from '../../../services/schoolAdminApi';
 import type { LecturerStudent } from '../../../types/lecturer';
+
+const PAGE_SIZE = 20;
+
+type SortKey = 'newest' | 'oldest' | 'name-asc' | 'name-desc';
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: 'newest',   label: 'Newest First' },
+  { value: 'oldest',   label: 'Oldest First' },
+  { value: 'name-asc', label: 'Name (A–Z)' },
+  { value: 'name-desc', label: 'Name (Z–A)' },
+];
+
+function sortLecturers(list: LecturerStudent[], sort: SortKey): LecturerStudent[] {
+  const sorted = [...list];
+  switch (sort) {
+    case 'oldest': return sorted.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    case 'name-asc': return sorted.sort((a, b) => a.name.localeCompare(b.name));
+    case 'name-desc': return sorted.sort((a, b) => b.name.localeCompare(a.name));
+    default: return sorted.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+}
 
 type LecturerStatus = 'Active' | 'Inactive' | 'Suspended';
 
@@ -90,6 +113,14 @@ function LecturerFormModal({
           fullName: form.fullName.trim(),
           phone: form.phone.trim() || undefined,
           studentCode: form.staffCode.trim() || undefined,
+          // role BẮT BUỘC phải gửi: BE (UserService.UpdateUserAsync) ghi đè entity.Role = dto.Role
+          // vô điều kiện. Role là enum non-nullable, nếu FE không gửi thì BE deserialize thành
+          // default enum value = AppRole.Student (member đầu tiên) — âm thầm hạ role Lecturer
+          // xuống Student, biến mất khỏi trang Lecturers dù data không hề mất, chỉ đổi role.
+          role: 'Lecturer',
+          // BE từ chối update nếu institutionId gửi lên khác institution hiện tại của user
+          // (kể cả khi field này bị bỏ trống — null cũng bị coi là "khác") — phải luôn gửi kèm.
+          ...(institutionId ? { institutionId } : {}),
         });
         toast.success('Updated', 'Lecturer updated successfully.');
       } else {
@@ -187,18 +218,26 @@ export default function LecturerManagementPage() {
       .catch(() => setInstitutionName(user.institutionId ?? ''));
   }, [user?.institutionId]);
 
+  // pageSize > 100 — bắt buộc để trigger nhánh tải-hết-các-trang trong fetchPagedOrAll. BE trả về
+  // TẤT CẢ role trộn lẫn trong 1 danh sách rồi FE mới lọc role=Lecturer, nên nếu chỉ xin đúng 1 trang
+  // (pageSize<=100) như trước, những lecturer nằm sau vị trí 100 trong danh sách gộp (mixed role) sẽ
+  // bị bỏ sót âm thầm ở các trường có nhiều user.
   const { data, loading, reload } = useAsyncData(
-    () => fetchLecturers({ page: 1, pageSize: 100, institutionId: user?.institutionId ?? undefined }),
+    () => fetchLecturers({ page: 1, pageSize: 1000, institutionId: user?.institutionId ?? undefined }),
     [user?.institutionId],
   );
   const lecturers: LecturerStudent[] = data?.items ?? [];
 
   const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('newest');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
   const [deleteLecturerTarget, setDeleteLecturerTarget] = useState<LecturerStudent | null>(null);
+
+  useEffect(() => { setPage(1); }, [search, sort]);
 
   const filtered = lecturers.filter((l) => {
     const q = search.toLowerCase();
@@ -207,6 +246,11 @@ export default function LecturerManagementPage() {
       || l.email.toLowerCase().includes(q)
       || (l.studentId ?? '').toLowerCase().includes(q);
   });
+
+  const sorted = sortLecturers(filtered, sort);
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = sorted.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const handleToggleStatus = async (target: LecturerStudent) => {
     setActionId(target.id);
@@ -294,6 +338,7 @@ export default function LecturerManagementPage() {
             </button>
           )}
         </div>
+        <CustomSelect value={sort} onChange={(v) => setSort(v as SortKey)} options={SORT_OPTIONS} />
         <button
           onClick={reload}
           disabled={loading}
@@ -307,7 +352,7 @@ export default function LecturerManagementPage() {
       <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <p className="text-sm font-bold text-white-soft">Lecturer List</p>
-          <span className="text-xs text-muted">{filtered.length} of {lecturers.length}</span>
+          <span className="text-xs text-muted">{sorted.length} of {lecturers.length}</span>
         </div>
         {loading ? (
           <div className="divide-y divide-border">
@@ -321,13 +366,13 @@ export default function LecturerManagementPage() {
               </div>
             ))}
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="py-14 text-center text-muted text-sm">
             {search ? 'No lecturers match your search.' : 'No lecturers yet. Add the first one!'}
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {filtered.map((l) => {
+            {pageItems.map((l) => {
               const status = lecturerStatus(l);
               const isActing = actionId === l.id;
               const initials = (l.name || l.email).split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
@@ -376,6 +421,28 @@ export default function LecturerManagementPage() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {!loading && totalPages > 1 && (
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-t border-border">
+            <p className="text-xs text-muted">Page {safePage} of {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronLeft />
+              </button>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                className="w-8 h-8 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed bg-transparent"
+              >
+                <FiChevronRight />
+              </button>
+            </div>
           </div>
         )}
       </div>

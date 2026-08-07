@@ -8,10 +8,14 @@ import { fetchWallet, fetchWalletTransactions, topUpWallet } from '../../../serv
 import { billingModelLabel } from '../../../utils/billingModel';
 import type { ApiInstitution, ApiPricingConfig, ApiTransaction, ApiWallet } from '../../../types/api';
 
-/** Giá active mới nhất cho 1 loại dịch vụ (list configs đã fetch 1 lần cho cả trang). */
+/** Giá active mới nhất cho 1 loại dịch vụ (list configs đã fetch 1 lần cho cả trang) — phải lọc
+ *  isActive=true trước rồi mới lấy effectiveDate mới nhất, khớp đúng cách BE thật sự chọn config để
+ *  tính tiền (PricingConfigRepository.GetActiveConfigByServiceTypeAsync). Bỏ qua isActive sẽ hiện
+ *  giá sai nếu SuperAdmin đã tắt (deactivate) config gần nhất qua Edit mà vẫn còn config cũ hơn đang
+ *  active. */
 function activeUnitPrice(configs: ApiPricingConfig[], serviceType: string): number | null {
   const matches = configs
-    .filter((c) => c.serviceType === serviceType)
+    .filter((c) => c.serviceType === serviceType && c.isActive)
     .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
   return matches[0]?.unitPrice ?? null;
 }
@@ -42,6 +46,7 @@ export default function WalletPage() {
   const [loadingInstitution, setLoadingInstitution] = useState(true);
   const [renewing, setRenewing] = useState(false);
   const [showRenewConfirm, setShowRenewConfirm] = useState(false);
+  const [renewPlan, setRenewPlan] = useState<'Monthly' | 'Yearly'>('Monthly');
   const [pricingConfigs, setPricingConfigs] = useState<ApiPricingConfig[]>([]);
 
   const institutionId = user?.institutionId ?? '';
@@ -69,7 +74,7 @@ export default function WalletPage() {
     setShowRenewConfirm(false);
     setRenewing(true);
     try {
-      await renewInstitutionSubscription(institutionId);
+      await renewInstitutionSubscription(institutionId, renewPlan);
       toast.success('Renewed', 'Subscription renewed successfully.');
       // Renew trừ tiền ví thật (xem WalletPage handleRenewSubscription) — phải load lại CẢ balance
       // lẫn institution, không chỉ institution, nếu không số dư hiện cũ tới khi F5 lại trang.
@@ -81,10 +86,19 @@ export default function WalletPage() {
     }
   };
 
-  // Giá gia hạn phụ thuộc billing model của trường (Monthly/Yearly) — khớp đúng 2 loại
-  // PricingServiceType.SUBSCRIPTION_MONTHLY/SUBSCRIPTION_YEARLY thật bên BE.
-  const renewalServiceType = institution?.billingModel === 'Yearly' ? 'SUBSCRIPTION_YEARLY' : 'SUBSCRIPTION_MONTHLY';
-  const renewalPrice = activeUnitPrice(pricingConfigs, renewalServiceType);
+  // Mở modal renew → luôn mặc định Monthly (giá thấp hơn, ít rủi ro trừ nhầm nhiều tiền hơn dự
+  // kiến), bất kể gói hiện tại của trường là gì — school admin tự đổi sang Yearly nếu muốn.
+  const openRenewConfirm = () => {
+    setRenewPlan('Monthly');
+    setShowRenewConfirm(true);
+  };
+
+  // Giá gia hạn phụ thuộc gói ĐANG CHỌN trong modal (không phải billing model hiện tại của trường
+  // — school admin có thể vừa renew vừa đổi gói) — khớp đúng 2 loại PricingServiceType.
+  // SUBSCRIPTION_MONTHLY/SUBSCRIPTION_YEARLY thật bên BE.
+  const monthlyPrice = activeUnitPrice(pricingConfigs, 'SUBSCRIPTION_MONTHLY');
+  const yearlyPrice = activeUnitPrice(pricingConfigs, 'SUBSCRIPTION_YEARLY');
+  const renewalPrice = renewPlan === 'Yearly' ? yearlyPrice : monthlyPrice;
 
   async function loadWallet() {
     if (!institutionId) {
@@ -237,7 +251,7 @@ export default function WalletPage() {
               </p>
             </div>
             <button
-              onClick={() => setShowRenewConfirm(true)}
+              onClick={openRenewConfirm}
               disabled={renewing}
               className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold cursor-pointer transition-colors disabled:opacity-50 ${tone.chip}`}
             >
@@ -324,28 +338,68 @@ export default function WalletPage() {
       {showRenewConfirm && createPortal(
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
           <div className="bg-navy-card border border-border rounded-[20px] p-6 w-full max-w-sm">
-            <div className="flex items-start gap-4 mb-5">
+            <div className="flex items-start gap-4 mb-4">
               <div className="w-10 h-10 rounded-xl bg-green/10 border border-green/20 grid place-items-center shrink-0">
                 <FiRepeat className="text-green" />
               </div>
               <div>
                 <h3 className="font-syne font-bold text-white-soft text-base">Renew Subscription</h3>
-                {renewalPrice === null ? (
-                  <p className="text-muted text-sm mt-1">
-                    No active price configured for {billingModelLabel(institution?.billingModel)} renewal yet.
-                    Ask your Super Admin to set one up before renewing.
-                  </p>
-                ) : (
-                  <p className="text-muted text-sm mt-1">
-                    Renewing will charge <strong className="text-white-soft">{renewalPrice.toLocaleString()} credits</strong> from
-                    your wallet (current balance: <strong className="text-white-soft">{balance.toLocaleString()}</strong>).
-                    {renewalPrice > balance && (
-                      <span className="block text-red mt-1.5">Not enough balance — top up first.</span>
-                    )}
-                  </p>
-                )}
+                <p className="text-muted text-xs mt-0.5">Choose a plan to renew with — you can switch plans here too.</p>
               </div>
             </div>
+
+            {/* Chọn gói — BE (RenewSubscriptionDto.BillingModel) bắt buộc phải gửi kèm, không có
+                default hợp lý nào ở đây nên luôn bắt school admin chọn rõ ràng. */}
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {(['Monthly', 'Yearly'] as const).map((plan) => {
+                const price = plan === 'Yearly' ? yearlyPrice : monthlyPrice;
+                const isCurrentPlan = institution?.billingModel === plan;
+                const selected = renewPlan === plan;
+                return (
+                  <button
+                    key={plan}
+                    type="button"
+                    onClick={() => setRenewPlan(plan)}
+                    className={`text-left rounded-xl border p-3 transition-colors cursor-pointer ${
+                      selected ? 'border-green bg-green/10' : 'border-border bg-transparent hover:border-green/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-sm font-semibold text-white-soft">{billingModelLabel(plan)}</span>
+                      {isCurrentPlan && (
+                        <span className="shrink-0 text-[9px] font-bold text-cyan bg-cyan/10 border border-cyan/25 px-1.5 py-0.5 rounded-full">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted mt-1">
+                      {price === null ? 'Not configured' : `${price.toLocaleString()} credits`}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            {renewalPrice === null ? (
+              <p className="text-muted text-sm mb-5">
+                No active price configured for {billingModelLabel(renewPlan)} renewal yet.
+                Ask your Super Admin to set one up before renewing.
+              </p>
+            ) : (
+              <p className="text-muted text-sm mb-5">
+                Renewing will charge <strong className="text-white-soft">{renewalPrice.toLocaleString()} credits</strong> from
+                your wallet (current balance: <strong className="text-white-soft">{balance.toLocaleString()}</strong>).
+                {institution?.billingModel && institution.billingModel !== renewPlan && (
+                  <span className="block text-gold mt-1.5">
+                    This will also switch your plan from {billingModelLabel(institution.billingModel)} to {billingModelLabel(renewPlan)}.
+                  </span>
+                )}
+                {renewalPrice > balance && (
+                  <span className="block text-red mt-1.5">Not enough balance — top up first.</span>
+                )}
+              </p>
+            )}
+
             <div className="flex gap-3">
               <button
                 onClick={() => setShowRenewConfirm(false)}

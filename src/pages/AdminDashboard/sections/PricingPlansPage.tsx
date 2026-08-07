@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCheckCircle, FiPlus, FiX } from 'react-icons/fi';
+import { FiCheckCircle, FiEdit2, FiPlus, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   CreatePricingPayload,
+  UpdatePricingPayload,
   createPricingConfig,
   fetchPricingConfigs,
+  updatePricingConfig,
 } from '../../../services/adminApi';
 import type { ApiPricingConfig } from '../../../types/api';
 
@@ -127,15 +129,96 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   );
 }
 
+// ─── Edit Pricing Modal ───────────────────────────────────────────────────
+
+function EditPricingModal({
+  target, onClose, onSaved,
+}: { target: ApiPricingConfig; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState<UpdatePricingPayload>({
+    serviceType: target.serviceType as UpdatePricingPayload['serviceType'],
+    unitPrice: target.unitPrice,
+    effectiveDate: target.effectiveDate.slice(0, 10),
+    isActive: target.isActive,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k: 'unitPrice' | 'effectiveDate') => (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => setForm((f) => ({ ...f, [k]: k === 'unitPrice' ? Number(e.target.value) : e.target.value }));
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (form.unitPrice <= 0) { toast.warning('Invalid', 'Unit price must be greater than 0.'); return; }
+    setSaving(true);
+    try {
+      await updatePricingConfig(target.id, form);
+      toast.success('Updated', 'Pricing config updated.');
+      onSaved(); onClose();
+    } catch (err) {
+      // BE từ chối rõ ràng nếu unitPrice bị đổi mà config này đã có Transaction tham chiếu — hiện
+      // đúng message thật (bảo phải Create config mới) thay vì "try again" chung chung.
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to update pricing config.');
+    } finally { setSaving(false); }
+  };
+
+  const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
+  const meta = SERVICE_META[target.serviceType as ServiceType];
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-md">
+        <div className="flex items-center justify-between p-6 border-b border-border">
+          <h2 className="font-syne font-bold text-white-soft text-lg">Edit {meta?.label ?? target.serviceType}</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors">
+            <FiX />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>
+            <input type="number" min={1} value={form.unitPrice || ''} onChange={set('unitPrice')} placeholder="e.g. 50" className={inp} required />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Effective Date</label>
+            <input type="date" value={form.effectiveDate} onChange={set('effectiveDate')} className={inp} required />
+          </div>
+          <label className="flex items-center gap-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={form.isActive}
+              onChange={(e) => setForm((f) => ({ ...f, isActive: e.target.checked }))}
+              className="w-4 h-4 accent-blue-bright cursor-pointer"
+            />
+            <span className="text-sm text-white-soft">Active (eligible to be used for billing)</span>
+          </label>
+          <div className="bg-gold/5 border border-gold/20 rounded-xl p-3 text-xs text-muted">
+            ⚠️ If this config already has transactions billed against it, changing the price will be
+            rejected by the server — create a new pricing config instead of editing this one.
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none">
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function PricingPlansPage() {
   const [showModal, setShowModal] = useState(false);
+  const [editTarget, setEditTarget] = useState<ApiPricingConfig | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(fetchPricingConfigs, []);
   const configs: ApiPricingConfig[] = data ?? [];
 
-  // Group by serviceType, show most recent per type as "active"
+  // Group by serviceType
   const grouped = configs.reduce<Record<string, ApiPricingConfig[]>>((acc, c) => {
     if (!acc[c.serviceType]) acc[c.serviceType] = [];
     acc[c.serviceType].push(c);
@@ -146,6 +229,15 @@ export default function PricingPlansPage() {
   Object.values(grouped).forEach((arr) =>
     arr.sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime()),
   );
+
+  // "Active" phải khớp đúng cách BE thật sự chọn config để tính tiền
+  // (PricingConfigRepository.GetActiveConfigByServiceTypeAsync: lọc isActive=true, mới nhất theo
+  // effectiveDate) — không phải chỉ "mới nhất theo ngày" bất kể isActive như trước, vì giờ isActive
+  // có thể bị tắt tay qua Edit (PUT /api/pricing-configs/{id}).
+  const activeByType: Record<string, ApiPricingConfig | undefined> = {};
+  Object.entries(grouped).forEach(([type, arr]) => {
+    activeByType[type] = arr.find((c) => c.isActive);
+  });
 
   const serviceTypes: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR', 'SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'];
 
@@ -166,7 +258,7 @@ export default function PricingPlansPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {serviceTypes.map((type) => {
           const meta = SERVICE_META[type];
-          const active = grouped[type]?.[0];
+          const active = activeByType[type];
           return (
             <div key={type} className="bg-navy-card border border-border rounded-[20px] p-5">
               <div className="flex items-center gap-3 mb-4">
@@ -228,7 +320,7 @@ export default function PricingPlansPage() {
               .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())
               .map((c) => {
                 const meta = SERVICE_META[c.serviceType as ServiceType];
-                const isLatestOfType = grouped[c.serviceType]?.[0]?.id === c.id;
+                const isActiveOfType = activeByType[c.serviceType]?.id === c.id;
                 return (
                   <div key={c.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/40 transition-colors">
                     <span className="text-lg shrink-0">{meta?.icon ?? '💰'}</span>
@@ -239,11 +331,19 @@ export default function PricingPlansPage() {
                     <p className={`text-sm font-bold ${meta?.color ?? 'text-white-soft'}`}>
                       {c.unitPrice.toLocaleString()} credits
                     </p>
-                    {isLatestOfType ? (
+                    {isActiveOfType ? (
                       <span className="text-[10px] font-bold text-green bg-green/10 border border-green/25 px-2 py-0.5 rounded-full shrink-0">Active</span>
-                    ) : (
+                    ) : c.isActive ? (
                       <span className="text-[10px] font-bold text-muted bg-white/5 border border-border px-2 py-0.5 rounded-full shrink-0">Past</span>
+                    ) : (
+                      <span className="text-[10px] font-bold text-red bg-red/10 border border-red/25 px-2 py-0.5 rounded-full shrink-0">Inactive</span>
                     )}
+                    <button
+                      onClick={() => setEditTarget(c)}
+                      className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-blue-bright hover:border-blue/30 transition-all bg-transparent shrink-0"
+                    >
+                      <FiEdit2 className="text-xs" />
+                    </button>
                   </div>
                 );
               })}
@@ -252,6 +352,9 @@ export default function PricingPlansPage() {
       </div>
 
       {showModal && <NewPricingModal onClose={() => setShowModal(false)} onSaved={reload} />}
+      {editTarget && (
+        <EditPricingModal target={editTarget} onClose={() => setEditTarget(null)} onSaved={reload} />
+      )}
     </div>
   );
 }

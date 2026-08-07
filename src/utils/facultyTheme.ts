@@ -106,8 +106,8 @@ export function getFacultyTheme(facultyId: FacultyId): FacultyTheme {
 }
 
 /** Suy luận khoa từ mã học phần (CS→CNTT, ECO→Kinh tế, …) */
-export function getFacultyByCourseCode(code: string): FacultyTheme {
-  const prefix = code.replace(/[0-9]/g, '').toUpperCase();
+export function getFacultyByCourseCode(code: string | null | undefined): FacultyTheme {
+  const prefix = (code ?? '').replace(/[0-9]/g, '').toUpperCase();
 
   if (['CS', 'IT', 'SE', 'IS'].includes(prefix)) return FACULTY_THEMES.it;
   if (['ECO', 'ECN', 'FIN'].includes(prefix)) return FACULTY_THEMES.economics;

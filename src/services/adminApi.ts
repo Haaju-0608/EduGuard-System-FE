@@ -69,10 +69,14 @@ export async function activateInstitution(id: string): Promise<ApiInstitution> {
 }
 
 /** POST /api/institutions/{id}/renew-subscription — chỉ SchoolAdmin. Gia hạn subscriptionExpiresAt
- *  thêm 1 tháng/năm tuỳ billingModel, tự un-suspend nếu đang Suspended. Không trả institution mới
- *  trong response — phải tự fetchInstitutionById lại sau khi gọi. */
-export async function renewInstitutionSubscription(id: string): Promise<void> {
-  await apiPost<null>(`/api/institutions/${id}/renew-subscription`, {});
+ *  thêm 1 tháng/năm tuỳ billingModel được CHỌN (school admin có thể vừa renew vừa đổi gói), tự
+ *  un-suspend nếu đang Suspended. Không trả institution mới trong response — phải tự
+ *  fetchInstitutionById lại sau khi gọi.
+ *  QUAN TRỌNG: billingModel là field bắt buộc (enum non-nullable) bên BE (RenewSubscriptionDto) —
+ *  không gửi kèm sẽ bị deserialize thành default enum member = Monthly (member 0), âm thầm ép mọi
+ *  lần renew về gói Monthly + tính phí Monthly dù trường đang ở gói Yearly. */
+export async function renewInstitutionSubscription(id: string, billingModel: 'Monthly' | 'Yearly'): Promise<void> {
+  await apiPost<null>(`/api/institutions/${id}/renew-subscription`, { billingModel });
 }
 
 // ─── Pricing Configs ──────────────────────────────────────────────────────
@@ -96,6 +100,21 @@ export async function createPricingConfig(
   payload: CreatePricingPayload,
 ): Promise<ApiPricingConfig> {
   return apiPost<ApiPricingConfig>('/api/pricing-configs', payload);
+}
+
+export interface UpdatePricingPayload extends CreatePricingPayload {
+  isActive: boolean;
+}
+
+/** PUT /api/pricing-configs/{id} — chỉ SuperAdmin. BE (PricingConfigService.UpdateConfigAsync) từ
+ *  chối đổi unitPrice nếu config này đã có Transaction tham chiếu (giữ nguyên số liệu lịch sử) —
+ *  trường hợp đó phải tạo config mới (createPricingConfig) thay vì sửa cái cũ. Đổi serviceType/
+ *  effectiveDate/isActive thì luôn được phép. */
+export async function updatePricingConfig(
+  id: string,
+  payload: UpdatePricingPayload,
+): Promise<void> {
+  await apiPut<null>(`/api/pricing-configs/${id}`, payload);
 }
 
 // ─── Reports (Controllers/ReportsController.cs) ────────────────────────────

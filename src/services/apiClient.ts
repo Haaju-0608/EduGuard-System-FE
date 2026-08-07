@@ -206,3 +206,29 @@ export async function apiGetPaginated<T>(
     pagination: envelope.pagination,
   };
 }
+
+/** BE giới hạn pageSize tối đa = 100 (mọi endpoint phân trang, xem AcademicApiControllerBase.
+ *  ValidatePaging) — gọi pageSize lớn hơn bị 400 thẳng. */
+const MAX_BE_PAGE_SIZE = 100;
+
+/**
+ * Lấy TOÀN BỘ item của 1 endpoint phân trang bằng cách gọi lặp nhiều trang pageSize=100, gộp lại —
+ * thay cho cách cũ gọi 1 trang pageSize=200/500 (giờ luôn bị 400 "pageSize must be between 1 and
+ * 100"). Dùng ở bất kỳ chỗ nào trước đây cần lấy "hết" danh sách trong 1 lần.
+ */
+export async function apiGetAllPages<T>(
+  pathBuilder: (page: number, pageSize: number) => string,
+  options?: Omit<ApiRequestOptions, 'method' | 'body' | 'raw'>,
+): Promise<T[]> {
+  const all: T[] = [];
+  let page = 1;
+  // Chặn an toàn tránh vòng lặp vô hạn nếu BE trả pagination sai lệch — 50 trang x 100 = 5000 item,
+  // dư sức cho mọi danh sách thực tế của hệ thống này.
+  for (; page <= 50; page += 1) {
+    const { data, pagination } = await apiGetPaginated<T[]>(pathBuilder(page, MAX_BE_PAGE_SIZE), options);
+    all.push(...data);
+    const totalPages = pagination?.totalPages ?? 0;
+    if (data.length < MAX_BE_PAGE_SIZE || (totalPages > 0 && page >= totalPages)) break;
+  }
+  return all;
+}

@@ -128,3 +128,21 @@ export function computeFaceSimilarity(
   const avgDist = count > 0 ? totalDist / count : 999;
   return Math.max(0, Math.exp(-avgDist * 3.5));
 }
+
+/**
+ * Chụp 1 frame hiện tại của <video> camera thành JPEG Blob — dùng để gửi lên BE làm `liveCapture`
+ * cho việc verify khuôn mặt THẬT SỰ chạy server-side qua AI service (khác với computeFaceSimilarity
+ * ở trên, chỉ là ước lượng local trên trình duyệt để hiện thanh confidence mượt, không phải nguồn
+ * quyết định cuối cùng). readyState < 2 (HAVE_CURRENT_DATA) hoặc chưa có videoWidth nghĩa là stream
+ * chưa có frame thật nào — trả null, đừng chụp ảnh đen.
+ */
+export async function captureLiveFrame(video: HTMLVideoElement | null): Promise<Blob | null> {
+  if (!video || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), 'image/jpeg', 0.9));
+}

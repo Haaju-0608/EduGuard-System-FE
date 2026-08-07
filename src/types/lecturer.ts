@@ -47,6 +47,7 @@ export interface LecturerStudent {
   attendanceRate: number;
   avatar: string | null;
   initials: string;
+  createdAt: string;
 }
 
 /** Sinh viên trong phiên điểm danh */
@@ -70,6 +71,11 @@ export interface AttendanceSession {
   classId: string;
   classCode: string;
   className: string;
+  examSlotId: string | null;
+  examName: string | null;
+  /** ISO — giờ kết thúc của BÀI THI gắn với session (không phải endTime của session điểm danh),
+   *  dùng để tự động đóng session khi hết giờ thi. */
+  examEndTime: string | null;
   room: string;
   startTime: string;
   endTime: string;
