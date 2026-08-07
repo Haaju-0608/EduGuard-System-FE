@@ -4,12 +4,12 @@ import type { BrowserViolationType } from '../types/termination';
 
 const COOLDOWN_MS = 3000;
 
-// Thoát fullscreen trước đây chỉ tính 1 lần (1/3 "mạng"), không có giới hạn thời gian ở ngoài —
-// học sinh có thể thoát 1 lần rồi ở ngoài bao lâu tuỳ ý để tra tài liệu, chỉ tốn đúng 1 vi phạm.
-// Vá lỗ hổng này hoàn toàn ở FE (BE đã có sẵn ngưỡng "3 vi phạm → disqualify" trong
-// BrowserViolationService.cs, không cần API mới): nếu học sinh ở ngoài fullscreen quá
-// PROLONGED_EXIT_THRESHOLD_MS mà chưa quay lại, coi là cố ý (không phải rung sự kiện) và bắt đầu
-// báo cáo dồn dập mỗi ESCALATION_INTERVAL_MS (bỏ qua cooldown) cho tới khi BE tự disqualify.
+// Nếu học sinh ở ngoài fullscreen liên tục quá khoảng này mà không quay lại, hệ thống sẽ tự báo
+// cáo dồn dập (bỏ qua cooldown) để nhanh chóng chạm ngưỡng 3 vi phạm mà BE đã có sẵn (xem
+// BrowserViolationService.cs — TerminationThreshold = 3) và bị disqualify. Không phải "quá 5s là
+// disqualify ngay lập tức" (BE không có API riêng cho việc đó, và ta không tự ý sửa BE), mà là
+// "quá 5s thì escalate liên tục sau mỗi ESCALATION_INTERVAL_MS cho tới khi chạm ngưỡng có sẵn" —
+// đóng lỗ hổng học sinh thoát fullscreen 1 lần rồi ở ngoài bao lâu tùy ý để tra cứu tài liệu.
 const PROLONGED_EXIT_THRESHOLD_MS = 5000;
 const ESCALATION_INTERVAL_MS = 1500;
 
@@ -17,7 +17,7 @@ const ESCALATION_INTERVAL_MS = 1500;
  * Phát hiện hành vi rời khỏi màn hình thi và báo cáo lên BE:
  * - visibilitychange (tab ẩn)   → TabSwitch
  * - blur (mất focus cửa sổ)     → WindowBlur
- * - fullscreenchange (thoát FS) → ExitFullscreen (+ escalate nếu ở ngoài quá lâu, xem trên)
+ * - fullscreenchange (thoát FS) → ExitFullscreen (+ escalate nếu ở ngoài quá lâu — xem trên)
  *
  * Có cooldown riêng theo từng loại để tránh spam report khi user bấm liên tục (vd alt-tab nhiều lần).
  * Tự tắt hoàn toàn (không gắn listener) khi `enabled=false` — dùng để dừng detect khi bài thi đã
@@ -41,29 +41,21 @@ export function useBrowserViolation(
   const lastReportedAtRef = useRef<Partial<Record<BrowserViolationType, number>>>({});
   const terminatedRef = useRef(false);
 
-  // Hẹn giờ "ở ngoài fullscreen quá lâu" (setTimeout) và interval báo cáo dồn dập sau khi hẹn giờ
-  // đó kích hoạt — cả 2 đều phải huỷ ngay khi học sinh quay lại fullscreen hoặc đã bị terminate.
-  const escalationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const escalationIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   useEffect(() => {
     if (!enabled) return;
     terminatedRef.current = false;
 
+    let escalationTimer: number | undefined;
+    let escalationInterval: number | undefined;
+
     const clearEscalation = () => {
-      if (escalationTimeoutRef.current) {
-        clearTimeout(escalationTimeoutRef.current);
-        escalationTimeoutRef.current = null;
-      }
-      if (escalationIntervalRef.current) {
-        clearInterval(escalationIntervalRef.current);
-        escalationIntervalRef.current = null;
-      }
+      window.clearTimeout(escalationTimer);
+      window.clearInterval(escalationInterval);
+      escalationTimer = undefined;
+      escalationInterval = undefined;
     };
 
-    // bypassCooldown=true dùng cho báo cáo dồn dập lúc escalate — hành vi lúc đó là cố ý ở lại
-    // ngoài fullscreen, không phải rung/giật sự kiện, nên không cần chặn theo cooldown như bình thường.
-    const report = (type: BrowserViolationType, bypassCooldown = false) => {
+    const report = (type: BrowserViolationType, options: { bypassCooldown?: boolean } = {}) => {
       if (terminatedRef.current) return;
 
       const pid = participationIdRef.current;
@@ -74,21 +66,18 @@ export function useBrowserViolation(
         return;
       }
 
-      if (!bypassCooldown) {
-        const now = Date.now();
-        const last = lastReportedAtRef.current[type] ?? 0;
-        if (now - last < COOLDOWN_MS) return;
-        lastReportedAtRef.current[type] = now;
-      }
+      const now = Date.now();
+      const last = lastReportedAtRef.current[type] ?? 0;
+      if (!options.bypassCooldown && now - last < COOLDOWN_MS) return;
+      lastReportedAtRef.current[type] = now;
 
       reportBrowserViolation({ participationId: pid, violationType: type })
         .then((res) => {
-          onReportedRef.current?.(res.currentViolationCount, res.examTerminated);
           if (res.examTerminated) {
-            // Đã bị disqualify — dừng escalate ngay, tránh gọi API thừa.
             terminatedRef.current = true;
             clearEscalation();
           }
+          onReportedRef.current?.(res.currentViolationCount, res.examTerminated);
         })
         .catch((err) => {
           // Không chặn thi nếu report lỗi, nhưng PHẢI log ra — trước đây nuốt lỗi hoàn toàn khiến
@@ -102,27 +91,28 @@ export function useBrowserViolation(
     };
     const handleBlur = () => report('WindowBlur');
     const handleFullscreenChange = () => {
-      if (!document.fullscreenElement) {
-        report('ExitFullscreen');
-        if (terminatedRef.current) return;
-
-        // Bắt đầu lại từ đầu mỗi lần thoát — tránh chồng nhiều timer nếu thoát/vào liên tục.
+      if (document.fullscreenElement) {
+        // Đã quay lại fullscreen — hủy hẹn giờ escalate đang chờ (nếu có).
         clearEscalation();
-        escalationTimeoutRef.current = setTimeout(() => {
-          escalationTimeoutRef.current = null;
-          if (terminatedRef.current || document.fullscreenElement) return;
-          escalationIntervalRef.current = setInterval(() => {
-            if (terminatedRef.current || document.fullscreenElement) {
-              clearEscalation();
-              return;
-            }
-            report('ExitFullscreen', true);
-          }, ESCALATION_INTERVAL_MS);
-        }, PROLONGED_EXIT_THRESHOLD_MS);
-      } else {
-        // Quay lại fullscreen kịp thời — huỷ hẹn giờ/escalate ngay, không báo cáo thêm.
-        clearEscalation();
+        return;
       }
+
+      report('ExitFullscreen');
+
+      // Ở ngoài fullscreen quá PROLONGED_EXIT_THRESHOLD_MS mà chưa quay lại → bắt đầu báo cáo dồn
+      // dập (bỏ qua cooldown) mỗi ESCALATION_INTERVAL_MS cho tới khi bị terminate hoặc quay lại
+      // fullscreen — không cho phép "thoát 1 lần rồi ở ngoài vô thời hạn" chỉ tốn đúng 1 violation.
+      clearEscalation();
+      escalationTimer = window.setTimeout(() => {
+        if (document.fullscreenElement || terminatedRef.current) return;
+        escalationInterval = window.setInterval(() => {
+          if (document.fullscreenElement || terminatedRef.current) {
+            clearEscalation();
+            return;
+          }
+          report('ExitFullscreen', { bypassCooldown: true });
+        }, ESCALATION_INTERVAL_MS);
+      }, PROLONGED_EXIT_THRESHOLD_MS);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
