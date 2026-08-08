@@ -5,6 +5,7 @@ import {
   FiSearch, FiTrash2, FiUser, FiUsers, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -568,10 +569,13 @@ function ClassCard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 12;
+
 export default function SchoolClassManagementPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<LecturerClass | null>(null);
   const [enrollTarget, setEnrollTarget] = useState<LecturerClass | null>(null);
@@ -599,6 +603,12 @@ export default function SchoolClassManagementPage() {
         c.code.toLowerCase().includes(search.toLowerCase()),
       )
     : classes;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search]);
 
   const handleOpenCreate = () => { setEditTarget(null); setShowForm(true); };
   const handleOpenEdit = (cls: LecturerClass) => { setEditTarget(cls); setShowForm(true); };
@@ -689,17 +699,20 @@ export default function SchoolClassManagementPage() {
           <p className="text-sm">Try a different search or create a new class.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filtered.map((cls) => (
-            <ClassCard
-              key={cls.id}
-              cls={cls}
-              onEdit={handleOpenEdit}
-              onDelete={setDeleteClassTarget}
-              onManageStudents={setEnrollTarget}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {pageItems.map((cls) => (
+              <ClassCard
+                key={cls.id}
+                cls={cls}
+                onEdit={handleOpenEdit}
+                onDelete={setDeleteClassTarget}
+                onManageStudents={setEnrollTarget}
+              />
+            ))}
+          </div>
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${filtered.length} classes`} />
+        </>
       )}
 
       {/* Modals */}

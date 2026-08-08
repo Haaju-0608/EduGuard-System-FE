@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { FiBell, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -500,11 +501,14 @@ const STATUS_OPTIONS: { value: ExamSlotStatus | 'all'; label: string }[] = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+const PAGE_SIZE = 15;
+
 export default function ExamManagementPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<ExamSlot | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -539,6 +543,12 @@ export default function ExamManagementPage() {
       || s.className.toLowerCase().includes(q);
     return matchSearch && (statusFilter === 'all' || s.status === statusFilter);
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -674,7 +684,7 @@ export default function ExamManagementPage() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {filtered.map((slot) => (
+            {pageItems.map((slot) => (
               <div key={slot.id} className="flex items-center gap-4 px-5 py-4 hover:bg-navy/40 transition-colors">
                 <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center shrink-0">
                   <FiUsers className="text-blue-bright" />
@@ -740,6 +750,10 @@ export default function ExamManagementPage() {
               </div>
             ))}
           </div>
+        )}
+
+        {!loading && !error && (
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} className="px-5 py-3.5 border-t border-border" />
         )}
       </div>
 

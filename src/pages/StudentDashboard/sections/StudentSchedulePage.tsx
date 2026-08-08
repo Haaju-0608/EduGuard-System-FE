@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { FiCalendar, FiChevronLeft, FiChevronRight, FiClock, FiLoader } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import { fetchMyExamAttendanceStatus, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import type { StudentAttendanceRecord } from '../../../services/schoolAdminApi';
 import type { ExamSlot } from '../../../types/lecturer';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -67,11 +68,32 @@ const STATUS_STYLE: Record<DisplayStatus, { card: string; badge: string; dot: st
   cancelled: { card: 'bg-red/10 border-red/25 text-red',             badge: 'bg-red/10 text-red',             dot: 'bg-red',            label: 'Cancelled' },
 };
 
+const ATTENDANCE_STYLE: Record<StudentAttendanceRecord['status'], { label: string; className: string }> = {
+  present: { label: '✓ Present', className: 'text-green bg-green/15' },
+  late:    { label: '⏰ Late',    className: 'text-gold bg-gold/15' },
+  excused: { label: '📋 Excused', className: 'text-cyan bg-cyan/15' },
+  absent:  { label: '✕ Absent',  className: 'text-red bg-red/15' },
+};
+
+/** Bài thi chưa tới giờ (scheduled) hoặc bị huỷ → chưa có gì để điểm danh, không hiện badge.
+ *  Ongoing/Completed mà chưa có record điểm danh thật → suy luận Absent, khớp đúng quy ước đã
+ *  dùng ở roster điểm danh của giảng viên (Future chỉ áp dụng trước giờ thi). */
+function deriveAttendanceBadge(
+  slot: ExamSlot,
+  attendance: Record<string, StudentAttendanceRecord['status']>,
+): { label: string; className: string } | null {
+  if (slot.status === 'scheduled' || slot.status === 'cancelled') return null;
+  return ATTENDANCE_STYLE[attendance[slot.id] ?? 'absent'];
+}
+
 // ─── Exam Card ─────────────────────────────────────────────────────────────
 
-function ExamCard({ slot, compact = false }: { slot: ExamSlot; compact?: boolean }) {
+function ExamCard({
+  slot, attendance, compact = false,
+}: { slot: ExamSlot; attendance: Record<string, StudentAttendanceRecord['status']>; compact?: boolean }) {
   const status = deriveStatus(slot);
   const style = STATUS_STYLE[status];
+  const attendanceBadge = deriveAttendanceBadge(slot, attendance);
 
   return (
     <div className={`rounded-xl border p-2.5 space-y-1.5 ${style.card}`}>
@@ -88,6 +110,11 @@ function ExamCard({ slot, compact = false }: { slot: ExamSlot; compact?: boolean
         {fmtTime(slot.startTime)} – {fmtTime(slot.endTime)}
         <span className="ml-1 opacity-60">({slot.durationMinutes}m)</span>
       </div>
+      {attendanceBadge && (
+        <span className={`inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-md ${attendanceBadge.className}`}>
+          {attendanceBadge.label}
+        </span>
+      )}
     </div>
   );
 }
@@ -106,6 +133,12 @@ export default function StudentSchedulePage() {
   );
   const exams: ExamSlot[] = data ?? [];
 
+  const { data: attendanceData } = useAsyncData(
+    () => (user?.id ? fetchMyExamAttendanceStatus(user.id) : Promise.resolve({})),
+    [user?.id],
+  );
+  const attendance = attendanceData ?? {};
+
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
   const prevWeek = () => setWeekStart((d) => addDays(d, -7));
@@ -116,7 +149,7 @@ export default function StudentSchedulePage() {
 
   const todayExams = exams.filter((e) => isSameDay(new Date(e.startTime), today));
   const upcomingCount = exams.filter((e) => deriveStatus(e) === 'upcoming' || deriveStatus(e) === 'available').length;
-  const sortedExams = [...exams].sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  const sortedExams = [...exams].sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
 
   return (
     <div className="flex flex-col flex-1 gap-3 min-h-0">
@@ -228,7 +261,7 @@ export default function StudentSchedulePage() {
                       <span className="text-[10px] text-muted">–</span>
                     </div>
                   ) : (
-                    dayExams.map((e) => <ExamCard key={e.id} slot={e} compact />)
+                    dayExams.map((e) => <ExamCard key={e.id} slot={e} attendance={attendance} compact />)
                   )}
                 </div>
               );
@@ -258,6 +291,7 @@ export default function StudentSchedulePage() {
             sortedExams.map((slot) => {
               const status = deriveStatus(slot);
               const style = STATUS_STYLE[status];
+              const attendanceBadge = deriveAttendanceBadge(slot, attendance);
               return (
                 <div key={slot.id} className={`bg-navy-card border rounded-2xl overflow-hidden ${status === 'available' ? 'border-green/30' : status === 'upcoming' ? 'border-blue/30' : 'border-border'}`}>
                   <div className="flex items-center gap-4 px-5 py-3.5">
@@ -284,10 +318,17 @@ export default function StudentSchedulePage() {
                           <p className="font-syne font-bold text-white-soft text-sm truncate">{slot.examName}</p>
                           <p className="text-xs text-muted mt-0.5">{slot.classCode} · {slot.className}</p>
                         </div>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0 ${style.badge}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
-                          {style.label}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {attendanceBadge && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${attendanceBadge.className}`}>
+                              {attendanceBadge.label}
+                            </span>
+                          )}
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 ${style.badge}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${style.dot}`} />
+                            {style.label}
+                          </span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-3 mt-1 text-[11px] text-muted">
                         <span className="flex items-center gap-1">

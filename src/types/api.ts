@@ -208,6 +208,7 @@ export type ParticipationStatus = 'Joined' | 'Submitted' | 'Disqualified' | 'Abs
 export interface ApiExamParticipation {
   id: string;
   examSlotId: string;
+  examName: string | null;
   studentId: string;
   status: ParticipationStatus;
   actualStart: string | null;

@@ -5,6 +5,7 @@ import {
   FiPlus, FiSearch, FiTrash2, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import Pagination from '../../../components/ui/Pagination';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
@@ -17,6 +18,7 @@ import {
   updateInstitution,
 } from '../../../services/adminApi';
 import { billingModelLabel } from '../../../utils/billingModel';
+import { MAX_INSTITUTION_NAME_LENGTH, MAX_SUBDOMAIN_LENGTH } from '../../../utils/formValidation';
 import type { ApiInstitution } from '../../../types/api';
 
 function fmt(iso: string) {
@@ -78,10 +80,18 @@ function InstitutionFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim()) { toast.warning('Required', 'Institution name is required.'); return; }
+    if (form.name.trim().length > MAX_INSTITUTION_NAME_LENGTH) {
+      toast.warning('Invalid', `Institution name must be at most ${MAX_INSTITUTION_NAME_LENGTH} characters.`);
+      return;
+    }
     // BE (CreateInstitutionDto/UpdateInstitutionDto) khai báo SubDomain/ContactEmail là non-nullable
     // string — ASP.NET Core's [ApiController] tự coi đây là required (400 nếu thiếu), dù không có
     // [Required] tường minh. Không check trước thì submit fail dù form nhìn như hợp lệ.
     if (!form.subDomain.trim()) { toast.warning('Required', 'Sub domain is required.'); return; }
+    if (form.subDomain.trim().length > MAX_SUBDOMAIN_LENGTH) {
+      toast.warning('Invalid', `Sub domain must be at most ${MAX_SUBDOMAIN_LENGTH} characters.`);
+      return;
+    }
     if (!form.contactEmail.trim()) { toast.warning('Required', 'Contact email is required.'); return; }
     setSaving(true);
     try {
@@ -122,7 +132,7 @@ function InstitutionFormModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Institution Name *</label>
-            <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Hanoi University" className={inp} required />
+            <input type="text" value={form.name} onChange={set('name')} placeholder="e.g. Hanoi University" className={inp} maxLength={MAX_INSTITUTION_NAME_LENGTH} required />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Sub Domain *</label>
@@ -134,6 +144,7 @@ function InstitutionFormModal({
               onChange={(e) => setForm((f) => ({ ...f, subDomain: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
               placeholder="e.g. hanu"
               className={inp}
+              maxLength={MAX_SUBDOMAIN_LENGTH}
               required
             />
           </div>
@@ -165,9 +176,12 @@ function InstitutionFormModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 15;
+
 export default function InstitutionsPage() {
   const toast = useToast();
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiInstitution | null>(null);
   const [actionId, setActionId] = useState<string | null>(null);
@@ -185,6 +199,12 @@ export default function InstitutionsPage() {
         (i.contactEmail ?? '').toLowerCase().includes(search.toLowerCase()),
       )
     : institutions;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search]);
 
   const handleOpenCreate = () => { setEditTarget(null); setShowForm(true); };
   const handleOpenEdit = (inst: ApiInstitution) => { setEditTarget(inst); setShowForm(true); };
@@ -290,7 +310,7 @@ export default function InstitutionsPage() {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {filtered.map((inst) => {
+            {pageItems.map((inst) => {
               const isBusy = actionId === inst.id;
               const isSuspended = inst.status?.toLowerCase() === 'suspended';
               return (
@@ -350,6 +370,10 @@ export default function InstitutionsPage() {
               );
             })}
           </div>
+        )}
+
+        {!loading && !error && (
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} className="px-5 py-3.5 border-t border-border" />
         )}
       </div>
 

@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiClock, FiEdit3, FiFileText, FiSearch } from 'react-icons/fi';
+import { FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import Pagination from '../../../components/ui/Pagination';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
@@ -16,7 +17,7 @@ import {
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchExamQuestions, fetchExamSlots } from '../../../services/schoolAdminApi';
+import { fetchExamSlots } from '../../../services/schoolAdminApi';
 import type { ExamSlot, ExamSlotStatus } from '../../../types/lecturer';
 
 function formatDateTime(iso: string): string {
@@ -40,22 +41,9 @@ function ExamStatusBadge({ status }: { status: ExamSlotStatus }) {
 function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
   const navigate = useNavigate();
 
-  // "Grade Essays" chỉ có ý nghĩa khi đề thi thực sự có câu Essay — tránh hiện nút gây hiểu nhầm
-  // trên đề chỉ toàn MCQ (BE tự chấm hết, không có gì để chấm tay).
-  const { data: questionsData } = useAsyncData(
-    () => fetchExamQuestions(slot.id, { pageSize: 200 }),
-    [slot.id],
-  );
-  const hasEssayQuestions = (questionsData?.items ?? []).some((q) => q.questionType.toLowerCase() === 'essay');
-
   const handleViewQuestions = () => {
     localStorage.setItem(`examName_${slot.id}`, slot.examName);
     navigate(`/lecture/exams/${slot.id}/questions`);
-  };
-
-  const handleGradeEssays = () => {
-    localStorage.setItem(`examName_${slot.id}`, slot.examName);
-    navigate(`/lecture/exams/${slot.id}/grading`);
   };
 
   return (
@@ -92,25 +80,20 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
           >
             <FiFileText className="text-sm" /> Questions
           </button>
-          {hasEssayQuestions && (
-            <button
-              onClick={handleGradeEssays}
-              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-xl border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/10 transition-colors bg-transparent"
-            >
-              <FiEdit3 className="text-sm" /> Grade Essays
-            </button>
-          )}
         </div>
       </UniCard>
     </AnimateIn>
   );
 }
 
+const PAGE_SIZE = 9;
+
 export default function ExamSlotsPage() {
   const { facultyId } = useLecturerFaculty();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
+  const [page, setPage] = useState(1);
 
   const { data, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 100 });
@@ -127,6 +110,12 @@ export default function ExamSlotsPage() {
   );
 
   const filteredSlots = useListFilters(slots, search, ['examName', 'classCode', 'className'], predicates);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSlots.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filteredSlots.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
 
   return (
     <PageShell>
@@ -175,11 +164,14 @@ export default function ExamSlotsPage() {
       ) : filteredSlots.length === 0 ? (
         <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to your classes yet." />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filteredSlots.map((slot, i) => (
-            <ExamSlotCard key={slot.id} slot={slot} index={i} />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {pageItems.map((slot, i) => (
+              <ExamSlotCard key={slot.id} slot={slot} index={i} />
+            ))}
+          </div>
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${filteredSlots.length} exams`} />
+        </>
       )}
     </PageShell>
   );

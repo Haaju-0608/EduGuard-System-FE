@@ -14,6 +14,7 @@ import {
   updateUser,
 } from '../../../services/schoolAdminApi';
 import type { LecturerStudent } from '../../../types/lecturer';
+import { isValidPhone, MAX_FULLNAME_LENGTH, MAX_PHONE_LENGTH, MAX_STUDENT_CODE_LENGTH } from '../../../utils/formValidation';
 
 const PAGE_SIZE = 20;
 
@@ -76,6 +77,10 @@ function StudentFormModal({
       toast.warning('Required', 'Name and email are required.');
       return;
     }
+    if (form.fullName.trim().length > MAX_FULLNAME_LENGTH) {
+      toast.warning('Invalid', `Full name must be at most ${MAX_FULLNAME_LENGTH} characters.`);
+      return;
+    }
     if (!isEdit && !form.password.trim()) {
       toast.warning('Required', 'Password is required for new students.');
       return;
@@ -87,6 +92,14 @@ function StudentFormModal({
     // BE bắt buộc studentCode khi tạo role Student (CreateUserDto.Validate() throw nếu thiếu).
     if (!isEdit && !form.studentCode.trim()) {
       toast.warning('Required', 'Student code is required.');
+      return;
+    }
+    if (form.studentCode.trim().length > MAX_STUDENT_CODE_LENGTH) {
+      toast.warning('Invalid', `Student code must be at most ${MAX_STUDENT_CODE_LENGTH} characters.`);
+      return;
+    }
+    if (form.phone.trim() && !isValidPhone(form.phone)) {
+      toast.warning('Invalid', `Enter a valid phone number (max ${MAX_PHONE_LENGTH} characters).`);
       return;
     }
     setSaving(true);
@@ -142,7 +155,7 @@ function StudentFormModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Full Name *</label>
-            <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Nguyen Van A" className={inp} required />
+            <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Nguyen Van A" className={inp} maxLength={MAX_FULLNAME_LENGTH} required />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Email *</label>
@@ -157,11 +170,11 @@ function StudentFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Student Code{!isEdit && <span className="text-gold ml-1">*</span>}</label>
-              <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
+              <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} maxLength={MAX_STUDENT_CODE_LENGTH} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
-              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="0912345678" className={inp} />
+              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="0912345678" className={inp} maxLength={MAX_PHONE_LENGTH} />
             </div>
           </div>
           {institutionName && (

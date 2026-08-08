@@ -1,12 +1,14 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
-import { FiChevronDown, FiChevronUp, FiClock, FiFileText, FiX } from 'react-icons/fi';
-import { useAsyncData } from '../../hooks/useAsyncData';
-import { fetchExamQuestions, fetchStudentExamRecords } from '../../services/schoolAdminApi';
-import { parseExamRecord } from '../../utils/examRecord';
-import type { ApiExamQuestion, ApiStudentExamRecord } from '../../types/api';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { FiArrowLeft, FiChevronDown, FiChevronUp, FiClock, FiFileText } from 'react-icons/fi';
+import { EmptyState, PageHeader, PageShell, PrimaryButton } from '../../../components/lecturer/LecturerUI';
+import Pagination from '../../../components/ui/Pagination';
+import { useAsyncData } from '../../../hooks/useAsyncData';
+import { fetchExamQuestions, fetchStudentExamRecords } from '../../../services/schoolAdminApi';
+import { parseExamRecord } from '../../../utils/examRecord';
+import type { ApiExamQuestion, ApiStudentExamRecord } from '../../../types/api';
 
-/** "Marked" = đã chấm xong hết (kể cả câu Essay), "Completed" = còn câu chờ chấm tay */
+/** "Marked" = đã chấm xong hết, "Completed" = còn câu chờ chấm tay */
 function ExamRecordStatusBadge({ status }: { status: string }) {
   const s = status.toLowerCase();
   if (s === 'marked') {
@@ -44,7 +46,6 @@ function RecordAnswerBreakdown({ record }: { record: ApiStudentExamRecord }) {
       {parsed.answers.map((a, idx) => {
         const q: ApiExamQuestion | undefined = questionsById.get(a.questionId);
         const selectedOpt = a.optionId ? q?.options.find((o) => o.id === a.optionId) : undefined;
-        const isEssay = a.questionType.toLowerCase() === 'essay';
         return (
           <div key={a.questionId} className="bg-navy-card border border-border/60 rounded-lg p-3">
             <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -56,19 +57,10 @@ function RecordAnswerBreakdown({ record }: { record: ApiStudentExamRecord }) {
                 {a.awardedPoints} / {a.maxPoints} pts
               </span>
             </div>
-            {isEssay ? (
-              <div className="bg-navy border border-border/50 rounded-md p-2.5 text-xs text-white-soft/80 whitespace-pre-wrap leading-relaxed">
-                {a.answerText?.trim() || <em className="text-muted">No answer submitted.</em>}
-                {a.needsManualMarking && (
-                  <p className="text-[10px] text-gold mt-1.5">Not graded yet.</p>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-muted">
-                Selected <strong className="text-white-soft/80">{a.selectedOption ?? '—'}</strong>
-                {selectedOpt && <> — {selectedOpt.optionContent}</>}
-              </p>
-            )}
+            <p className="text-xs text-muted">
+              Selected <strong className="text-white-soft/80">{a.selectedOption ?? '—'}</strong>
+              {selectedOpt && <> — {selectedOpt.optionContent}</>}
+            </p>
           </div>
         );
       })}
@@ -76,48 +68,64 @@ function RecordAnswerBreakdown({ record }: { record: ApiStudentExamRecord }) {
   );
 }
 
-/** Modal xem lịch sử bài thi của 1 sinh viên (mọi exam, mọi lớp) — dùng cho Lecturer. Bấm vào 1
- *  bài để mở rộng xem chi tiết từng câu đã làm như nào. */
-export default function StudentExamHistoryModal({
-  studentId, studentName, onClose,
-}: { studentId: string; studentName: string; onClose: () => void }) {
+/** Lịch sử bài thi của 1 sinh viên (mọi exam, mọi lớp — fetchStudentExamRecords không lọc theo
+ *  classId, xem ghi chú ở schoolAdminApi.ts) — bấm vào 1 bài để xổ ra chi tiết từng câu multiple
+ *  choice đã làm. Vào từ ClassStudentsPage (kèm state.studentName để khỏi hiện tên rỗng lúc
+ *  đang tải), hoặc trực tiếp qua URL thì fallback hiện "Student" cho tới khi có record đầu tiên. */
+const PAGE_SIZE = 10;
+
+export default function StudentExamHistoryPage() {
+  const { classId, studentId } = useParams<{ classId: string; studentId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const stateName = (location.state as { studentName?: string } | null)?.studentName ?? null;
 
   const { data, loading, error } = useAsyncData(
-    () => fetchStudentExamRecords({ studentId, pageSize: 100 }),
+    () => (studentId ? fetchStudentExamRecords({ studentId, pageSize: 100 }) : Promise.resolve(null)),
     [studentId],
   );
   const records = (data?.items ?? [])
     .filter((r) => r.status.toLowerCase() !== 'deleted')
     .sort((a, b) => new Date(b.submittedAt ?? b.createdAt).getTime() - new Date(a.submittedAt ?? a.createdAt).getTime());
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-200 flex items-center justify-center p-4"
-      onClick={(e) => { e.stopPropagation(); onClose(); }}
-    >
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div
-        className="relative z-10 bg-navy-card border border-border rounded-[20px] w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
-            <FiFileText className="text-blue-bright" />
-            <div>
-              <h2 className="font-syne font-bold text-white-soft">Exam History</h2>
-              <p className="text-xs text-muted mt-0.5">{studentName}</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-muted hover:text-white-soft hover:bg-white/5 transition-colors cursor-pointer shrink-0"
-          >
-            <FiX size={18} />
-          </button>
+  const totalPages = Math.max(1, Math.ceil(records.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = records.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const studentName = stateName ?? records[0]?.studentName ?? 'Student';
+  const gradedCount = records.filter((r) => r.status.toLowerCase() === 'marked').length;
+  const avgScore = records.length > 0
+    ? Math.round(records.reduce((sum, r) => sum + (r.finalScore ?? 0), 0) / records.length)
+    : 0;
+
+  return (
+    <PageShell>
+      <PageHeader
+        eyebrow="Exam Class Management"
+        title={studentName}
+        subtitle="Full exam submission history for this student, across all classes."
+        actions={
+          <PrimaryButton variant="ghost" onClick={() => navigate(`/lecture/classes/${classId}`)}>
+            <FiArrowLeft /> Back to Roster
+          </PrimaryButton>
+        }
+        stats={[
+          { label: 'Exams Taken', value: String(records.length), icon: '📝' },
+          { label: 'Graded', value: String(gradedCount), icon: '✅' },
+          { label: 'Avg. Score', value: String(avgScore), icon: '📊' },
+        ]}
+      />
+
+      <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
+        <div className="px-5 py-4 border-b border-border flex items-center gap-2">
+          <FiFileText className="text-blue-bright" />
+          <p className="text-sm font-bold text-white-soft">Exam History</p>
         </div>
 
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+        <div className="p-4">
           {loading ? (
             <div className="space-y-2">
               {Array.from({ length: 3 }).map((_, i) => (
@@ -127,10 +135,10 @@ export default function StudentExamHistoryModal({
           ) : error ? (
             <p className="text-red text-sm text-center py-8">{error}</p>
           ) : records.length === 0 ? (
-            <p className="text-muted text-sm text-center py-8">No exam submissions yet.</p>
+            <EmptyState icon="📝" title="No exam submissions yet" description="This student hasn't submitted any exams." />
           ) : (
             <div className="space-y-2.5">
-              {records.map((r: ApiStudentExamRecord) => {
+              {pageItems.map((r: ApiStudentExamRecord) => {
                 const parsed = parseExamRecord(r.examRecord);
                 const isExpanded = expandedId === r.id;
                 return (
@@ -168,16 +176,10 @@ export default function StudentExamHistoryModal({
           )}
         </div>
 
-        <div className="px-5 py-3 border-t border-border shrink-0 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-border text-muted text-xs font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
+        {!loading && !error && (
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} className="px-5 py-3.5 border-t border-border" />
+        )}
       </div>
-    </div>,
-    document.body,
+    </PageShell>
   );
 }

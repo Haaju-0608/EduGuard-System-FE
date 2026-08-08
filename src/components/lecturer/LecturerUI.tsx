@@ -9,8 +9,26 @@ import {
   getFacultyByCourseCode,
   getFacultyTheme,
 } from '../../utils/facultyTheme';
+import type { ClassStatus } from '../../types/lecturer';
 import { AnimateIn, AnimatedProgressBar, FloatingOrbs } from './LecturerAnimations';
 import EmptyStatePage from '../feedback/EmptyStatePage';
+
+/** Badge trạng thái lớp (active/upcoming/completed) — dùng ở cả trang danh sách lớp và trang roster
+ *  của 1 lớp cụ thể. */
+export function ClassStatusBadge({ status }: { status: ClassStatus }) {
+  const config = {
+    active:    { label: 'Active',    dot: 'bg-green', className: 'text-green bg-green/10 border-green/25' },
+    completed: { label: 'Completed', dot: 'bg-muted',  className: 'text-muted bg-white/5 border-border' },
+    upcoming:  { label: 'Upcoming',  dot: 'bg-gold',   className: 'text-gold bg-gold/10 border-gold/25' },
+  };
+  const { label, dot, className } = config[status];
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${className}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
+  );
+}
 
 /* ── Icon học viện — huy hiệu trường ── */
 export function AcademySeal({ size = 'md' }: { size?: 'sm' | 'md' | 'lg' }) {
