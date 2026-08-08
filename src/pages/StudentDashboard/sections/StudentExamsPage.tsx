@@ -1,9 +1,11 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiClock, FiSearch } from 'react-icons/fi';
+import { useEffect, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { FiArrowLeft, FiCalendar, FiClock, FiSearch } from 'react-icons/fi';
+import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
+  fetchClassById,
   fetchExamParticipations,
   fetchMyExamAttendanceStatus,
   fetchStudentExamRecords,
@@ -11,7 +13,7 @@ import {
   type StudentAttendanceRecord,
 } from '../../../services/schoolAdminApi';
 import { useToast } from '../../../contexts/ToastContext';
-import type { ExamSlot } from '../../../types/lecturer';
+import type { ExamSlot, LecturerClass } from '../../../types/lecturer';
 import type { ApiStudentExamRecord, ParticipationStatus } from '../../../types/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -74,13 +76,25 @@ const STATUS_CONFIG: Record<StudentStatus, { label: string; cls: string; dot: st
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 9;
+
 export default function StudentExamsPage() {
+  const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<StudentStatus | 'all'>('all');
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+
+  const stateCls = (location.state as { cls?: LecturerClass } | null)?.cls ?? null;
+  const { data: fetchedCls } = useAsyncData(
+    () => (classId && !stateCls ? fetchClassById(classId) : Promise.resolve(null)),
+    [classId, stateCls],
+  );
+  const cls = stateCls ?? fetchedCls;
 
   const { data, loading, error, reload } = useAsyncData(async () => {
     if (!user?.id) {
@@ -90,7 +104,8 @@ export default function StudentExamsPage() {
         attendance: {} as Record<string, StudentAttendanceRecord['status']>,
       };
     }
-    const slots = await fetchStudentExamSlots(user.id);
+    const allSlots = await fetchStudentExamSlots(user.id);
+    const slots = classId ? allSlots.filter((s) => s.classId === classId) : allSlots;
     const attendance = await fetchMyExamAttendanceStatus(user.id).catch(() => ({} as Record<string, StudentAttendanceRecord['status']>));
 
     // StudentExamRecord tồn tại = đã nộp bài và được BE chấm điểm — nguồn xác định "submitted" đáng tin nhất
@@ -124,7 +139,7 @@ export default function StudentExamsPage() {
     );
 
     return { slots, participations, records, attendance };
-  }, [user?.id]);
+  }, [user?.id, classId]);
 
   const slots = data?.slots ?? [];
   const participations = data?.participations ?? {};
@@ -142,6 +157,22 @@ export default function StudentExamsPage() {
     const matchFilter = filter === 'all' || status === filter;
     return matchSearch && matchFilter;
   });
+
+  // Bài thi đang "Available" (bấm Start Exam được luôn) đẩy lên đầu danh sách để học sinh thấy và
+  // vào làm ngay — không phải đi tìm giữa các bài Upcoming/Completed khác. Trong cùng nhóm, mới
+  // nhất lên trước (khớp thứ tự chung của trang).
+  const sortedFiltered = [...filtered].sort((a, b) => {
+    const aAvailable = deriveStudentStatus(a, participations[a.id], !!records[a.id], attendance[a.id]) === 'available';
+    const bAvailable = deriveStudentStatus(b, participations[b.id], !!records[b.id], attendance[b.id]) === 'available';
+    if (aAvailable !== bAvailable) return aAvailable ? -1 : 1;
+    return new Date(b.startTime).getTime() - new Date(a.startTime).getTime();
+  });
+
+  const totalPages = Math.max(1, Math.ceil(sortedFiltered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = sortedFiltered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search, filter, classId]);
 
   const handleStart = async (slot: ExamSlot) => {
     if (!user?.id || checkingId) return;
@@ -187,9 +218,19 @@ export default function StudentExamsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-navy-card border border-border rounded-[20px] p-6">
-        <h1 className="font-syne text-2xl font-extrabold text-white-soft">My Exams</h1>
-        <p className="text-muted text-sm mt-1">View your scheduled exams and start available ones.</p>
+      <div className="bg-navy-card border border-border rounded-[20px] p-6 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="font-syne text-2xl font-extrabold text-white-soft">{cls ? cls.name : 'My Exams'}</h1>
+          <p className="text-muted text-sm mt-1">
+            {cls ? `${cls.code} · View exams and start available ones.` : 'View your scheduled exams and start available ones.'}
+          </p>
+        </div>
+        <button
+          onClick={() => navigate('/student/exams')}
+          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border text-muted text-sm cursor-pointer hover:text-white-soft hover:border-blue-bright/40 transition-all bg-transparent"
+        >
+          <FiArrowLeft /> Back to Classes
+        </button>
       </div>
 
       {/* KPI */}
@@ -213,7 +254,7 @@ export default function StudentExamsPage() {
           <FiSearch className="text-muted shrink-0" />
           <input
             type="text"
-            placeholder="Search exam or class..."
+            placeholder="Search exam..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
@@ -249,14 +290,14 @@ export default function StudentExamsPage() {
           <p className="text-red text-sm mb-3">{error}</p>
           <button onClick={reload} className="text-xs text-blue-bright underline cursor-pointer">Retry</button>
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sortedFiltered.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">📝</p>
           <p className="text-muted text-sm">No exams found.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filtered.map((slot) => {
+          {pageItems.map((slot) => {
             const record = records[slot.id];
             const studentStatus = deriveStudentStatus(slot, participations[slot.id], !!record, attendance[slot.id]);
             const cfg = STATUS_CONFIG[studentStatus];
@@ -332,6 +373,10 @@ export default function StudentExamsPage() {
             );
           })}
         </div>
+      )}
+
+      {!loading && !error && sortedFiltered.length > 0 && (
+        <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${sortedFiltered.length} exams`} />
       )}
     </div>
   );

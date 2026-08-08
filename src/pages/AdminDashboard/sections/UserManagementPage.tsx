@@ -16,6 +16,7 @@ import {
   type FetchUsersParams,
 } from '../../../services/schoolAdminApi';
 import type { ApiInstitution, ApiUser } from '../../../types/api';
+import { isValidPhone, MAX_FULLNAME_LENGTH, MAX_PHONE_LENGTH, MAX_STUDENT_CODE_LENGTH } from '../../../utils/formValidation';
 
 const PAGE_SIZE = 20;
 
@@ -82,11 +83,14 @@ function UserFormModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.fullName.trim() || !form.email.trim()) { toast.warning('Required', 'Name and email are required.'); return; }
+    if (form.fullName.trim().length > MAX_FULLNAME_LENGTH) { toast.warning('Invalid', `Full name must be at most ${MAX_FULLNAME_LENGTH} characters.`); return; }
     if (!isEdit && !form.password.trim()) { toast.warning('Required', 'Password is required for new users.'); return; }
     if (!isEdit && form.password.trim().length < 6) { toast.warning('Invalid', 'Password must be at least 6 characters.'); return; }
     // BE bắt buộc studentCode khi role = Student (CreateUserDto.Validate() throw nếu thiếu) —
     // FE phải chặn trước, không thì submit fail 400 dù form nhìn như hợp lệ.
     if (form.role === 'Student' && !form.studentCode.trim()) { toast.warning('Required', 'Student code is required for Student accounts.'); return; }
+    if (form.studentCode.trim().length > MAX_STUDENT_CODE_LENGTH) { toast.warning('Invalid', `Student/staff code must be at most ${MAX_STUDENT_CODE_LENGTH} characters.`); return; }
+    if (form.phone.trim() && !isValidPhone(form.phone)) { toast.warning('Invalid', `Enter a valid phone number (max ${MAX_PHONE_LENGTH} characters).`); return; }
     setSaving(true);
     try {
       if (isEdit) {
@@ -130,7 +134,7 @@ function UserFormModal({
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Full Name *</label>
-              <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Nguyen Van A" className={inp} required />
+              <input type="text" value={form.fullName} onChange={set('fullName')} placeholder="Nguyen Van A" className={inp} maxLength={MAX_FULLNAME_LENGTH} required />
             </div>
             <div className="col-span-2">
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Email *</label>
@@ -159,11 +163,11 @@ function UserFormModal({
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
                 Student / Staff Code{form.role === 'Student' && <span className="text-gold ml-1">*</span>}
               </label>
-              <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} />
+              <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} maxLength={MAX_STUDENT_CODE_LENGTH} />
             </div>
             <div className="col-span-2">
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
-              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+84 9xx xxx xxx" className={inp} />
+              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+84 9xx xxx xxx" className={inp} maxLength={MAX_PHONE_LENGTH} />
             </div>
             {['schooladmin', 'lecturer', 'student'].includes(form.role?.toLowerCase() ?? '') && (
               <div className="col-span-2">

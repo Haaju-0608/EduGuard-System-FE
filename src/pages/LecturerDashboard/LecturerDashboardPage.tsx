@@ -3,10 +3,13 @@ import { Routes, Route } from 'react-router-dom';
 import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 import DashboardOverview from './sections/DashboardOverview';
 import ClassManagementPage from './sections/ClassManagementPage';
-import AttendanceSessionPage from './sections/AttendanceSessionPage';
+import ClassStudentsPage from './sections/ClassStudentsPage';
+import StudentExamHistoryPage from './sections/StudentExamHistoryPage';
+import AttendanceClassesPage from './sections/AttendanceClassesPage';
+import AttendanceExamsPage from './sections/AttendanceExamsPage';
+import AttendanceRosterPage from './sections/AttendanceRosterPage';
 import ExamSlotsPage from './sections/ExamSlotsPage';
 import ExamQuestionsViewPage from './sections/ExamQuestionsViewPage';
-import EssayGradingPage from './sections/EssayGradingPage';
 import LiveMonitoringPage from './sections/LiveMonitoringPage';
 import ViolationReviewPage from './sections/ViolationReviewPage';
 import LecturerGuidePage from './sections/LecturerGuidePage';
@@ -32,10 +35,13 @@ export default function LecturerDashboardPage() {
       <Routes>
         <Route index element={<DashboardOverview />} />
         <Route path="classes" element={<ClassManagementPage />} />
-        <Route path="attendance" element={<AttendanceSessionPage />} />
+        <Route path="classes/:classId" element={<ClassStudentsPage />} />
+        <Route path="classes/:classId/students/:studentId" element={<StudentExamHistoryPage />} />
+        <Route path="attendance" element={<AttendanceClassesPage />} />
+        <Route path="attendance/:classId" element={<AttendanceExamsPage />} />
+        <Route path="attendance/:classId/:examId" element={<AttendanceRosterPage />} />
         <Route path="exams" element={<ExamSlotsPage />} />
         <Route path="exams/:examId/questions" element={<ExamQuestionsViewPage />} />
-        <Route path="exams/:examId/grading" element={<EssayGradingPage />} />
         <Route path="live-monitoring" element={<LiveMonitoringPage />} />
         <Route path="violations" element={<ViolationReviewPage />} />
         <Route path="guide" element={<LecturerGuidePage />} />

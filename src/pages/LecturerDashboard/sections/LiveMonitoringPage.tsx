@@ -6,11 +6,12 @@ import CustomSelect from '../../../components/ui/CustomSelect';
 import {
   EmptyState, PageHeader, PageShell, SkeletonCard, UniCard,
 } from '../../../components/lecturer/LecturerUI';
+import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
-import { fetchExamRealtimeState, fetchExamSlots } from '../../../services/schoolAdminApi';
+import { fetchExamRealtimeState, fetchExamSlots, fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import { getViolationLabel } from '../../../utils/violationLabels';
 import type {
   BrowserViolationDetectedEventPayload,
@@ -73,6 +74,7 @@ function FeedRow({ item }: { item: FeedItem }) {
 
 export default function LiveMonitoringPage() {
   const toast = useToast();
+  const { user } = useAuth();
   const [selectedExamId, setSelectedExamId] = useState('');
   const [students, setStudents] = useState<Record<string, ExamRealtimeStudent>>({});
   const [examLabel, setExamLabel] = useState('');
@@ -83,7 +85,18 @@ export default function LiveMonitoringPage() {
     const result = await fetchExamSlots({ page: 1, pageSize: 100 });
     return result.items;
   }, []);
-  const ongoingExams = (examsData ?? []).filter((e) => e.status === 'ongoing');
+  // GET /api/exam-slots trả về TẤT CẢ bài thi trong hệ thống, không lọc theo lecturer. BE
+  // (ExamWorkflowService.EnsureStaffAccessAsync, dùng bởi GetRealtimeStateAsync) chỉ cho phép đúng
+  // Class.LecturerId == user.Id — KHÔNG phải ExamSlot.ProctorId (2 field khác nhau, xem
+  // AttendanceRosterPage.tsx cho trường hợp dùng ProctorId). Trước đây lấy nguyên "mọi exam đang
+  // ongoing" nên tự động chọn nhầm bài thi của lớp khác, khiến GET /realtime-state luôn bị BE từ
+  // chối 403 "Access denied." — phải lọc theo đúng lớp lecturer này làm chủ nhiệm.
+  const { data: myClasses } = useAsyncData(async () => {
+    const result = await fetchSchoolAdminClasses({ page: 1, pageSize: 100 });
+    return result.items;
+  }, []);
+  const myClassIds = new Set((myClasses ?? []).filter((c) => c.lecturerId === user?.id).map((c) => c.id));
+  const ongoingExams = (examsData ?? []).filter((e) => e.status === 'ongoing' && myClassIds.has(e.classId));
 
   useEffect(() => {
     if (!selectedExamId && ongoingExams.length > 0) setSelectedExamId(ongoingExams[0].id);

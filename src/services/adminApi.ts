@@ -28,10 +28,14 @@ export async function fetchInstitutionById(id: string): Promise<ApiInstitution> 
   return apiGet<ApiInstitution>(`/api/institutions/${id}`);
 }
 
+// subDomain/contactEmail bắt buộc (không phải optional) — BE (CreateInstitutionDto/
+// UpdateInstitutionDto, xem validate.txt) coi 2 field này là required, thiếu là bị 400. Type trước
+// đây khai báo optional dù runtime validation ở InstitutionsPage.tsx đã luôn chặn form thiếu 2 field
+// này từ trước — sửa lại type cho khớp đúng thực tế, tránh hiểu nhầm khi có chỗ khác gọi hàm này.
 export interface CreateInstitutionPayload {
   name: string;
-  subDomain?: string;
-  contactEmail?: string;
+  subDomain: string;
+  contactEmail: string;
   // Khớp đúng tên enum thật của BE (Models/AppRole.cs: BillingModel.Monthly/Yearly, deserialize
   // qua JsonStringEnumConverter) — gửi tên khác sẽ bị BE từ chối 400 vì không khớp enum member nào.
   billingModel: 'Monthly' | 'Yearly';

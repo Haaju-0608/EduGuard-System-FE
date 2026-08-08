@@ -11,9 +11,13 @@ export default function ProfileDetailPage() {
 
   // GET /api/users/me không phải lúc nào cũng trả kèm institution.name (tuỳ role) — nếu thiếu
   // thì tự fetch riêng theo institutionId, giống cách SchoolDashboardOverview.tsx đã làm.
+  // CHỈ gọi cho SchoolAdmin/SuperAdmin — GET /api/institutions/{id} bên BE giới hạn đúng 2 role này
+  // (InstitutionsController.GetById), Lecturer/Student gọi luôn bị 403 nên đừng gọi cho phí request.
+  // user.role ở đây là app-role đã chuẩn hoá (xem AuthContext.tsx): 'admin' = SuperAdmin, 'schooladmin' = SchoolAdmin.
+  const canFetchInstitution = user?.role === 'admin' || user?.role === 'schooladmin';
   const { data: institutionData } = useAsyncData(
-    () => (user?.institutionId && !user?.institutionName ? fetchInstitution(user.institutionId) : Promise.resolve(null)),
-    [user?.institutionId, user?.institutionName],
+    () => (canFetchInstitution && user?.institutionId && !user?.institutionName ? fetchInstitution(user.institutionId) : Promise.resolve(null)),
+    [canFetchInstitution, user?.institutionId, user?.institutionName],
   );
   const institutionName = user?.institutionName ?? institutionData?.name ?? null;
 

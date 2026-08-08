@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import DashboardLayout, { MenuItem } from '../../components/layout/DashboardLayout';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 import StudentOverview from './sections/StudentOverview';
+import StudentExamClassesPage from './sections/StudentExamClassesPage';
 import StudentExamsPage from './sections/StudentExamsPage';
 import StudentAttendancePage from './sections/StudentAttendancePage';
 import StudentSchedulePage from './sections/StudentSchedulePage';
@@ -29,7 +30,8 @@ export default function StudentDashboardPage() {
         <Route index element={<StudentOverview />} />
         <Route path="schedule"   element={<StudentSchedulePage />} />
         <Route path="attendance" element={<StudentAttendancePage />} />
-        <Route path="exams"      element={<StudentExamsPage />} />
+        <Route path="exams"           element={<StudentExamClassesPage />} />
+        <Route path="exams/:classId"  element={<StudentExamsPage />} />
         <Route path="guide"      element={<StudentGuidePage />} />
         <Route path="profile"    element={<ProfileDetailPage />} />
       </Routes>

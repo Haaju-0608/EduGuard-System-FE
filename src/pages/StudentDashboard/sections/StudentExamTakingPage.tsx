@@ -373,6 +373,10 @@ export default function StudentExamTakingPage() {
     try { return JSON.parse(localStorage.getItem(`studentExam_${examId}`) ?? '{}'); } catch { return {}; }
   })();
 
+  // Quay về đúng danh sách bài thi của lớp vừa thi (luồng giờ đi qua Class → Exams), fallback về
+  // danh sách lớp nếu không rõ classId (vd localStorage bị xoá/hết hạn).
+  const examsListPath = exam.classId ? `/student/exams/${exam.classId}` : '/student/exams';
+
   // BE chỉ trả câu hỏi cho Student nếu đã tồn tại ExamParticipation của đúng exam đó
   // (Repositories/ExamQuestionRepository.cs lọc theo ExamSlot.ExamParticipations.Any(...)) — nên
   // phải đợi effect tạo/xác nhận participation bên dưới xong rồi mới gọi, tránh race: nếu gọi song
@@ -390,8 +394,7 @@ export default function StudentExamTakingPage() {
   const maxScore = questions.reduce((sum, q) => sum + q.points, 0);
 
   const [current, setCurrent] = useState(0);
-  // MCQ lưu optionId đã chọn; Essay lưu answerText người dùng gõ (chấm tay sau khi nộp).
-  const [answers, setAnswers] = useState<Record<string, { optionId?: string; answerText?: string }>>({});
+  const [answers, setAnswers] = useState<Record<string, { optionId?: string }>>({});
   const [showSubmit, setShowSubmit] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -569,7 +572,6 @@ export default function StudentExamTakingPage() {
     const answerList = Object.entries(answersRef.current).map(([questionId, val]) => ({
       questionId,
       optionId: val.optionId,
-      answerText: val.answerText,
     }));
 
     try {
@@ -615,13 +617,9 @@ export default function StudentExamTakingPage() {
     setAnswers((prev) => ({ ...prev, [questions[current].id]: { optionId: optId } }));
   };
 
-  const handleAnswerText = (text: string) => {
-    setAnswers((prev) => ({ ...prev, [questions[current].id]: { answerText: text } }));
-  };
-
   const isAnswered = (questionId: string) => {
     const a = answers[questionId];
-    return !!a && (!!a.optionId || !!a.answerText?.trim());
+    return !!a?.optionId;
   };
 
   if (loadingQuestions || !participationReady) {
@@ -639,7 +637,7 @@ export default function StudentExamTakingPage() {
           <p className="text-4xl">📭</p>
           <h2 className="font-syne font-bold text-white-soft text-xl">No Questions Found</h2>
           <p className="text-muted text-sm">The school admin hasn't added questions to this exam yet.</p>
-          <button onClick={() => navigate('/student/exams')} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
+          <button onClick={() => navigate(examsListPath)} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
             Back to My Exams
           </button>
         </div>
@@ -660,7 +658,7 @@ export default function StudentExamTakingPage() {
         finalScore={finalScore}
         submitting={submitting}
         submitError={submitError}
-        onExit={() => navigate('/student/exams')}
+        onExit={() => navigate(examsListPath)}
         terminated={termination.isExamTerminated}
         terminationReason={termination.reason}
       />
@@ -724,46 +722,33 @@ export default function StudentExamTakingPage() {
               </div>
             </div>
 
-            {/* Options (MCQ) or free-text answer (Essay) */}
-            {q.questionType.toLowerCase() === 'essay' ? (
-              <div className="space-y-1.5">
-                <textarea
-                  rows={8}
-                  value={answers[q.id]?.answerText ?? ''}
-                  onChange={(e) => handleAnswerText(e.target.value)}
-                  placeholder="Type your answer here..."
-                  className="w-full bg-navy/40 border border-border rounded-xl px-4 py-3 text-sm text-white-soft placeholder:text-muted outline-none focus:border-blue-bright/50 transition-colors resize-none"
-                />
-                <p className="text-[11px] text-muted">This is an essay question — your answer will be graded manually.</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {q.options.map((opt) => {
-                  const isSelected = answers[q.id]?.optionId === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      onClick={() => handleAnswer(opt.id)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left cursor-pointer transition-all group ${
-                        isSelected
-                          ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
-                          : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
-                      }`}
-                    >
-                      <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
-                        isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
-                      }`}>
-                        {opt.optionLabel}
-                      </div>
-                      <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
-                        {opt.optionContent}
-                      </span>
-                      {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            {/* Options */}
+            <div className="space-y-2">
+              {q.options.map((opt) => {
+                const isSelected = answers[q.id]?.optionId === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    onClick={() => handleAnswer(opt.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left cursor-pointer transition-all group ${
+                      isSelected
+                        ? 'border-blue-bright bg-blue/10 shadow-[0_0_15px_rgba(99,179,237,0.15)]'
+                        : 'border-border bg-navy/40 hover:border-blue-bright/40 hover:bg-navy/60'
+                    }`}
+                  >
+                    <div className={`w-7 h-7 rounded-full border-2 font-bold text-xs grid place-items-center shrink-0 transition-all ${
+                      isSelected ? 'border-blue-bright bg-blue text-white' : 'border-border text-muted group-hover:border-blue-bright/50'
+                    }`}>
+                      {opt.optionLabel}
+                    </div>
+                    <span className={`text-sm transition-colors ${isSelected ? 'text-white-soft font-semibold' : 'text-muted'}`}>
+                      {opt.optionContent}
+                    </span>
+                    {isSelected && <FiCheck className="ml-auto text-blue-bright shrink-0" />}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Navigation — pinned to bottom */}

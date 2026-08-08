@@ -1,9 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import { FiClock, FiMapPin, FiSearch, FiUsers, FiX, FiUser } from 'react-icons/fi';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FiClock, FiSearch, FiUsers } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import Pagination from '../../../components/ui/Pagination';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import {
   AttendanceProgressBar,
+  ClassStatusBadge,
   CourseCodeBadge,
   EmptyState,
   FacultyBadge,
@@ -15,190 +18,11 @@ import {
   SkeletonCard,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import StudentExamHistoryModal from '../../../components/lecturer/StudentExamHistoryModal';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchSchoolAdminClasses, fetchClassEnrollmentsWithStudents } from '../../../services/schoolAdminApi';
+import { fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import type { ClassStatus, LecturerClass } from '../../../types/lecturer';
-
-// ─── Status Badge ─────────────────────────────────────────────────────────────
-
-function StatusBadge({ status }: { status: ClassStatus }) {
-  const config = {
-    active:    { label: 'Active',    dot: 'bg-green', className: 'text-green bg-green/10 border-green/25' },
-    completed: { label: 'Completed', dot: 'bg-muted',  className: 'text-muted bg-white/5 border-border' },
-    upcoming:  { label: 'Upcoming',  dot: 'bg-gold',   className: 'text-gold bg-gold/10 border-gold/25' },
-  };
-  const { label, dot, className } = config[status];
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-full border ${className}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-      {label}
-    </span>
-  );
-}
-
-// ─── Student List Modal ───────────────────────────────────────────────────────
-
-function StudentListModal({ cls, onClose }: { cls: LecturerClass; onClose: () => void }) {
-  const [search, setSearch] = useState('');
-  const [historyTarget, setHistoryTarget] = useState<{ id: string; name: string } | null>(null);
-
-  const { data, loading, error } = useAsyncData(
-    () => fetchClassEnrollmentsWithStudents(cls.id),
-    [cls.id],
-  );
-
-  const enrollments = data ?? [];
-  const filtered = enrollments.filter((e) => {
-    const q = search.toLowerCase();
-    if (!q) return true;
-    const name = e.student?.fullName?.toLowerCase() ?? '';
-    const email = e.student?.email?.toLowerCase() ?? '';
-    const code = e.student?.studentCode?.toLowerCase() ?? '';
-    return name.includes(q) || email.includes(q) || code.includes(q);
-  });
-
-  function getInitials(name: string) {
-    return name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
-      <div
-        className="relative z-10 bg-navy-card border border-border rounded-[20px] w-full max-w-xl shadow-2xl flex flex-col max-h-[85vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-border shrink-0">
-          <div>
-            <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[10px] font-bold text-blue-bright bg-blue/10 border border-blue/20 px-2 py-0.5 rounded-full font-mono">
-                {cls.code}
-              </span>
-              <StatusBadge status={cls.status} />
-            </div>
-            <h2 className="font-syne font-bold text-white-soft mt-1">{cls.name}</h2>
-            <p className="text-xs text-muted mt-0.5">
-              {loading ? 'Loading…' : `${enrollments.length} students enrolled`}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-lg text-muted hover:text-white-soft hover:bg-white/5 transition-colors cursor-pointer shrink-0"
-          >
-            <FiX size={18} />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-5 py-3 border-b border-border shrink-0">
-          <div className="flex items-center gap-2 bg-navy border border-border rounded-xl px-3 py-2 focus-within:border-blue-bright/40 transition-colors">
-            <FiSearch size={14} className="text-muted shrink-0" />
-            <input
-              type="text"
-              placeholder="Search by name, email or student code…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-sm text-white-soft placeholder:text-muted outline-none"
-            />
-          </div>
-        </div>
-
-        {/* List */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
-          {loading ? (
-            <div className="space-y-2 p-4">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-14 bg-navy/40 border border-border rounded-xl animate-pulse" />
-              ))}
-            </div>
-          ) : error ? (
-            <div className="py-12 text-center">
-              <p className="text-red text-sm">{error}</p>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-3xl mb-2">👥</p>
-              <p className="text-muted text-sm">
-                {enrollments.length === 0 ? 'No students enrolled yet.' : 'No results found.'}
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/50">
-              {filtered.map((e, idx) => {
-                const name = e.student?.fullName?.trim() || e.student?.email || 'Unknown';
-                const initials = getInitials(name);
-                const code = e.student?.studentCode;
-                const email = e.student?.email;
-                const enrollStatus = e.status?.toLowerCase();
-                return (
-                  <div
-                    key={`${e.classId}-${e.studentId}-${idx}`}
-                    onClick={() => setHistoryTarget({ id: e.studentId, name })}
-                    className="flex items-center gap-3 px-5 py-3.5 hover:bg-white/5 transition-colors cursor-pointer"
-                    title="View exam history"
-                  >
-                    {/* Avatar */}
-                    <div className="w-9 h-9 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0 text-xs font-bold text-blue-bright">
-                      {initials || <FiUser size={14} />}
-                    </div>
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        {code && (
-                          <span className="text-[10px] font-mono text-muted">{code}</span>
-                        )}
-                        {code && email && <span className="text-[10px] text-border">·</span>}
-                        {email && (
-                          <span className="text-[10px] text-muted truncate">{email}</span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Enrollment status */}
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${
-                      enrollStatus === 'enrolled' || enrollStatus === 'active'
-                        ? 'text-green bg-green/10 border-green/25'
-                        : 'text-muted bg-white/5 border-border'
-                    }`}>
-                      {e.status ?? 'Enrolled'}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-5 py-3 border-t border-border shrink-0 flex items-center justify-between">
-          <p className="text-xs text-muted">
-            {filtered.length !== enrollments.length
-              ? `${filtered.length} of ${enrollments.length} students`
-              : `${enrollments.length} students total`}
-          </p>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-xl border border-border text-muted text-xs font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-
-      {historyTarget && (
-        <StudentExamHistoryModal
-          studentId={historyTarget.id}
-          studentName={historyTarget.name}
-          onClose={() => setHistoryTarget(null)}
-        />
-      )}
-    </div>
-  );
-}
 
 // ─── Class Card ───────────────────────────────────────────────────────────────
 
@@ -220,13 +44,12 @@ function ClassCard({ cls, index, onViewStudents }: { cls: LecturerClass; index: 
               </div>
             </div>
           </div>
-          <StatusBadge status={cls.status} />
+          <ClassStatusBadge status={cls.status} />
         </div>
 
         <div className="space-y-3 flex-1">
           {[
             { icon: FiClock, text: cls.schedule },
-            { icon: FiMapPin, text: `Room ${cls.room}` },
             { icon: FiUsers, text: `${cls.studentCount} students registered` },
           ].map(({ icon: Icon, text }) => (
             <div key={text} className="flex items-center gap-3 text-sm text-muted bg-navy/40 rounded-xl px-3 py-2 border border-border/40">
@@ -257,11 +80,17 @@ function ClassCard({ cls, index, onViewStudents }: { cls: LecturerClass; index: 
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 9;
+
 export default function ClassManagementPage() {
+  const navigate = useNavigate();
   const { facultyId } = useLecturerFaculty();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClassStatus | 'all'>('all');
-  const [selectedClass, setSelectedClass] = useState<LecturerClass | null>(null);
+  const [page, setPage] = useState(1);
+
+  const goToRoster = (cls: LecturerClass) =>
+    navigate(`/lecture/classes/${cls.id}`, { state: { cls } });
 
   const { data, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchSchoolAdminClasses({ page: 1, pageSize: 50 });
@@ -275,6 +104,12 @@ export default function ClassManagementPage() {
   );
 
   const filteredClasses = useListFilters(classes, search, ['name', 'code'], predicates);
+
+  const totalPages = Math.max(1, Math.ceil(filteredClasses.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filteredClasses.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [search, statusFilter]);
 
   const totalStudents = classes.reduce((sum, c) => sum + c.studentCount, 0);
   const activeCount = classes.filter((c) => c.status === 'active').length;
@@ -334,15 +169,14 @@ export default function ClassManagementPage() {
       ) : filteredClasses.length === 0 ? (
         <EmptyState icon="📚" title="No classes found" description="Try changing the faculty filter or search keyword." />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {filteredClasses.map((cls, i) => (
-            <ClassCard key={cls.id} cls={cls} index={i} onViewStudents={setSelectedClass} />
-          ))}
-        </div>
-      )}
-
-      {selectedClass && (
-        <StudentListModal cls={selectedClass} onClose={() => setSelectedClass(null)} />
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+            {pageItems.map((cls, i) => (
+              <ClassCard key={cls.id} cls={cls} index={i} onViewStudents={goToRoster} />
+            ))}
+          </div>
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${filteredClasses.length} classes`} />
+        </>
       )}
     </PageShell>
   );

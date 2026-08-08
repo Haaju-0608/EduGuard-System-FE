@@ -2,7 +2,6 @@ import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import LandingPage from './pages/LandingPage';
 import LoginPage from './pages/LoginPage';
-import UserProfilePage from './pages/UserProfile';
 import AdminDashboardPage from './pages/AdminDashboard';
 import SchoolAdminDashboardPage from './pages/SchoolAdminDashboard';
 import LecturerDashboardPage from './pages/LecturerDashboard';
@@ -15,16 +14,6 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
-
-        {/* Legacy profile route kept for backward compat */}
-        <Route
-          path="/profile/*"
-          element={
-            <ProtectedRoute allowedRole="user">
-              <UserProfilePage />
-            </ProtectedRoute>
-          }
-        />
 
         {/* Full-screen exam flow — placed BEFORE /student/* so they match first */}
         <Route

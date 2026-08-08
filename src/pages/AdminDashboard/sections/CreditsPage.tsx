@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FiRefreshCw } from 'react-icons/fi';
+import Pagination from '../../../components/ui/Pagination';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchInstitutions, fetchPricingConfigs } from '../../../services/adminApi';
 import { fetchWallet } from '../../../services/schoolAdminApi';
@@ -60,15 +61,21 @@ function InstitutionWalletCard({ inst }: { inst: ApiInstitution }) {
   );
 }
 
+const WALLETS_PAGE_SIZE = 9;
+
 export default function CreditsPage() {
   const { data: pricingData, loading: loadingP, reload: reloadP } = useAsyncData(fetchPricingConfigs, []);
   const { data: instData, loading: loadingI, reload: reloadI } = useAsyncData(
     () => fetchInstitutions({ page: 1, pageSize: 50 }),
     [],
   );
+  const [walletsPage, setWalletsPage] = useState(1);
 
   const configs: ApiPricingConfig[] = pricingData ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
+  const walletsTotalPages = Math.max(1, Math.ceil(institutions.length / WALLETS_PAGE_SIZE));
+  const safeWalletsPage = Math.min(walletsPage, walletsTotalPages);
+  const pagedInstitutions = institutions.slice((safeWalletsPage - 1) * WALLETS_PAGE_SIZE, safeWalletsPage * WALLETS_PAGE_SIZE);
 
   // Phải lọc isActive=true trước rồi mới lấy effectiveDate mới nhất, khớp đúng cách BE thật sự
   // chọn config để tính tiền (PricingConfigRepository.GetActiveConfigByServiceTypeAsync) — nếu
@@ -143,11 +150,14 @@ export default function CreditsPage() {
             No institutions found.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {institutions.map((inst) => (
-              <InstitutionWalletCard key={inst.id} inst={inst} />
-            ))}
-          </div>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pagedInstitutions.map((inst) => (
+                <InstitutionWalletCard key={inst.id} inst={inst} />
+              ))}
+            </div>
+            <Pagination page={safeWalletsPage} totalPages={walletsTotalPages} onChange={setWalletsPage} label={`${institutions.length} institutions`} className="mt-3" />
+          </>
         )}
       </div>
     </div>

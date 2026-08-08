@@ -248,6 +248,29 @@ export async function createAttendanceRecord(
   return mapApiAttendanceRecord(record);
 }
 
+/** POST /api/attendance-sessions/{sessionId}/records/ai-video — điểm danh hàng loạt bằng AI quét
+ *  video lớp học (AttendanceRecordsController.CreateBulkByAiVideo, DTOs/Request/AcademicRequestDtos.cs
+ *  AiVideoAttendanceDto). BE upload video lên Supabase qua FastAPI, tách vector khuôn mặt từng người
+ *  trong video, so khớp với BiometricData.FaceVector đã duyệt (ngưỡng 0.40) để tự đánh Present cho
+ *  từng sinh viên nhận diện được.
+ *
+ *  QUAN TRỌNG — side effect ẩn: BE tự đóng LUÔN session này (Status → Completed) ngay sau khi xử lý
+ *  xong, bất kể kết quả nhận diện được bao nhiêu người — không phải chỉ "thêm record" như điểm danh
+ *  tay. Gọi hàm này coi như đồng thời bấm "End Session". Chỉ gọi được khi session đang InProgress và
+ *  trong khung giờ [StartTime, EndTime] của session (BE tự chặn 400 nếu sai điều kiện). */
+export async function markAttendanceByAiVideo(
+  sessionId: string,
+  videoFile: File,
+): Promise<AttendanceRecord[]> {
+  const formData = new FormData();
+  formData.append('videoFile', videoFile);
+  const records = await apiPost<ApiAttendanceRecord[]>(
+    `/api/attendance-sessions/${sessionId}/records/ai-video`,
+    formData,
+  );
+  return records.map(mapApiAttendanceRecord);
+}
+
 /** GET /api/attendance-sessions — danh sách tất cả sessions */
 export async function fetchAttendanceSessions(
   params: ListQueryParams = {},
@@ -267,6 +290,42 @@ export async function fetchAttendanceSessions(
     `/api/attendance-sessions${buildQueryParams({ page, pageSize, expand: 'class' })}`,
   );
   return { items: data, pagination };
+}
+
+/** GET /api/attendance-sessions + /api/attendance-records — gộp record của TẤT CẢ session từng mở
+ *  cho 1 bài thi cụ thể trong 1 lớp (không chỉ session "đang active"). Dùng cho trang xem trạng thái
+ *  điểm danh theo bài thi (roster luôn xem được, kể cả sau khi session đã đóng) — khác
+ *  buildAttendanceSession() vốn chỉ tra được 1 session cụ thể. Nếu 1 bài thi có nhiều session (vd mở
+ *  lại sau khi đóng sớm để bù người), session mở sau (startTime lớn hơn) ghi đè record của session
+ *  mở trước cho cùng 1 sinh viên.
+ */
+export async function fetchAttendanceRecordsByExam(
+  classId: string,
+  examSlotId: string,
+): Promise<AttendanceRecord[]> {
+  const sessions = await apiGetAllPages<ApiAttendanceSession>(
+    (page, pageSize) => `/api/attendance-sessions${buildQueryParams({ page, pageSize, classId })}`,
+  );
+  const examSessions = sessions
+    .filter((s) => s.examSlotId === examSlotId)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  if (examSessions.length === 0) return [];
+
+  const recordLists = await Promise.all(
+    examSessions.map((s) =>
+      apiGetAllPages<ApiAttendanceRecord>(
+        (page, pageSize) => `/api/attendance-records${buildQueryParams({ page, pageSize, sessionId: s.id, expand: 'student' })}`,
+      ),
+    ),
+  );
+
+  const byStudent = new Map<string, AttendanceRecord>();
+  for (const list of recordLists) {
+    for (const raw of list) {
+      byStudent.set(raw.studentId, mapApiAttendanceRecord(raw));
+    }
+  }
+  return [...byStudent.values()];
 }
 
 async function buildAttendanceSession(session: ApiAttendanceSession): Promise<AttendanceSession> {
