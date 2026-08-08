@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { FiActivity, FiCamera, FiClock, FiRefreshCw, FiStopCircle, FiUsers, FiVideo } from 'react-icons/fi';
+import Pagination from '../../../components/ui/Pagination';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { endAttendanceSession, fetchAttendanceSessions } from '../../../services/lecturerApi';
 import { fetchExamSlots } from '../../../services/schoolAdminApi';
@@ -46,11 +47,15 @@ function formatDateTime(iso: string | null | undefined) {
   });
 }
 
+const PAGE_SIZE = 15;
+
 export default function MonitoringPage() {
   const { user } = useAuth();
   const toast = useToast();
   const [activeTab, setActiveTab] = useState<TabKey>('attendance');
   const [endingId, setEndingId] = useState<string | null>(null);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const [examPage, setExamPage] = useState(1);
 
   const { data: attendanceRes, loading: loadingA, reload: reloadA } = useAsyncData(
     // pageSize lớn — fetchAttendanceSessions tự gộp nhiều trang, đảm bảo thấy hết session kể cả
@@ -111,6 +116,14 @@ export default function MonitoringPage() {
 
   const liveSessions = attendanceSessions.filter(isOpenStatus).length;
   const liveExams = examSlots.filter((e) => e.status === 'ongoing').length;
+
+  const attendanceTotalPages = Math.max(1, Math.ceil(sortedAttendanceSessions.length / PAGE_SIZE));
+  const safeAttendancePage = Math.min(attendancePage, attendanceTotalPages);
+  const pagedAttendanceSessions = sortedAttendanceSessions.slice((safeAttendancePage - 1) * PAGE_SIZE, safeAttendancePage * PAGE_SIZE);
+
+  const examTotalPages = Math.max(1, Math.ceil(examSlots.length / PAGE_SIZE));
+  const safeExamPage = Math.min(examPage, examTotalPages);
+  const pagedExamSlots = examSlots.slice((safeExamPage - 1) * PAGE_SIZE, safeExamPage * PAGE_SIZE);
 
   function handleReload() {
     reloadA();
@@ -193,7 +206,7 @@ export default function MonitoringPage() {
             <div className="py-16 text-center text-muted text-sm">No attendance sessions found.</div>
           ) : (
             <div className="divide-y divide-border">
-              {sortedAttendanceSessions.map((session) => {
+              {pagedAttendanceSessions.map((session) => {
                 // session.class có courseName/courseCode (đúng field thật của ApiClass — trước đây
                 // đọc nhầm ".name" không tồn tại nên luôn rơi về hiện thẳng UUID thô).
                 const cls = session.class;
@@ -241,6 +254,9 @@ export default function MonitoringPage() {
               })}
             </div>
           )}
+          {!loadingA && attendanceSessions.length > 0 && (
+            <Pagination page={safeAttendancePage} totalPages={attendanceTotalPages} onChange={setAttendancePage} className="px-5 py-3.5 border-t border-border" />
+          )}
         </div>
       )}
 
@@ -268,7 +284,7 @@ export default function MonitoringPage() {
             <div className="py-16 text-center text-muted text-sm">No exam sessions found.</div>
           ) : (
             <div className="divide-y divide-border">
-              {examSlots.map((exam) => (
+              {pagedExamSlots.map((exam) => (
                 <div key={exam.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/40 transition-colors">
                   <div className={`w-2 h-2 rounded-full shrink-0 ${exam.status === 'ongoing' ? 'bg-blue-bright animate-pulse' : 'bg-muted'}`} />
                   <div className="flex-1 min-w-0">
@@ -284,6 +300,9 @@ export default function MonitoringPage() {
                 </div>
               ))}
             </div>
+          )}
+          {!loadingE && examSlots.length > 0 && (
+            <Pagination page={safeExamPage} totalPages={examTotalPages} onChange={setExamPage} className="px-5 py-3.5 border-t border-border" />
           )}
         </div>
       )}

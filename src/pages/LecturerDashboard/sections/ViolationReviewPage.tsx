@@ -2,14 +2,13 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { patchWebmDuration } from '../../../ai/services/webmDurationFix';
 import {
-  FiAlertTriangle, FiEye, FiSlash, FiRefreshCw,
+  FiAlertTriangle, FiArrowLeft, FiEye, FiFileText, FiSlash, FiRefreshCw,
   FiVideo, FiUser, FiClock, FiChevronLeft, FiChevronRight, FiX, FiCheckCircle,
 } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   fetchViolationLogs,
   fetchParticipationById,
-  fetchExamSlotById,
   disqualifyParticipation,
   voidExamParticipation,
   reviewViolationLog,
@@ -20,7 +19,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
 import { getViolationLabel } from '../../../utils/violationLabels';
-import type { ApiViolationLog, ApiExamParticipation, ApiExamSlot } from '../../../types/api';
+import type { ApiViolationLog, ApiExamParticipation } from '../../../types/api';
 
 interface ResourceChangedPayload {
   resource: string;
@@ -622,6 +621,50 @@ function ParticipationCard({ group, participation, examName, isDisqualified, rev
   );
 }
 
+// ─── Exam Picker Card ───────────────────────────────────────────────────────
+
+interface ExamPickerCardProps {
+  examName: string;
+  studentCount: number;
+  severeCount: number;
+  warningCount: number;
+  onClick: () => void;
+}
+
+function ExamPickerCard({ examName, studentCount, severeCount, warningCount, onClick }: ExamPickerCardProps) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-left w-full bg-navy-card border border-border rounded-2xl p-4 hover:border-blue/40 hover:bg-white/2 transition-all cursor-pointer"
+    >
+      <div className="flex items-center gap-2.5 mb-3">
+        <div className="w-9 h-9 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0">
+          <FiFileText size={14} className="text-blue-bright" />
+        </div>
+        <p className="text-sm font-semibold text-white-soft truncate">{examName}</p>
+      </div>
+
+      <div className="flex items-center gap-1.5 flex-wrap mb-3">
+        {severeCount > 0 && (
+          <span className="text-[10px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full">
+            {severeCount} Severe
+          </span>
+        )}
+        {warningCount > 0 && (
+          <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-full">
+            {warningCount} Warning
+          </span>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted pt-3 border-t border-border/50">
+        <span className="flex items-center gap-1.5"><FiUser size={11} /> {studentCount} student{studentCount !== 1 ? 's' : ''}</span>
+        <FiChevronRight size={14} />
+      </div>
+    </button>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ViolationReviewPage() {
@@ -631,10 +674,9 @@ export default function ViolationReviewPage() {
   const [severityFilter, setSeverityFilter] = useState<'all' | 'Severe' | 'Warning'>('all');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  // keyed by participationId — undefined = not loaded yet, null = failed
+  // keyed by participationId — undefined = not loaded yet, null = failed. Participation đã có sẵn
+  // examName ngay trong response (BE trả kèm) — không cần fetch riêng exam slot nữa như trước.
   const [participationCache, setParticipationCache] = useState<Record<string, ApiExamParticipation | null>>({});
-  // keyed by examSlotId
-  const [examSlotCache, setExamSlotCache] = useState<Record<string, ApiExamSlot | null>>({});
   // "Disqualified" ở đây gồm cả disqualify-lúc-đang-thi VÀ void-sau-khi-nộp — BE trả về cùng 1
   // participation.Status = Disqualified cho cả 2 hành động, không phân biệt riêng field nào khác.
   const [disqualifiedIds, setDisqualifiedIds] = useState<Set<string>>(new Set());
@@ -648,15 +690,20 @@ export default function ViolationReviewPage() {
   const [selectedLog, setSelectedLog] = useState<ApiViolationLog | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ log: ApiViolationLog; violationCount: number; mode: 'disqualify' | 'void' } | null>(null);
 
+  // null = đang ở màn "chọn bài thi" (Exam → student, thay vì list phẳng như trước) — chọn 1 exam
+  // rồi mới thấy danh sách sinh viên (thẻ participation) đã vi phạm trong đúng bài thi đó.
+  const [selectedExamSlotId, setSelectedExamSlotId] = useState<string | null>(null);
+
   const { data, loading, error, reload } = useAsyncData(
     () => fetchViolationLogs({ page: 1, pageSize: LOG_FETCH_SIZE }),
     [],
   );
 
-  // Đổi filter thì quay lại trang 1 — tránh đứng ở 1 trang giờ đã vượt quá số trang thật sau khi lọc.
+  // Đổi filter/đổi bài thi đang xem thì quay lại trang 1 — tránh đứng ở 1 trang giờ đã vượt quá số
+  // trang thật sau khi lọc/đổi phạm vi.
   useEffect(() => {
     setPage(1);
-  }, [severityFilter, typeFilter]);
+  }, [severityFilter, typeFilter, selectedExamSlotId]);
 
   // Realtime: BE bắn ResourceChanged("violations") tới DashboardHub group của lecturer ngay khi AI phát hiện vi phạm mới
   const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
@@ -699,13 +746,55 @@ export default function ViolationReviewPage() {
       );
   }, [filtered]);
 
+  // Gom các thẻ participation theo ĐÚNG bài thi (examSlotId) — cần participationCache đã resolve
+  // examSlotId/examName của từng participation nên nhóm nào chưa kịp fetch xong sẽ tạm thời không
+  // xuất hiện ở màn chọn bài thi, tự hiện ra ngay khi fetch xong (re-render tự nhiên qua state).
+  interface ExamGroupSummary {
+    examSlotId: string;
+    examName: string;
+    groups: ParticipationGroup[];
+    severeCount: number;
+    warningCount: number;
+  }
+  const examGroups: ExamGroupSummary[] = useMemo(() => {
+    const map = new Map<string, ExamGroupSummary>();
+    allGroups.forEach((g) => {
+      const p = participationCache[g.participationId];
+      if (!p?.examSlotId) return;
+      if (!map.has(p.examSlotId)) {
+        map.set(p.examSlotId, {
+          examSlotId: p.examSlotId,
+          examName: p.examName ?? 'Unknown Exam',
+          groups: [],
+          severeCount: 0,
+          warningCount: 0,
+        });
+      }
+      const entry = map.get(p.examSlotId)!;
+      entry.groups.push(g);
+      entry.severeCount += g.logs.filter((l) => l.severity === 'Severe').length;
+      entry.warningCount += g.logs.filter((l) => l.severity === 'Warning').length;
+    });
+    return [...map.values()].sort((a, b) => b.groups.length - a.groups.length);
+  }, [allGroups, participationCache]);
+
+  const selectedExamGroup = examGroups.find((e) => e.examSlotId === selectedExamSlotId) ?? null;
+  const scopedGroups = selectedExamGroup?.groups ?? [];
+
+  // Số participation đã "biết" bài thi (đủ để bốc vào 1 exam bucket) — dùng để phân biệt "đang chờ
+  // fetch xong participation" (hiện skeleton) với "thật sự không có violation nào" (hiện empty
+  // state), tránh nháy empty state sai trong lúc dữ liệu vẫn đang tải dần.
+  const resolvedGroupCount = examGroups.reduce((sum, e) => sum + e.groups.length, 0);
+
   // Phân trang theo THẺ (không phải theo log) — đảm bảo luôn lấp đủ 3x3 trừ trang cuối cùng.
-  const totalCardPages = Math.max(1, Math.ceil(allGroups.length / CARDS_PER_PAGE));
-  const groups = allGroups.slice((page - 1) * CARDS_PER_PAGE, page * CARDS_PER_PAGE);
+  const totalCardPages = Math.max(1, Math.ceil(scopedGroups.length / CARDS_PER_PAGE));
+  const groups = scopedGroups.slice((page - 1) * CARDS_PER_PAGE, page * CARDS_PER_PAGE);
 
   const selectedGroup = allGroups.find((g) => g.participationId === selectedGroupId) ?? null;
 
-  // Load participation info for visible logs
+  // Load participation info for visible logs — response đã có sẵn examSlotId + examName, không cần
+  // fetch riêng exam slot nữa (trước đây có 1 fetch phụ ở đây, thường fail âm thầm và luôn hiện
+  // "Unknown Exam" dù dữ liệu thật đã nằm sẵn trong participation).
   useEffect(() => {
     const missing = filtered
       .map((l) => l.participationId)
@@ -715,16 +804,6 @@ export default function ViolationReviewPage() {
     uniq.forEach(async (id) => {
       const p = await fetchParticipationById(id);
       setParticipationCache((prev) => ({ ...prev, [id]: p }));
-      // Load exam slot ngay sau khi có examSlotId
-      if (p?.examSlotId) {
-        setExamSlotCache((prev) => {
-          if (p.examSlotId in prev) return prev;
-          fetchExamSlotById(p.examSlotId).then((slot) => {
-            setExamSlotCache((cur) => ({ ...cur, [p.examSlotId]: slot }));
-          }).catch(() => undefined);
-          return { ...prev, [p.examSlotId]: null };
-        });
-      }
     });
   }, [filtered, participationCache]);
 
@@ -818,10 +897,29 @@ export default function ViolationReviewPage() {
       {/* Header */}
       <div className="bg-navy-card border border-border rounded-[20px] p-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="font-syne text-2xl font-extrabold text-white-soft">Violation Evidence Review</h1>
-          <p className="text-muted text-sm mt-1">
-            Review AI-detected violations and decide on exam disqualification.
-          </p>
+          {selectedExamSlotId ? (
+            <>
+              <button
+                onClick={() => setSelectedExamSlotId(null)}
+                className="flex items-center gap-1.5 text-xs text-muted hover:text-blue-bright transition-colors cursor-pointer bg-transparent border-none mb-2 p-0"
+              >
+                <FiArrowLeft size={12} /> All Exams
+              </button>
+              <h1 className="font-syne text-2xl font-extrabold text-white-soft">
+                {selectedExamGroup?.examName ?? 'Exam'}
+              </h1>
+              <p className="text-muted text-sm mt-1">
+                Students with AI-detected violations in this exam — click one to review and decide on disqualification.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="font-syne text-2xl font-extrabold text-white-soft">Violation Evidence Review</h1>
+              <p className="text-muted text-sm mt-1">
+                Select an exam to review AI-detected violations and decide on disqualification.
+              </p>
+            </>
+          )}
         </div>
         <button
           onClick={() => { setPage(1); reload(); }}
@@ -889,7 +987,7 @@ export default function ViolationReviewPage() {
         })}
       </div>
 
-      {/* Content — 1 card = 1 exam attempt (participation), click để xem chi tiết */}
+      {/* Content */}
       {loading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -902,24 +1000,50 @@ export default function ViolationReviewPage() {
           <p className="text-red text-sm mb-3">{error}</p>
           <button onClick={reload} className="text-xs text-blue-bright underline cursor-pointer">Retry</button>
         </div>
-      ) : groups.length === 0 ? (
+      ) : allGroups.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">✅</p>
           <p className="text-muted text-sm">No violations found.</p>
+        </div>
+      ) : !selectedExamSlotId ? (
+        // ── Chọn bài thi — mỗi thẻ = 1 exam, hiện số sinh viên vi phạm + mức độ ──
+        resolvedGroupCount === 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-navy-card border border-border rounded-2xl h-28 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+            {examGroups.map((exam) => (
+              <ExamPickerCard
+                key={exam.examSlotId}
+                examName={exam.examName}
+                studentCount={exam.groups.length}
+                severeCount={exam.severeCount}
+                warningCount={exam.warningCount}
+                onClick={() => setSelectedExamSlotId(exam.examSlotId)}
+              />
+            ))}
+          </div>
+        )
+      ) : groups.length === 0 ? (
+        <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
+          <p className="text-3xl mb-3">✅</p>
+          <p className="text-muted text-sm">No violations found for this exam.</p>
         </div>
       ) : (
         <>
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {groups.map((group) => {
               const p = participationCache[group.participationId];
-              const examSlot = p?.examSlotId ? examSlotCache[p.examSlotId] : null;
               const isDisqualified = disqualifiedIds.has(group.participationId) || p?.status === 'Disqualified';
               return (
                 <ParticipationCard
                   key={group.participationId}
                   group={group}
                   participation={p}
-                  examName={examSlot?.examName ?? null}
+                  examName={p?.examName ?? null}
                   isDisqualified={isDisqualified}
                   reviewedLogIds={reviewedLogIds}
                   onClick={() => { setSelectedGroupId(group.participationId); void refreshParticipation(group.participationId); }}
@@ -932,7 +1056,7 @@ export default function ViolationReviewPage() {
           {totalCardPages > 1 && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted">
-                Page {page} of {totalCardPages} — {allGroups.length} exam attempt{allGroups.length !== 1 ? 's' : ''}
+                Page {page} of {totalCardPages} — {scopedGroups.length} exam attempt{scopedGroups.length !== 1 ? 's' : ''}
               </p>
               <div className="flex gap-2">
                 <button
@@ -960,10 +1084,7 @@ export default function ViolationReviewPage() {
         <ParticipationDetailModal
           group={selectedGroup}
           participation={participationCache[selectedGroup.participationId]}
-          examName={(() => {
-            const p = participationCache[selectedGroup.participationId];
-            return p?.examSlotId ? (examSlotCache[p.examSlotId]?.examName ?? null) : null;
-          })()}
+          examName={participationCache[selectedGroup.participationId]?.examName ?? null}
           reviewedLogIds={reviewedLogIds}
           onClose={() => setSelectedGroupId(null)}
           onViewLog={(log) => void handleOpenEvidence(log)}
@@ -983,10 +1104,7 @@ export default function ViolationReviewPage() {
         <EvidenceModal
           log={selectedLog}
           participation={participationCache[selectedLog.participationId]}
-          examName={(() => {
-            const p = participationCache[selectedLog.participationId];
-            return p?.examSlotId ? (examSlotCache[p.examSlotId]?.examName ?? null) : null;
-          })()}
+          examName={participationCache[selectedLog.participationId]?.examName ?? null}
           onClose={() => setSelectedLog(null)}
           onDisqualify={handleDisqualify}
           onVoid={handleVoid}

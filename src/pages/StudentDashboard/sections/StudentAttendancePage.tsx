@@ -53,15 +53,6 @@ export default function StudentAttendancePage() {
   const absent  = records.filter((r) => r.status === 'absent').length;
   const rate    = total > 0 ? Math.round(((present + late) / total) * 100) : 0;
 
-  const classBreakdown = useMemo(() => {
-    return classCodes.map((code) => {
-      const recs = records.filter((r) => r.classCode === code);
-      const attended = recs.filter((r) => r.status === 'present' || r.status === 'late').length;
-      const name = recs[0]?.className ?? code;
-      return { code, name, total: recs.length, attended, pct: Math.round((attended / recs.length) * 100) };
-    });
-  }, [records, classCodes]);
-
   const groupedByClass = useMemo(() => {
     const map = new Map<string, StudentAttendanceRecord[]>();
     filtered.forEach((r) => {
@@ -95,11 +86,10 @@ export default function StudentAttendancePage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         {[
           { label: 'Attendance Rate', value: loading ? '…' : `${rate}%`, color: rate >= 80 ? 'text-green' : rate >= 60 ? 'text-gold' : 'text-red', icon: '📊' },
           { label: 'Present',  value: loading ? '…' : present, color: 'text-green', icon: '✅' },
-          { label: 'Late',     value: loading ? '…' : late,    color: 'text-gold',  icon: '⏰' },
           { label: 'Absent',   value: loading ? '…' : absent,  color: 'text-red',   icon: '❌' },
         ].map((k) => (
           <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4">
@@ -109,34 +99,6 @@ export default function StudentAttendancePage() {
           </div>
         ))}
       </div>
-
-      {/* Per-class breakdown */}
-      {classBreakdown.length > 0 && (
-        <div className="bg-navy-card border border-border rounded-[20px] p-5 space-y-4">
-          <p className="text-xs font-bold text-muted uppercase tracking-wider">Attendance by Class</p>
-          <div className="space-y-3">
-            {classBreakdown.map((c) => (
-              <div key={c.code} className="space-y-1.5">
-                <div className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-[10px] font-bold font-mono text-muted bg-navy border border-border px-2 py-0.5 rounded-full shrink-0">{c.code}</span>
-                    <span className="text-white-soft font-medium truncate">{c.name}</span>
-                  </div>
-                  <span className={`font-bold shrink-0 ml-3 ${c.pct >= 80 ? 'text-green' : c.pct >= 60 ? 'text-gold' : 'text-red'}`}>
-                    {c.pct}% <span className="text-muted font-normal text-xs">({c.attended}/{c.total})</span>
-                  </span>
-                </div>
-                <div className="h-1.5 bg-border rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${c.pct >= 80 ? 'bg-green' : c.pct >= 60 ? 'bg-gold' : 'bg-red'}`}
-                    style={{ width: `${c.pct}%` }}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
@@ -161,9 +123,7 @@ export default function StudentAttendancePage() {
           options={[
             { value: 'all',     label: 'All Statuses' },
             { value: 'present', label: 'Present' },
-            { value: 'late',    label: 'Late' },
             { value: 'absent',  label: 'Absent' },
-            { value: 'excused', label: 'Excused' },
           ]}
         />
       </div>

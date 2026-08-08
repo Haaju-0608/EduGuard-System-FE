@@ -18,20 +18,18 @@ import type { ApiExamQuestion, ApiQuestionOption } from '../../../types/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
-/** BE chỉ validate MaxLength(30), không có enum cố định — nhưng chấm điểm tự động chỉ
- *  phân biệt đúng 2 nhánh: có options + type !== "Essay" (auto-grade) vs còn lại (manual).
- *  MCQ/Listening/Reading đều auto-grade bằng options; chỉ Essay là chấm tay. */
-type QuestionType = 'MCQ' | 'Listening' | 'Reading' | 'Essay';
+/** BE chỉ validate MaxLength(30), không có enum cố định — mọi loại câu hỏi đều auto-grade bằng
+ *  options (không còn Essay/chấm tay). */
+type QuestionType = 'MCQ' | 'Listening' | 'Reading';
 
 const QUESTION_TYPES: { value: QuestionType; label: string }[] = [
   { value: 'MCQ', label: 'Multiple Choice' },
   { value: 'Listening', label: 'Listening' },
   { value: 'Reading', label: 'Reading' },
-  { value: 'Essay', label: 'Essay (manual grading)' },
 ];
 
-// Chỉ MCQ/Reading còn cho chọn khi tạo/sửa câu hỏi — Listening/Essay bị bỏ khỏi bộ chọn theo yêu cầu,
-// nhưng vẫn giữ trong QUESTION_TYPES để câu hỏi cũ (nếu có) vẫn hiển thị đúng label/chấm điểm.
+// Chỉ MCQ/Reading còn cho chọn khi tạo/sửa câu hỏi — Listening bị bỏ khỏi bộ chọn theo yêu cầu,
+// nhưng vẫn giữ trong QUESTION_TYPES để câu hỏi cũ (nếu có) vẫn hiển thị đúng label.
 const SELECTABLE_QUESTION_TYPES = QUESTION_TYPES.filter((t) => t.value === 'MCQ' || t.value === 'Reading');
 
 interface EditableOption {
@@ -116,14 +114,10 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
     });
   };
 
-  const isEssay = questionType === 'Essay';
-
   const handleSave = async () => {
     if (!text.trim()) { toast.warning('Required', 'Enter question text.'); return; }
-    if (!isEssay) {
-      if (options.some((o) => !o.optionContent.trim())) { toast.warning('Required', 'All options must be filled in.'); return; }
-      if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
-    }
+    if (options.some((o) => !o.optionContent.trim())) { toast.warning('Required', 'All options must be filled in.'); return; }
+    if (!options.some((o) => o.isCorrect)) { toast.warning('Required', 'Mark one option as correct.'); return; }
     if (points < 0) { toast.warning('Invalid', 'Points must be 0 or more.'); return; }
     if (points > remainingPoints) {
       toast.warning('Invalid', `Max Points cannot exceed ${remainingPoints} — the exam uses a 10-point scale and other questions already total ${otherQuestionsPoints}.`);
@@ -143,19 +137,18 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
         });
 
         // Diff options: xoá option cũ bị bỏ, tạo option mới, cập nhật option còn lại.
-        // Essay không có options → xoá hết options cũ (nếu question trước đó là MCQ).
         const originalIds = new Set(initial.options.map((o) => o.id));
-        const currentExistingIds = isEssay ? new Set<string>() : new Set(options.filter((o) => !o.isNew).map((o) => o.id));
+        const currentExistingIds = new Set(options.filter((o) => !o.isNew).map((o) => o.id));
         const removedIds = [...originalIds].filter((id) => !currentExistingIds.has(id));
 
         await Promise.all([
           ...removedIds.map((id) => deleteQuestionOption(id)),
-          ...(isEssay ? [] : options.map((o) => {
+          ...options.map((o) => {
             const payload = { optionLabel: o.optionLabel, optionContent: o.optionContent.trim(), isCorrect: o.isCorrect };
             return o.isNew
               ? createQuestionOption(initial.id, payload)
               : updateQuestionOption(o.id, payload);
-          })),
+          }),
         ]);
 
         toast.success('Updated', 'Question updated.');
@@ -168,7 +161,7 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
           audioUrl: audioUrl.trim() || null,
           points,
           displayOrder,
-          options: isEssay ? [] : options.map((o) => ({
+          options: options.map((o) => ({
             optionLabel: o.optionLabel,
             optionContent: o.optionContent.trim(),
             isCorrect: o.isCorrect,
@@ -222,11 +215,6 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
                 </button>
               ))}
             </div>
-            {isEssay && (
-              <p className="mt-1.5 text-[11px] text-muted">
-                Student answers will be graded manually — no answer options needed here.
-              </p>
-            )}
           </div>
 
           {/* Question text */}
@@ -244,7 +232,7 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
           {/* Points */}
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-              Max Points <span className="normal-case font-normal">{isEssay ? '(the ceiling a lecturer can award when grading this answer manually)' : "(awarded automatically when the student's answer is correct)"}</span>
+              Max Points <span className="normal-case font-normal">(awarded automatically when the student's answer is correct)</span>
             </label>
             <input
               type="number"
@@ -289,7 +277,6 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
           </div>
 
           {/* Options */}
-          {!isEssay && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-[10px] font-bold text-muted uppercase tracking-wider">
@@ -338,7 +325,6 @@ function QuestionModal({ examId, displayOrder, initial, otherQuestionsPoints, on
               </button>
             )}
           </div>
-          )}
 
           {/* Actions */}
           <div className="flex gap-3 pt-1">
@@ -490,13 +476,6 @@ export default function ExamQuestionsPage() {
                   </span>
                   {(() => {
                     const type = q.questionType.toLowerCase();
-                    if (type === 'essay') {
-                      return (
-                        <span className="text-[10px] font-bold text-cyan bg-cyan/10 border border-cyan/25 px-2 py-0.5 rounded-full">
-                          Essay · manual grading
-                        </span>
-                      );
-                    }
                     const label = QUESTION_TYPES.find((t) => t.value.toLowerCase() === type)?.label ?? q.questionType;
                     return (
                       <span className="text-[10px] font-bold text-blue-bright bg-blue-bright/10 border border-blue-bright/25 px-2 py-0.5 rounded-full">
@@ -531,9 +510,6 @@ export default function ExamQuestionsPage() {
                 <audio controls src={q.audioUrl} className="w-full h-10 mb-4" />
               )}
 
-              {q.questionType.toLowerCase() === 'essay' ? (
-                <p className="text-xs text-muted italic">Free-text answer — graded manually after submission.</p>
-              ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {q.options.map((opt: ApiQuestionOption) => (
                   <div
@@ -554,7 +530,6 @@ export default function ExamQuestionsPage() {
                   </div>
                 ))}
               </div>
-              )}
             </div>
           ))}
         </div>

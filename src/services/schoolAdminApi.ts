@@ -650,6 +650,13 @@ export async function createClass(payload: CreateClassPayload): Promise<ApiClass
   return apiPost<ApiClass>('/api/classes', payload);
 }
 
+/** GET /api/classes/{id} — dùng khi vào thẳng URL (F5, mở link) mà không có state điều hướng sẵn
+ *  (vd từ ClassManagementPage) để biết tên/mã lớp hiện. */
+export async function fetchClassById(id: string): Promise<LecturerClass> {
+  const cls = await apiGet<ApiClass>(`/api/classes/${id}`);
+  return mapApiClassToLecturerClass(cls);
+}
+
 /** PUT /api/classes/{id} */
 export async function updateClass(
   id: string,
@@ -664,6 +671,14 @@ export async function deleteClass(id: string): Promise<void> {
 }
 
 // ─── Student exam slots ────────────────────────────────────────────────────
+
+/** GET /api/classes/my-classes — lớp mà student hiện tại đang theo học, dùng cho trang "My Exams"
+ *  (chọn lớp trước khi vào danh sách bài thi của đúng lớp đó). */
+export async function fetchStudentClasses(): Promise<LecturerClass[]> {
+  // expand=lecturer — không gửi thì lecturer luôn null, tên giảng viên hiện rỗng dù data thật tồn tại.
+  const myClasses = await apiGet<ApiClass[]>(`/api/classes/my-classes${buildQueryParams({ expand: 'lecturer' })}`).catch(() => [] as ApiClass[]);
+  return myClasses.map(mapApiClassToLecturerClass);
+}
 
 /**
  * Fetch exam slots cho student hiện tại.
@@ -996,19 +1011,6 @@ export async function fetchStudentExamRecords(
   return { items: data, pagination };
 }
 
-export interface GradeStudentExamRecordPayload {
-  grades: Array<{ questionId: string; awardedPoints: number }>;
-}
-
-/** PUT /api/student-exam-records/{id}/manual-grade — Lecturer/SchoolAdmin/SuperAdmin. BE tự validate
- *  (chỉ cho chấm câu Essay/needsManualMarking, không vượt max points, không câu trùng/lạ) và tự tính
- *  lại finalScore/status — không cần FE tự parse/build lại ExamRecord JSON như trước nữa. */
-export async function gradeStudentExamRecord(
-  id: string,
-  payload: GradeStudentExamRecordPayload,
-): Promise<ApiStudentExamRecord> {
-  return apiPut<ApiStudentExamRecord>(`/api/student-exam-records/${id}/manual-grade`, payload);
-}
 
 // ─── Transactions Deduct ─────────────────────────────────────────────────
 
@@ -1052,16 +1054,19 @@ export interface StudentAttendanceRecord {
   status: 'present' | 'absent' | 'late' | 'excused';
   checkInTime: string | null;
   examName: string | null;
+  examSlotId: string | null;
 }
 
 /**
- * BE hiện trả `session.examSlotId` LUÔN null trong response của /api/attendance-records?expand=session
- * (AcademicMapper.MapRecordAsync quên gán field này khi build AttendanceSessionSummaryDto — đã báo BE
- * sửa, chỉ cần thêm `ExamSlotId = session.ExamSlotId` là xong). Trong lúc chờ fix, suy luận bài thi
- * bằng cách khớp thời điểm (checkin, hoặc startTime của session nếu absent/excused không có checkin)
- * với khung giờ [startTime, endTime] của các exam slot CÙNG lớp — 2 exam của cùng 1 lớp thường không
- * trùng giờ nhau nên đủ chính xác cho mục đích hiển thị. Ưu tiên slot có startTime gần mốc nhất nếu
- * (hiếm khi) có nhiều slot cùng chứa mốc thời gian đó.
+ * Trước đây BE trả `session.examSlotId` LUÔN null trong response của /api/attendance-records?expand=session
+ * (AcademicMapper.MapRecordAsync quên gán field này khi build AttendanceSessionSummaryDto) — đã fix ở
+ * BE (commit a786b9e "Fix bug thiếu mapper", thêm `ExamSlotId = session.ExamSlotId`), xác nhận đã lên
+ * production. Hàm này giờ chỉ còn dùng làm FALLBACK phòng trường hợp field vẫn null (session cũ trước
+ * khi fix, hoặc môi trường nào đó chưa deploy bản mới) — suy luận bài thi bằng cách khớp thời điểm
+ * (checkin, hoặc startTime của session nếu absent/excused không có checkin) với khung giờ [startTime,
+ * endTime] của các exam slot CÙNG lớp — 2 exam của cùng 1 lớp thường không trùng giờ nhau nên đủ chính
+ * xác cho mục đích hiển thị. Ưu tiên slot có startTime gần mốc nhất nếu (hiếm khi) có nhiều slot cùng
+ * chứa mốc thời gian đó.
  */
 function findExamSlotByTime(classId: string, referenceIso: string | null, slots: ExamSlot[]): ExamSlot | null {
   if (!referenceIso) return null;
@@ -1087,8 +1092,10 @@ function mapAttendanceStatus(s: string): StudentAttendanceRecord['status'] {
 /**
  * Map examSlotId → trạng thái điểm danh của CHÍNH student đang gọi, cho những session có gắn
  * examSlotId (điểm danh mở cho đúng bài thi đó). Dùng để chặn ở FE: chưa được lecturer điểm danh
- * Present/Late thì chưa cho vào thi. Đây chỉ là gate UX — chặn thật cần BE (ExamWorkflowService.
- * JoinAsync hiện chưa kiểm tra điều kiện này).
+ * Present/Late thì chưa cho vào thi. BE giờ CŨNG đã tự kiểm tra điều kiện này ở
+ * ExamWorkflowService.JoinAsync (bắt buộc AttendanceRecord Present/Late trước khi cho Join) — gate ở
+ * đây chỉ còn là UX (báo sớm, tránh học sinh bấm Start rồi mới bị BE từ chối), không còn là lớp chặn
+ * duy nhất.
  */
 export async function fetchMyExamAttendanceStatus(
   studentId: string,
@@ -1145,17 +1152,38 @@ export async function fetchStudentAttendanceHistory(
 
   const classMap = new Map(classes.map((c) => [c.id, c]));
 
-  return myRecords
-    .map((rec): StudentAttendanceRecord | null => {
+  const withSession = myRecords
+    .map((rec) => {
       const session = rec.session;
       if (!session) return null;
-      const cls = classMap.get(session.classId);
       // BE (commit a786b9e "Fix bug thiếu mapper") giờ trả đúng session.examSlotId — ưu tiên dùng
       // thẳng field này (chính xác 100%). Fallback về suy luận khung giờ chỉ khi field vẫn null
       // (vd BE production chưa deploy bản fix, hoặc session không gắn với exam nào).
       const examSlot = session.examSlotId
         ? examSlots.find((s) => s.id === session.examSlotId) ?? null
         : findExamSlotByTime(session.classId, rec.checkinAt ?? session.startTime, examSlots);
+      return { rec, session, examSlot };
+    })
+    .filter((r): r is { rec: ApiAttendanceRecord; session: NonNullable<ApiAttendanceRecord['session']>; examSlot: ExamSlot | null } => r !== null);
+
+  // 1 bài thi có thể có NHIỀU session điểm danh (giảng viên mở lại để bù người bị AI bỏ sót lần
+  // trước) → student sẽ có nhiều record cho CÙNG 1 bài thi, mỗi record ứng với 1 session. Chỉ giữ
+  // lại đúng 1 record — của session mở GẦN NHẤT — cho mỗi bài thi, tránh hiện trùng nhiều dòng
+  // cùng 1 exam trên lịch sử điểm danh. Record không gắn examSlotId nào (session rời rạc, không
+  // theo bài thi) thì giữ nguyên riêng lẻ, không gộp.
+  const latestByExam = new Map<string, typeof withSession[number]>();
+  for (const item of withSession) {
+    const examSlotId = item.session.examSlotId ?? item.examSlot?.id ?? null;
+    const key = examSlotId ?? `record_${item.rec.id}`;
+    const existing = latestByExam.get(key);
+    if (!existing || new Date(item.session.startTime).getTime() > new Date(existing.session.startTime).getTime()) {
+      latestByExam.set(key, item);
+    }
+  }
+
+  return [...latestByExam.values()]
+    .map(({ rec, session, examSlot }): StudentAttendanceRecord => {
+      const cls = classMap.get(session.classId);
       return {
         id: rec.id,
         date: datePart(session.startTime),
@@ -1166,9 +1194,9 @@ export async function fetchStudentAttendanceHistory(
         status: mapAttendanceStatus(rec.status),
         checkInTime: rec.checkinAt ? timePart(rec.checkinAt) : null,
         examName: examSlot?.examName ?? null,
+        examSlotId: examSlot?.id ?? null,
       };
     })
-    .filter((r): r is StudentAttendanceRecord => r !== null)
     .sort((a, b) => b.date.localeCompare(a.date));
 }
 

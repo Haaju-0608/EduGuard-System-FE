@@ -8,6 +8,7 @@ import {
   PageShell,
   SkeletonCard,
 } from '../../../components/lecturer/LecturerUI';
+import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -265,11 +266,14 @@ function StudentDetailModal({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+const PAGE_SIZE = 12;
+
 export default function BiometricApprovalPage() {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [reviewing, setReviewing]   = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BiometricRequest | null>(null);
+  const [page, setPage] = useState(1);
   const toast = useToast();
 
   const institutionId = user?.institutionId ?? undefined;
@@ -295,6 +299,12 @@ export default function BiometricApprovalPage() {
     rejected: requests.filter((r) => r.status === 'rejected').length,
     all:      requests.length,
   }), [requests]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filteredRequests.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => { setPage(1); }, [statusFilter]);
 
   const handleReview = async (
     requestId: string,
@@ -369,13 +379,16 @@ export default function BiometricApprovalPage() {
           description="There are no biometric verification requests in this section."
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-          {filteredRequests.map((request, i) => (
-            <div key={request.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
-              <StudentCard request={request} onClick={() => setSelectedRequest(request)} />
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+            {pageItems.map((request, i) => (
+              <div key={request.id} style={{ animationDelay: `${i * 0.06}s` }} className="animate-stagger-in">
+                <StudentCard request={request} onClick={() => setSelectedRequest(request)} />
+              </div>
+            ))}
+          </div>
+          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${filteredRequests.length} requests`} />
+        </>
       )}
 
       {selectedRequest && (

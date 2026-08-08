@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { FiAlertCircle, FiArrowUpRight, FiCalendar, FiCheckCircle, FiClock, FiCreditCard, FiRefreshCw, FiRepeat, FiTrendingDown } from 'react-icons/fi';
+import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { fetchInstitutionById, fetchPricingConfigs, renewInstitutionSubscription } from '../../../services/adminApi';
@@ -48,6 +49,7 @@ export default function WalletPage() {
   const [showRenewConfirm, setShowRenewConfirm] = useState(false);
   const [renewPlan, setRenewPlan] = useState<'Monthly' | 'Yearly'>('Monthly');
   const [pricingConfigs, setPricingConfigs] = useState<ApiPricingConfig[]>([]);
+  const [txPage, setTxPage] = useState(1);
 
   const institutionId = user?.institutionId ?? '';
 
@@ -112,7 +114,9 @@ export default function WalletPage() {
       const w = await fetchWallet(institutionId);
       setWallet(w);
       try {
-        const { items } = await fetchWalletTransactions(w.id, { page: 1, pageSize: 20 });
+        // pageSize:100 — đủ để phân trang tay ở FE (TX_PAGE_SIZE=20/trang) mà không cần refetch mỗi
+        // lần đổi trang; "deductedRecent" bên dưới giờ tính trên phạm vi rộng hơn (100 thay vì 20).
+        const { items } = await fetchWalletTransactions(w.id, { page: 1, pageSize: 100 });
         setTransactions(items ?? []);
       } catch {
         setTransactions([]);
@@ -168,6 +172,11 @@ export default function WalletPage() {
   const deductedRecent = transactions
     .filter(isDeductionTxn)
     .reduce((sum, t) => sum + Math.abs(t.amount ?? 0), 0);
+
+  const TX_PAGE_SIZE = 20;
+  const txTotalPages = Math.max(1, Math.ceil(transactions.length / TX_PAGE_SIZE));
+  const safeTxPage = Math.min(txPage, txTotalPages);
+  const pagedTransactions = transactions.slice((safeTxPage - 1) * TX_PAGE_SIZE, safeTxPage * TX_PAGE_SIZE);
 
   const attendancePrice = activeUnitPrice(pricingConfigs, 'ATTENDANCE_UNIT');
   const proctoringPrice = activeUnitPrice(pricingConfigs, 'PROCTORING_PER_HOUR');
@@ -469,7 +478,7 @@ export default function WalletPage() {
       <div className="bg-navy-card border border-border rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between p-5 border-b border-border">
           <h2 className="font-syne font-bold text-white-soft text-sm">Transaction History</h2>
-          <span className="text-[11px] text-muted">Last 20 transactions</span>
+          <span className="text-[11px] text-muted">Last {transactions.length} transactions</span>
         </div>
         {loadingTx ? (
           <div className="divide-y divide-border">
@@ -488,7 +497,7 @@ export default function WalletPage() {
           <div className="py-16 text-center text-muted text-sm">No transactions yet.</div>
         ) : (
           <div className="divide-y divide-border">
-            {transactions.map((txn) => {
+            {pagedTransactions.map((txn) => {
               const isTopUp = isTopUpType(txn);
               return (
                 <div key={txn.id} className="flex items-center gap-4 px-5 py-3.5 hover:bg-navy/40 transition-colors">
@@ -515,6 +524,9 @@ export default function WalletPage() {
               );
             })}
           </div>
+        )}
+        {!loadingTx && transactions.length > 0 && (
+          <Pagination page={safeTxPage} totalPages={txTotalPages} onChange={setTxPage} className="px-5 py-3.5 border-t border-border" />
         )}
       </div>
     </div>
