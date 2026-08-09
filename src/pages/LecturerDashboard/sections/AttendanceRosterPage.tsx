@@ -147,7 +147,7 @@ function SessionStats({ session }: { session: AttendanceSession }) {
   );
 }
 
-/** Xác nhận trước khi upload video AI — vì BE tự ĐÓNG LUÔN session này ngay sau khi xử lý xong. */
+/** Xác nhận trước khi upload video AI. */
 function AiVideoConfirmDialog({
   fileName, uploading, onConfirm, onCancel,
 }: { fileName: string; uploading: boolean; onConfirm: () => void; onCancel: () => void }) {
@@ -165,8 +165,8 @@ function AiVideoConfirmDialog({
               against approved biometric photos, and mark recognized students as Present.
             </p>
             <p className="text-gold text-xs mt-2">
-              ⚠️ This will automatically end the attendance session once processing finishes — you won't be
-              able to add more records to it afterward.
+              ℹ️ The session stays open after scanning — you can still manually mark anyone AI missed, then
+              end the session yourself when you're done.
             </p>
           </div>
         </div>
@@ -347,6 +347,9 @@ export default function AttendanceRosterPage() {
     e.target.value = '';
   };
 
+  // BE (commit f62273e, 09/08) không còn tự đóng session sau khi quét video nữa — session vẫn
+  // InProgress, chỉ cần refresh lại đúng session này (thêm record mới) rồi ở nguyên màn hình sống để
+  // giảng viên tự điểm danh bù/kiểm tra tiếp, tự bấm End Session khi xong (giống điểm danh tay).
   const handleConfirmAiVideo = async () => {
     if (!session || !pendingVideo) return;
     setUploadingVideo(true);
@@ -354,10 +357,10 @@ export default function AttendanceRosterPage() {
       const recognized = await markAttendanceByAiVideo(session.id, pendingVideo);
       toast.success(
         'Attendance marked by AI',
-        `Recognized ${recognized.length} student${recognized.length !== 1 ? 's' : ''} as Present. Session has been ended.`,
+        `Recognized ${recognized.length} student${recognized.length !== 1 ? 's' : ''} as Present. Session is still open — mark anyone missed, then End Session when done.`,
       );
-      setSession(null);
-      void reloadExamRecords();
+      const refreshed = await fetchAttendanceSessionById(session.id);
+      setSession(refreshed);
     } catch (err) {
       toast.error('Failed to process video', err instanceof Error ? err.message : 'Please try again.');
     } finally {

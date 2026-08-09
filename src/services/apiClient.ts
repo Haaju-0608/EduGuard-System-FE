@@ -58,12 +58,43 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
   }
 }
 
+// BE nhiều chỗ nhét thẳng ex.Message (exception .NET thật, hoặc raw body lỗi từ AI service Python)
+// vào message trả về (vd "System error: {ex.Message}", "Lỗi trích xuất vector: {ex.Message}") —
+// những message này không dành cho end-user đọc. Nhận diện các dấu hiệu "ngôn ngữ kỹ thuật" để
+// thay bằng câu chung chung dễ hiểu, đồng thời log bản gốc ra console để còn debug được.
+// Riêng Supabase Auth ném thẳng JSON body gốc làm ex.Message khi login sai (vd:
+// {"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}) — BE
+// (AuthController.cs) bọc nguyên văn vào "Fail to login: {ex.Message}" rồi trả cho FE. Nhận diện
+// thêm pattern JSON kiểu {"key": để bắt được cả trường hợp này.
+const TECHNICAL_MESSAGE_PATTERN = /system error|exception|stack ?trace|status ?code does not indicate|\bat\s+[\w.]+\(|nullreference|npgsql|dbupdate|unhandled|\(\d{3}\):|\{\s*"[\w_]+"\s*:/i;
+
+function friendlyFallback(status: number): string {
+  if (status === 401) return 'Session expired. Please log in again.';
+  if (status === 403) return 'You do not have permission to perform this action.';
+  if (status >= 500) return 'Something went wrong on our end. Please try again in a moment.';
+  return 'Your request could not be processed. Please check the information and try again.';
+}
+
 function extractErrorMessage(body: unknown, status: number): string {
+  // 5xx = exception không được xử lý ở BE — bất kỳ message nào đi kèm gần như chắc chắn là chi
+  // tiết kỹ thuật nội bộ (exception .NET, lỗi DB...), không phải thứ để hiện cho người dùng.
+  if (status >= 500) {
+    if (body) console.error('[API] Server error response:', body);
+    return friendlyFallback(status);
+  }
+
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
     // Try common field names
     for (const key of ['message', 'error', 'title', 'detail', 'errorMessage', 'Error']) {
-      if (typeof record[key] === 'string' && record[key]) return record[key] as string;
+      const value = record[key];
+      if (typeof value === 'string' && value) {
+        if (TECHNICAL_MESSAGE_PATTERN.test(value)) {
+          console.error('[API] Technical error message hidden from user:', value);
+          return friendlyFallback(status);
+        }
+        return value;
+      }
     }
     if (typeof record.errors === 'string') return record.errors;
     if (Array.isArray(record.errors) && record.errors.length > 0) {
@@ -74,14 +105,11 @@ function extractErrorMessage(body: unknown, status: number): string {
         return String(fe.message ?? fe.description ?? fe.msg ?? JSON.stringify(first));
       }
     }
-    // Last resort: show full body so we can debug
-    const str = JSON.stringify(body);
-    if (str && str !== '{}') return str;
+    // Không còn dump nguyên body ra UI để "debug" nữa (người dùng thật không đọc được JSON) — log
+    // ra console thay vì hiện thẳng, người dùng chỉ thấy message chung chung bên dưới.
+    console.error('[API] Unrecognized error body:', body);
   }
-  if (status === 401) return 'Session expired. Please log in again.';
-  if (status === 403) return 'You do not have permission to perform this action.';
-  if (status >= 500) return 'Server error. Please try again later.';
-  return `Request failed (HTTP ${status}).`;
+  return friendlyFallback(status);
 }
 
 function isApiEnvelope(value: unknown): value is ApiEnvelope<unknown> {

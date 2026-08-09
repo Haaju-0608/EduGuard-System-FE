@@ -99,7 +99,7 @@ function StudentFormModal({
       return;
     }
     if (form.phone.trim() && !isValidPhone(form.phone)) {
-      toast.warning('Invalid', `Enter a valid phone number (max ${MAX_PHONE_LENGTH} characters).`);
+      toast.warning('Invalid', 'Phone number must be exactly 10 digits, starting with 0.');
       return;
     }
     setSaving(true);
@@ -419,6 +419,7 @@ export default function SchoolStudentManagementPage() {
           onClose={() => setShowImport(false)}
           onImported={reload}
           allowedRoles="Student"
+          requiresInstitutionId={false}
         />
       )}
 

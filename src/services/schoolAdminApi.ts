@@ -372,7 +372,9 @@ export async function updateExamSlot(id: string, payload: Partial<CreateExamSlot
   return apiPut<ApiExamSlot>(`/api/exam-slots/${id}`, payload);
 }
 
-/** DELETE /api/exam-slots/{id} */
+/** DELETE /api/exam-slots/{id} — BE (commit ead6299, 09/08) đổi thành soft-delete: KHÔNG xoá row
+ *  thật, chỉ chuyển status sang Cancelled để giữ lịch sử + không vỡ khoá ngoại. Exam vẫn còn trong
+ *  danh sách sau khi gọi hàm này, chỉ đổi badge sang "Cancelled". */
 export async function deleteExamSlot(id: string): Promise<void> {
   await apiDelete(`/api/exam-slots/${id}`);
 }

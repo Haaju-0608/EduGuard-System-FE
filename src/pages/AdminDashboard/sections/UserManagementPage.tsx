@@ -90,7 +90,7 @@ function UserFormModal({
     // FE phải chặn trước, không thì submit fail 400 dù form nhìn như hợp lệ.
     if (form.role === 'Student' && !form.studentCode.trim()) { toast.warning('Required', 'Student code is required for Student accounts.'); return; }
     if (form.studentCode.trim().length > MAX_STUDENT_CODE_LENGTH) { toast.warning('Invalid', `Student/staff code must be at most ${MAX_STUDENT_CODE_LENGTH} characters.`); return; }
-    if (form.phone.trim() && !isValidPhone(form.phone)) { toast.warning('Invalid', `Enter a valid phone number (max ${MAX_PHONE_LENGTH} characters).`); return; }
+    if (form.phone.trim() && !isValidPhone(form.phone)) { toast.warning('Invalid', 'Phone number must be exactly 10 digits, starting with 0.'); return; }
     setSaving(true);
     try {
       if (isEdit) {
@@ -167,7 +167,7 @@ function UserFormModal({
             </div>
             <div className="col-span-2">
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Phone</label>
-              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="+84 9xx xxx xxx" className={inp} maxLength={MAX_PHONE_LENGTH} />
+              <input type="tel" value={form.phone} onChange={set('phone')} placeholder="0912345678" className={inp} maxLength={MAX_PHONE_LENGTH} />
             </div>
             {['schooladmin', 'lecturer', 'student'].includes(form.role?.toLowerCase() ?? '') && (
               <div className="col-span-2">

@@ -254,10 +254,11 @@ export async function createAttendanceRecord(
  *  trong video, so khớp với BiometricData.FaceVector đã duyệt (ngưỡng 0.40) để tự đánh Present cho
  *  từng sinh viên nhận diện được.
  *
- *  QUAN TRỌNG — side effect ẩn: BE tự đóng LUÔN session này (Status → Completed) ngay sau khi xử lý
- *  xong, bất kể kết quả nhận diện được bao nhiêu người — không phải chỉ "thêm record" như điểm danh
- *  tay. Gọi hàm này coi như đồng thời bấm "End Session". Chỉ gọi được khi session đang InProgress và
- *  trong khung giờ [StartTime, EndTime] của session (BE tự chặn 400 nếu sai điều kiện). */
+ *  BE (commit f62273e, 09/08) đã sửa: session KHÔNG còn tự đóng (Status vẫn giữ InProgress) sau khi
+ *  quét xong nữa — chỉ đơn thuần "thêm record" như điểm danh tay, session vẫn mở để giảng viên tự
+ *  kiểm tra + điểm danh bù thủ công rồi mới tự bấm "End Session" khi xong. Chỉ gọi được khi session
+ *  đang InProgress và trong khung giờ [StartTime, EndTime] của session (BE tự chặn 400 nếu sai
+ *  điều kiện). */
 export async function markAttendanceByAiVideo(
   sessionId: string,
   videoFile: File,
