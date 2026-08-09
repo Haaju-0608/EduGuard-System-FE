@@ -163,7 +163,13 @@ export default function StudentExamVerifyPage() {
       await joinExamParticipation(participationId, frame);
       setStep('verified');
     } catch (err) {
-      setCameraError(err instanceof Error ? err.message : 'Face verification failed. Please retry.');
+      const rawMessage = err instanceof Error ? err.message : '';
+      // BE nhét thẳng số liệu kỹ thuật vào message ("...distance=0.4665.") — thay bằng câu người
+      // dùng đọc hiểu được, không lộ chi tiết thuật toán so khớp khuôn mặt.
+      const friendlyMessage = /distance=/i.test(rawMessage)
+        ? "We couldn't confirm it's you — your face didn't match your registered photo closely enough. Make sure you're in a well-lit area, remove glasses or hats, and try again."
+        : (rawMessage || 'Face verification failed. Please retry.');
+      setCameraError(friendlyMessage);
       setStep('failed');
     }
   }, [ensureParticipationId]);
@@ -450,16 +456,19 @@ export default function StudentExamVerifyPage() {
 
             {/* Ảnh thu nhỏ ảnh tham chiếu */}
             {referencePhotoUrl && (
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <FiUser className="text-muted text-xs" />
-                  <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Registered Photo</p>
-                </div>
+              <div className="flex items-center gap-3 bg-navy border border-border rounded-xl p-3">
                 <img
                   src={referencePhotoUrl}
                   alt="Registered biometric"
-                  className="w-full rounded-xl object-cover aspect-4/5 opacity-60 border border-border"
+                  className="w-12 h-12 rounded-lg object-cover shrink-0 border border-border"
                 />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <FiUser className="text-muted text-xs shrink-0" />
+                    <p className="text-[10px] font-bold text-muted uppercase tracking-wider">Registered Photo</p>
+                  </div>
+                  <p className="text-[11px] text-muted mt-0.5">On file for comparison</p>
+                </div>
               </div>
             )}
 

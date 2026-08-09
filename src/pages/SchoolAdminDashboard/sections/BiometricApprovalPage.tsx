@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCheck, FiClock, FiShield, FiUser, FiX, FiChevronRight, FiImage } from 'react-icons/fi';
+import { FiCheck, FiClock, FiSearch, FiShield, FiUser, FiX, FiChevronRight, FiImage } from 'react-icons/fi';
 import {
   EmptyState,
+  FilterBar,
   FilterPills,
   PageHeader,
   PageShell,
@@ -271,6 +272,7 @@ const PAGE_SIZE = 12;
 export default function BiometricApprovalPage() {
   const { user } = useAuth();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
+  const [search, setSearch] = useState('');
   const [reviewing, setReviewing]   = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BiometricRequest | null>(null);
   const [page, setPage] = useState(1);
@@ -286,11 +288,15 @@ export default function BiometricApprovalPage() {
 
   const requests = data ?? [];
 
-  // Filter by status
+  // Filter by status + search (student ID, cũng khớp luôn tên cho tiện tra)
   const filteredRequests = useMemo(() => {
-    if (statusFilter === 'all') return requests;
-    return requests.filter((r) => r.status === statusFilter);
-  }, [requests, statusFilter]);
+    const byStatus = statusFilter === 'all' ? requests : requests.filter((r) => r.status === statusFilter);
+    const q = search.trim().toLowerCase();
+    if (!q) return byStatus;
+    return byStatus.filter((r) =>
+      r.studentId.toLowerCase().includes(q) || r.studentName.toLowerCase().includes(q),
+    );
+  }, [requests, statusFilter, search]);
 
   // Counts for filter pills
   const counts = useMemo(() => ({
@@ -304,7 +310,7 @@ export default function BiometricApprovalPage() {
   const safePage = Math.min(page, totalPages);
   const pageItems = filteredRequests.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, search]);
 
   const handleReview = async (
     requestId: string,
@@ -347,6 +353,18 @@ export default function BiometricApprovalPage() {
           { label: 'Total',    value: String(counts.all),      icon: '🔐' },
         ]}
       />
+
+      <FilterBar>
+        <div className="uni-filter-input">
+          <FiSearch className="text-muted shrink-0" />
+          <input
+            type="text"
+            placeholder="Search by student ID or name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </FilterBar>
 
       <FilterPills
         tabs={[

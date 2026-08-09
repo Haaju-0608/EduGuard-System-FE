@@ -46,7 +46,16 @@ function StatusBadge({ status }: { status: string }) {
 
 // ─── Enrollment Panel ────────────────────────────────────────────────────
 
-function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; institutionId: string; onClose: () => void }) {
+function EnrollmentPanel({
+  cls, institutionId, onClose, onEnrollmentChange,
+}: {
+  cls: LecturerClass;
+  institutionId: string;
+  onClose: () => void;
+  /** Refetch danh sách classes ở trang cha để cập nhật studentCount trên ClassCard + KPI
+   *  "Total Students" ngay khi thêm/xoá — không thì phải F5 mới thấy số mới. */
+  onEnrollmentChange: () => void;
+}) {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState('');
@@ -100,6 +109,7 @@ function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; 
       setSelectedId('');
       setSearch('');
       reload();
+      onEnrollmentChange();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to add student.';
       toast.error('Error', msg);
@@ -116,6 +126,7 @@ function EnrollmentPanel({ cls, institutionId, onClose }: { cls: LecturerClass; 
       await deleteEnrollment(cls.id, removeTarget.studentId);
       toast.success('Removed', 'Student removed from class.');
       reload();
+      onEnrollmentChange();
     } catch {
       toast.error('Error', 'Failed to remove student.');
     } finally {
@@ -726,7 +737,12 @@ export default function SchoolClassManagementPage() {
         />
       )}
       {enrollTarget && (
-        <EnrollmentPanel cls={enrollTarget} institutionId={institutionId} onClose={() => setEnrollTarget(null)} />
+        <EnrollmentPanel
+          cls={enrollTarget}
+          institutionId={institutionId}
+          onClose={() => setEnrollTarget(null)}
+          onEnrollmentChange={reload}
+        />
       )}
 
       {deleteClassTarget && createPortal(

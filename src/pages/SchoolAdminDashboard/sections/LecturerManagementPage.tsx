@@ -112,11 +112,11 @@ function LecturerFormModal({
       return;
     }
     if (form.staffCode.trim().length > MAX_STUDENT_CODE_LENGTH) {
-      toast.warning('Invalid', `Staff code must be at most ${MAX_STUDENT_CODE_LENGTH} characters.`);
+      toast.warning('Invalid', `Lecturer code must be at most ${MAX_STUDENT_CODE_LENGTH} characters.`);
       return;
     }
     if (form.phone.trim() && !isValidPhone(form.phone)) {
-      toast.warning('Invalid', `Enter a valid phone number (max ${MAX_PHONE_LENGTH} characters).`);
+      toast.warning('Invalid', 'Phone number must be exactly 10 digits, starting with 0.');
       return;
     }
     setSaving(true);
@@ -188,7 +188,7 @@ function LecturerFormModal({
           )}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Staff Code</label>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Lecturer Code</label>
               <input type="text" value={form.staffCode} onChange={set('staffCode')} placeholder="GV301026" className={inp} maxLength={MAX_STUDENT_CODE_LENGTH} />
             </div>
             <div>
@@ -340,7 +340,7 @@ export default function LecturerManagementPage() {
           <FiSearch className="text-muted shrink-0" />
           <input
             type="text"
-            placeholder="Search by name, email or staff code..."
+            placeholder="Search by name, email or lecturer code..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
@@ -475,6 +475,8 @@ export default function LecturerManagementPage() {
           onClose={() => setShowImport(false)}
           onImported={reload}
           allowedRoles="Lecturer"
+          requiresInstitutionId={false}
+          studentCodeNote="StudentCode is optional here (used as lecturer code)."
         />
       )}
 

@@ -45,7 +45,10 @@ export default function LoginPage() {
       toast.success('Login successful', `Welcome back, ${result.user.name}!`);
       navigate(getDashboardPath(result.user.role), { replace: true });
     } else {
-      const msg = result.error || 'Incorrect email or password.';
+      // Luôn hiện message chung "Incorrect email or password." bất kể BE trả lý do gì — vừa tránh
+      // lộ chi tiết kỹ thuật (BE có lúc ném nguyên JSON lỗi của Supabase Auth), vừa đúng thông lệ
+      // bảo mật: không tiết lộ email có tồn tại hay không / lý do cụ thể khiến đăng nhập thất bại.
+      const msg = 'Incorrect email or password.';
       setError(msg);
       toast.error('Login failed', msg);
     }

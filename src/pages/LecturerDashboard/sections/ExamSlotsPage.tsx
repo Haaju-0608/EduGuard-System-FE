@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { FiArrowLeft, FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
@@ -11,14 +11,14 @@ import {
   FilterBar,
   PageHeader,
   PageShell,
+  PrimaryButton,
   SkeletonCard,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useListFilters } from '../../../hooks/useListFilters';
-import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
-import { fetchExamSlots } from '../../../services/schoolAdminApi';
-import type { ExamSlot, ExamSlotStatus } from '../../../types/lecturer';
+import { fetchClassById, fetchExamSlots } from '../../../services/schoolAdminApi';
+import type { ExamSlot, ExamSlotStatus, LecturerClass } from '../../../types/lecturer';
 
 function formatDateTime(iso: string): string {
   return new Date(iso).toLocaleString('en-GB', {
@@ -88,21 +88,32 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
 
 const PAGE_SIZE = 9;
 
+/** Danh sách bài thi (mình coi thi) của 1 lớp cụ thể — vào từ ExamClassesPage (chọn lớp trước),
+ *  khớp luồng Class → Exams đã dùng ở Attendance. */
 export default function ExamSlotsPage() {
-  const { facultyId } = useLecturerFaculty();
+  const { classId } = useParams<{ classId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
   const [page, setPage] = useState(1);
 
-  const { data, loading, error, reload } = useAsyncData(async () => {
+  const stateCls = (location.state as { cls?: LecturerClass } | null)?.cls ?? null;
+  const { data: fetchedCls, loading: loadingCls } = useAsyncData(
+    () => (classId && !stateCls ? fetchClassById(classId) : Promise.resolve(null)),
+    [classId, stateCls],
+  );
+  const cls = stateCls ?? fetchedCls;
+
+  const { data, loading: loadingSlots, error, reload } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 100 });
     return result.items;
   }, []);
 
   // BE /api/exam-slots chưa scope theo proctor — trả về TOÀN BỘ exam slot của cả hệ thống cho
-  // bất kỳ ai gọi. Lọc client-side để lecturer chỉ thấy đề mình được phân công coi thi.
-  const slots = (data ?? []).filter((s) => !user?.id || s.proctorId === user.id);
+  // bất kỳ ai gọi. Lọc client-side theo đúng lớp đang xem + chỉ đề mình được phân công coi thi.
+  const slots = (data ?? []).filter((s) => (!classId || s.classId === classId) && (!user?.id || s.proctorId === user.id));
 
   const predicates = useMemo(
     () => [(slot: ExamSlot) => statusFilter === 'all' || slot.status === statusFilter],
@@ -115,15 +126,22 @@ export default function ExamSlotsPage() {
   const safePage = Math.min(page, totalPages);
   const pageItems = filteredSlots.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [search, statusFilter]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, classId]);
+
+  const loading = loadingCls || loadingSlots;
 
   return (
     <PageShell>
       <PageHeader
         eyebrow="Exam Schedule"
-        title="Exam Slots"
-        subtitle="View exam sessions assigned to your classes."
-        facultyId={facultyId}
+        title={cls ? cls.name : loading ? 'Loading…' : 'Exams'}
+        subtitle="View exams you're proctoring for this class."
+        facultyId={cls?.facultyId}
+        actions={
+          <PrimaryButton variant="ghost" onClick={() => navigate('/lecture/exams')}>
+            <FiArrowLeft /> Back to Classes
+          </PrimaryButton>
+        }
         stats={[
           { label: 'Total',     value: String(slots.length), icon: '📝' },
           { label: 'Scheduled', value: String(slots.filter(s => s.status === 'scheduled').length), icon: '📅' },
@@ -137,7 +155,7 @@ export default function ExamSlotsPage() {
           <FiSearch className="text-muted shrink-0" />
           <input
             type="text"
-            placeholder="Search exam name, course code..."
+            placeholder="Search exam name..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -162,7 +180,7 @@ export default function ExamSlotsPage() {
       ) : error ? (
         <EmptyState variant="error" icon="📝" title="Failed to load exam slots" description={error} onRetry={reload} />
       ) : filteredSlots.length === 0 ? (
-        <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to your classes yet." />
+        <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to you for this class yet." />
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">

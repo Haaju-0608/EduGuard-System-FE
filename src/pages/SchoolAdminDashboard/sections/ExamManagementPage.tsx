@@ -535,14 +535,17 @@ export default function ExamManagementPage() {
   const myClassIds = new Set(classes.map((c) => c.id));
   const slots: ExamSlot[] = (slotsData ?? []).filter((s) => myClassIds.has(s.classId));
 
-  const filtered = slots.filter((s) => {
-    const q = search.toLowerCase();
-    const matchSearch = !q
-      || s.examName.toLowerCase().includes(q)
-      || s.classCode.toLowerCase().includes(q)
-      || s.className.toLowerCase().includes(q);
-    return matchSearch && (statusFilter === 'all' || s.status === statusFilter);
-  });
+  const filtered = slots
+    .filter((s) => {
+      const q = search.toLowerCase();
+      const matchSearch = !q
+        || s.examName.toLowerCase().includes(q)
+        || s.classCode.toLowerCase().includes(q)
+        || s.className.toLowerCase().includes(q);
+      return matchSearch && (statusFilter === 'all' || s.status === statusFilter);
+    })
+    // Cancelled exams sink to the bottom — Scheduled/Ongoing/Completed need attention first.
+    .sort((a, b) => (a.status === 'cancelled' ? 1 : 0) - (b.status === 'cancelled' ? 1 : 0));
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -556,10 +559,10 @@ export default function ExamManagementPage() {
     setDeleteTarget(null);
     try {
       await deleteExamSlot(deleteTarget.id);
-      toast.success('Deleted', 'Exam slot removed.');
+      toast.success('Cancelled', 'Exam slot has been cancelled.');
       reload();
     } catch (err) {
-      toast.error('Error', err instanceof Error ? err.message : 'Failed to delete.');
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to cancel.');
     } finally { setDeletingId(null); }
   };
 
@@ -742,7 +745,7 @@ export default function ExamManagementPage() {
                     onClick={() => setDeleteTarget(slot)}
                     disabled={deletingId === slot.id}
                     className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"
-                    title="Delete"
+                    title="Cancel exam"
                   >
                     <FiTrash2 className="text-xs" />
                   </button>
@@ -775,11 +778,11 @@ export default function ExamManagementPage() {
                 <FiTrash2 className="text-red" />
               </div>
               <div>
-                <h3 className="font-syne font-bold text-white-soft text-base">Delete Exam Slot</h3>
+                <h3 className="font-syne font-bold text-white-soft text-base">Cancel Exam Slot</h3>
                 <p className="text-muted text-sm mt-1">
-                  Are you sure you want to delete{' '}
+                  Are you sure you want to cancel{' '}
                   <span className="text-white-soft font-semibold">"{deleteTarget.examName}"</span>?
-                  This action cannot be undone.
+                  It will be marked Cancelled and kept in the list for history — it won't be actually removed.
                 </p>
               </div>
             </div>
@@ -794,7 +797,7 @@ export default function ExamManagementPage() {
                 onClick={confirmDelete}
                 className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
               >
-                Delete
+                Cancel Exam
               </button>
             </div>
           </div>

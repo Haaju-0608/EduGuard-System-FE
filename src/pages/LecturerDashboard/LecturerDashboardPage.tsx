@@ -8,6 +8,7 @@ import StudentExamHistoryPage from './sections/StudentExamHistoryPage';
 import AttendanceClassesPage from './sections/AttendanceClassesPage';
 import AttendanceExamsPage from './sections/AttendanceExamsPage';
 import AttendanceRosterPage from './sections/AttendanceRosterPage';
+import ExamClassesPage from './sections/ExamClassesPage';
 import ExamSlotsPage from './sections/ExamSlotsPage';
 import ExamQuestionsViewPage from './sections/ExamQuestionsViewPage';
 import LiveMonitoringPage from './sections/LiveMonitoringPage';
@@ -40,7 +41,8 @@ export default function LecturerDashboardPage() {
         <Route path="attendance" element={<AttendanceClassesPage />} />
         <Route path="attendance/:classId" element={<AttendanceExamsPage />} />
         <Route path="attendance/:classId/:examId" element={<AttendanceRosterPage />} />
-        <Route path="exams" element={<ExamSlotsPage />} />
+        <Route path="exams" element={<ExamClassesPage />} />
+        <Route path="exams/:classId" element={<ExamSlotsPage />} />
         <Route path="exams/:examId/questions" element={<ExamQuestionsViewPage />} />
         <Route path="live-monitoring" element={<LiveMonitoringPage />} />
         <Route path="violations" element={<ViolationReviewPage />} />
