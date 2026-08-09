@@ -178,9 +178,6 @@ export default function WalletPage() {
   const safeTxPage = Math.min(txPage, txTotalPages);
   const pagedTransactions = transactions.slice((safeTxPage - 1) * TX_PAGE_SIZE, safeTxPage * TX_PAGE_SIZE);
 
-  const attendancePrice = activeUnitPrice(pricingConfigs, 'ATTENDANCE_UNIT');
-  const proctoringPrice = activeUnitPrice(pricingConfigs, 'PROCTORING_PER_HOUR');
-
   if (!institutionId && !loadingWallet) {
     return (
       <div className="space-y-6">
@@ -272,8 +269,8 @@ export default function WalletPage() {
       })()}
 
       {/* Balance Card */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 relative overflow-hidden bg-linear-to-br from-blue/20 to-cyan/10 border border-blue/30 rounded-[20px] p-6">
+      <div className="flex flex-col gap-4">
+        <div className="relative overflow-hidden bg-linear-to-br from-blue/20 to-cyan/10 border border-blue/30 rounded-[20px] p-6">
           <div className="absolute top-0 right-0 w-48 h-48 bg-cyan/5 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
           <div className="relative z-1">
             <div className="flex items-start justify-between">
@@ -308,39 +305,15 @@ export default function WalletPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {isLowBalance && !loadingWallet && (
-            <div className="flex items-start gap-3 p-4 rounded-2xl bg-red/5 border border-red/30">
-              <FiAlertCircle className="text-red text-xl shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-red">Low Balance Warning</p>
-                <p className="text-xs text-muted mt-0.5">Balance below 10,000 credits. AI services may be suspended.</p>
-              </div>
+        {isLowBalance && !loadingWallet && (
+          <div className="flex items-start gap-3 p-4 rounded-2xl bg-red/5 border border-red/30">
+            <FiAlertCircle className="text-red text-xl shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-red">Low Balance Warning</p>
+              <p className="text-xs text-muted mt-0.5">Balance below 10,000 credits. AI services may be suspended.</p>
             </div>
-          )}
-          <div className="flex-1 bg-navy-card border border-border rounded-2xl p-4 space-y-3">
-            <p className="text-xs font-bold text-muted uppercase tracking-wider">Estimated Cost Per Use</p>
-            {[
-              { label: 'AI Attendance (per session)', price: attendancePrice },
-              { label: 'AI Proctoring (per hour)', price: proctoringPrice },
-            ].map((item) => (
-              <div key={item.label} className="flex justify-between text-xs">
-                <span className="text-muted">{item.label}</span>
-                <span className="text-white-soft font-medium">
-                  {item.price === null ? 'Not configured' : `${item.price.toLocaleString()} credits`}
-                </span>
-              </div>
-            ))}
-            {!loadingWallet && balance > 0 && attendancePrice !== null && attendancePrice > 0 && (
-              <div className="pt-2 border-t border-border flex items-center gap-2 text-xs">
-                <FiTrendingDown className="text-gold" />
-                <span className="text-muted">
-                  Runway: ~<strong className="text-gold">{Math.floor(balance / attendancePrice)} attendance sessions</strong>
-                </span>
-              </div>
-            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Renew Subscription Confirm Modal — hiện đúng giá thật trước khi trừ ví */}

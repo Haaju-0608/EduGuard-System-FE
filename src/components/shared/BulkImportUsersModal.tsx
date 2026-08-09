@@ -8,8 +8,23 @@ import { bulkImportUsers, type BulkImportUsersResult } from '../../services/scho
 // Phone, InstitutionId. Tối đa 5MB / 500 dòng theo giới hạn BE.
 
 export default function BulkImportUsersModal({
-  onClose, onImported, allowedRoles,
-}: { onClose: () => void; onImported: () => void; allowedRoles: string }) {
+  onClose, onImported, allowedRoles, requiresInstitutionId = true,
+  studentCodeNote = 'StudentCode is required for Student rows.',
+}: {
+  onClose: () => void;
+  onImported: () => void;
+  allowedRoles: string;
+  /** SuperAdmin quản lý nhiều trường nên cần cột InstitutionId trong file để biết gán user vào
+   *  trường nào. SchoolAdmin chỉ thuộc 1 trường — BE tự lấy InstitutionId từ JWT của người gọi
+   *  (UsersController.cs BulkImport, ép cứng qua `forcedInstitutionId`), bỏ qua cột này nếu có
+   *  trong file — nên không hiển thị cột này trong hướng dẫn để tránh school admin không biết
+   *  lấy InstitutionId ở đâu ra. */
+  requiresInstitutionId?: boolean;
+  /** BE (UserService.ValidateImportRow) chỉ bắt buộc StudentCode khi Role=Student — mặc định
+   *  câu này đúng cho form nào cho phép cả Student lẫn role khác. Form chỉ nhận riêng 1 role
+   *  (VD Lecturer-only) nên truyền câu khác cho khớp, tránh nhắc "Student rows" gây khó hiểu. */
+  studentCodeNote?: string;
+}) {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -47,8 +62,9 @@ export default function BulkImportUsersModal({
 
         <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar">
           <div className="bg-blue/5 border border-blue/20 rounded-xl p-3 text-xs text-muted leading-relaxed">
-            ℹ️ File .xlsx or .csv, max 5MB / 500 rows. Columns: <code className="text-white-soft">Email, Password, FullName, Role, StudentCode, Phone, InstitutionId</code>.
-            {' '}<code className="text-white-soft">Role</code> should be {allowedRoles}. <code className="text-white-soft">StudentCode</code> is required for Student rows.
+            ℹ️ File .xlsx or .csv, max 5MB / 500 rows. Columns: <code className="text-white-soft">Email, Password, FullName, Role, StudentCode, Phone{requiresInstitutionId && ', InstitutionId'}</code>.
+            {' '}<code className="text-white-soft">Role</code> should be {allowedRoles}. {studentCodeNote}
+            {!requiresInstitutionId && ' Users are added to your own institution automatically.'}
           </div>
 
           <div
