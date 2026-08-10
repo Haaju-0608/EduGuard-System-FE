@@ -6,14 +6,16 @@ import {
   fetchAttendanceReport,
   fetchViolationReport,
   fetchWalletReport,
-  fetchRevenueReport,
-  fetchInstitutions,
   type AttendanceReportItem,
 } from '../../../services/adminApi';
 import { fetchSchoolAdminClassesSimple } from '../../../services/schoolAdminApi';
 import { downloadCsv, downloadExcel, downloadPdf } from '../../../utils/reportExport';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+// Không có bộ lọc Institution ở đây như bên SuperAdmin — SchoolAdmin chỉ quản lý đúng 1 trường,
+// và BE tự scope report theo institution của token đăng nhập (không truyền institutionId).
+// Cũng không có loại report "Revenue" — GET /api/reports/revenue chỉ SuperAdmin mới gọi được
+// (RPT-TC14: non-SuperAdmin roles bị 403), SchoolAdmin chỉ xem được Attendance/Violations/Wallet.
 
 const DATE_PRESETS = ['Last 7 Days', 'Last 30 Days', 'Last 90 Days', 'All Time'] as const;
 type DatePreset = (typeof DATE_PRESETS)[number];
@@ -32,36 +34,29 @@ const BAR_COLORS = ['bg-blue-bright', 'bg-cyan', 'bg-gold', 'bg-red', 'bg-green'
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
-  const [institutionFilter, setInstitutionFilter] = useState('');
   const [datePreset, setDatePreset] = useState<DatePreset>('Last 30 Days');
-  const [exportType, setExportType] = useState<'Attendance' | 'Violations' | 'Wallet' | 'Revenue'>('Attendance');
+  const [exportType, setExportType] = useState<'Attendance' | 'Violations' | 'Wallet'>('Attendance');
   const [exportFormat, setExportFormat] = useState<'csv' | 'excel' | 'pdf'>('csv');
   const [exporting, setExporting] = useState(false);
 
-  const { data: instData } = useAsyncData(() => fetchInstitutions({ page: 1, pageSize: 100 }), []);
-  const institutions = instData?.items ?? [];
-
   const { data, loading, error, reload } = useAsyncData(async () => {
     const { from, to } = computeDateRange(datePreset);
-    const institutionId = institutionFilter || undefined;
     const [attendance, violations, classes] = await Promise.all([
-      fetchAttendanceReport({ institutionId, from, to }),
-      fetchViolationReport({ institutionId, from, to }),
+      fetchAttendanceReport({ from, to }),
+      fetchViolationReport({ from, to }),
       fetchSchoolAdminClassesSimple({ pageSize: 200 }).catch(() => []),
     ]);
     return { attendance, violations, classNameById: new Map(classes.map((c) => [c.id, c.name])) };
-  }, [institutionFilter, datePreset]);
+  }, [datePreset]);
 
-  // Preview cho phần Export — Attendance/Violations dùng lại data đã fetch ở trên; Wallet/Revenue
-  // fetch riêng vì SuperAdmin mới xem được và không nằm trong dashboard chính.
-  const needsExportFetch = exportType === 'Wallet' || exportType === 'Revenue';
+  // Preview cho phần Export — Attendance/Violations dùng lại data đã fetch ở trên; Wallet fetch
+  // riêng vì không nằm trong dashboard chính.
+  const needsExportFetch = exportType === 'Wallet';
   const { data: exportPreview, loading: exportPreviewLoading } = useAsyncData(async () => {
     if (!needsExportFetch) return null;
     const { from, to } = computeDateRange(datePreset);
-    const institutionId = institutionFilter || undefined;
-    if (exportType === 'Wallet') return fetchWalletReport({ institutionId, from, to });
-    return fetchRevenueReport({ from, to });
-  }, [exportType, institutionFilter, datePreset]);
+    return fetchWalletReport({ from, to });
+  }, [exportType, datePreset]);
 
   const attendance = data?.attendance;
   const violations = data?.violations;
@@ -108,19 +103,15 @@ export default function ReportsPage() {
     setExporting(true);
     try {
       const { from, to } = computeDateRange(datePreset);
-      const institutionId = institutionFilter || undefined;
       let rows: Record<string, unknown>[] = [];
       if (exportType === 'Attendance') {
-        const r = attendance ?? await fetchAttendanceReport({ institutionId, from, to });
+        const r = attendance ?? await fetchAttendanceReport({ from, to });
         rows = r.items as unknown as Record<string, unknown>[];
       } else if (exportType === 'Violations') {
-        const r = violations ?? await fetchViolationReport({ institutionId, from, to });
-        rows = r.items as unknown as Record<string, unknown>[];
-      } else if (exportType === 'Wallet') {
-        const r = await fetchWalletReport({ institutionId, from, to });
+        const r = violations ?? await fetchViolationReport({ from, to });
         rows = r.items as unknown as Record<string, unknown>[];
       } else {
-        const r = await fetchRevenueReport({ from, to });
+        const r = await fetchWalletReport({ from, to });
         rows = r.items as unknown as Record<string, unknown>[];
       }
       if (rows.length === 0) {
@@ -148,15 +139,10 @@ export default function ReportsPage() {
         <div>
           <h1 className="font-syne font-extrabold text-2xl text-white-soft">Reports & Analytics</h1>
           <p className="text-muted font-dm text-sm mt-1">
-            Real-time attendance and violation reports across the platform.
+            Attendance and violation reports for your institution.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <CustomSelect
-            value={institutionFilter}
-            onChange={setInstitutionFilter}
-            options={[{ value: '', label: 'All Institutions' }, ...institutions.map((i) => ({ value: i.id, label: i.name ?? i.id }))]}
-          />
           <CustomSelect
             value={datePreset}
             onChange={(v) => setDatePreset(v as DatePreset)}
@@ -292,7 +278,6 @@ export default function ReportsPage() {
                     { value: 'Attendance', label: 'Attendance Log' },
                     { value: 'Violations', label: 'Proctoring Violations' },
                     { value: 'Wallet', label: 'Wallet Transactions' },
-                    { value: 'Revenue', label: 'Revenue (SuperAdmin)' },
                   ]}
                   className="w-full"
                 />
@@ -315,8 +300,8 @@ export default function ReportsPage() {
             <div className="flex items-start gap-2 bg-navy/40 border border-border/60 rounded-xl p-3 text-xs text-muted">
               <FiInfo className="text-cyan text-sm shrink-0 mt-0.5" />
               <p>
-                Downloads the raw records for the selected report type, institution and date range —
-                pulled live from the backend and converted to {exportFormat.toUpperCase()} right in your browser.
+                Downloads the raw records for the selected report type and date range — pulled live
+                from the backend and converted to {exportFormat.toUpperCase()} right in your browser.
               </p>
             </div>
 
@@ -351,16 +336,9 @@ export default function ReportsPage() {
           )}
           {exportType === 'Wallet' && (
             <div className="space-y-2 text-sm">
-              <PreviewRow label="Transactions" value={exportPreview && 'totalTransactions' in exportPreview.summary ? exportPreview.summary.totalTransactions : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Success amount" value={exportPreview && 'successAmount' in exportPreview.summary ? exportPreview.summary.successAmount : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Top-up amount" value={exportPreview && 'topUpAmount' in exportPreview.summary ? exportPreview.summary.topUpAmount : undefined} loading={exportPreviewLoading} />
-            </div>
-          )}
-          {exportType === 'Revenue' && (
-            <div className="space-y-2 text-sm">
-              <PreviewRow label="Transactions" value={exportPreview && 'transactionCount' in exportPreview.summary ? exportPreview.summary.transactionCount : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Top-up revenue" value={exportPreview && 'topUpAmount' in exportPreview.summary ? exportPreview.summary.topUpAmount : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Service fee revenue" value={exportPreview && 'serviceFeeAmount' in exportPreview.summary ? exportPreview.summary.serviceFeeAmount : undefined} loading={exportPreviewLoading} />
+              <PreviewRow label="Transactions" value={exportPreview?.summary.totalTransactions} loading={exportPreviewLoading} />
+              <PreviewRow label="Success amount" value={exportPreview?.summary.successAmount} loading={exportPreviewLoading} />
+              <PreviewRow label="Top-up amount" value={exportPreview?.summary.topUpAmount} loading={exportPreviewLoading} />
             </div>
           )}
         </div>
