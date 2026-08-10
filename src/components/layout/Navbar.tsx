@@ -5,7 +5,7 @@ import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth, getDashboardPath } from '../../contexts/AuthContext';
 import { FiSun, FiMoon, FiLogOut, FiUser } from 'react-icons/fi';
 
-export default function Navbar() {
+export default function Navbar({ onContactClick }: { onContactClick?: () => void } = {}) {
   const { theme, toggleTheme } = useTheme();
   const { user, isAuthenticated, logout } = useAuth();
   const navigate = useNavigate();
@@ -87,6 +87,8 @@ export default function Navbar() {
               Sign In
             </Link>
             <button
+              type="button"
+              onClick={onContactClick}
               className="bg-linear-to-br from-blue to-cyan border-none text-white py-[0.5rem] px-[1.4rem] rounded-[8px] text-[0.88rem] cursor-pointer font-dm font-semibold shadow-[0_0_22px_rgba(37,99,235,0.5)] transition-all duration-200 hover:shadow-[0_0_36px_rgba(6,182,212,0.55)] hover:-translate-y-[1px]"
             >
               Contact Us

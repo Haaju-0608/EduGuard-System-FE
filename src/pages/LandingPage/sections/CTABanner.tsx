@@ -1,6 +1,6 @@
 import React from 'react';
 
-export default function CTABanner(): React.ReactElement {
+export default function CTABanner({ onContactClick }: { onContactClick: () => void }): React.ReactElement {
   return (
     <section className="relative py-20 px-6">
       <div
@@ -35,14 +35,15 @@ export default function CTABanner(): React.ReactElement {
 
         {/* CTA Buttons */}
         <div className="flex items-center justify-center gap-4 flex-wrap">
-          <a
-            href="#"
+          <button
+            type="button"
+            onClick={onContactClick}
             className="inline-flex items-center gap-2 px-8 py-4 rounded-xl font-syne font-bold text-sm text-white-soft
               bg-gradient-to-r from-blue to-cyan shadow-[0_0_24px_rgba(37,99,235,0.3)]
-              hover:shadow-[0_0_40px_rgba(37,99,235,0.5)] hover:scale-105 transition-all duration-300"
+              hover:shadow-[0_0_40px_rgba(37,99,235,0.5)] hover:scale-105 transition-all duration-300 border-none cursor-pointer"
           >
             📩 Contact Us
-          </a>
+          </button>
         </div>
       </div>
     </section>

@@ -158,10 +158,10 @@ function AiVideoConfirmDialog({
           <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center shrink-0">
             <FiFilm className="text-blue-bright" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <h3 className="font-syne font-bold text-white-soft text-base">Scan Video & Mark Attendance?</h3>
             <p className="text-muted text-sm mt-1">
-              AI will scan <span className="text-white-soft font-medium">"{fileName}"</span>, match faces
+              AI will scan <span className="text-white-soft font-medium break-all">"{fileName}"</span>, match faces
               against approved biometric photos, and mark recognized students as Present.
             </p>
             <p className="text-gold text-xs mt-2">

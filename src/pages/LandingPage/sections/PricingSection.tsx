@@ -67,7 +67,7 @@ const pricingData: Plan[] = [
   },
 ];
 
-export default function PricingSection(): React.ReactElement {
+export default function PricingSection({ onContactClick }: { onContactClick: () => void }): React.ReactElement {
   const [hoveredIndex, setHoveredIndex] = useState<number>(1);
 
   return (
@@ -153,11 +153,19 @@ export default function PricingSection(): React.ReactElement {
 
                 {/* Button */}
                 {isActive ? (
-                  <button className="relative z-10 w-full py-3 rounded-[12px] font-semibold text-sm transition-all duration-300 bg-gradient-to-r from-blue to-cyan text-white-soft hover:shadow-[0_0_25px_rgba(37,99,235,0.35)] cursor-pointer">
+                  <button
+                    type="button"
+                    onClick={onContactClick}
+                    className="relative z-10 w-full py-3 rounded-[12px] font-semibold text-sm transition-all duration-300 bg-gradient-to-r from-blue to-cyan text-white-soft hover:shadow-[0_0_25px_rgba(37,99,235,0.35)] cursor-pointer"
+                  >
                     {plan.buttonText}
                   </button>
                 ) : (
-                  <button className="relative z-10 w-full py-3 rounded-[12px] font-semibold text-sm transition-all duration-300 border border-border text-muted hover:border-blue hover:text-white-soft cursor-pointer bg-transparent">
+                  <button
+                    type="button"
+                    onClick={onContactClick}
+                    className="relative z-10 w-full py-3 rounded-[12px] font-semibold text-sm transition-all duration-300 border border-border text-muted hover:border-blue hover:text-white-soft cursor-pointer bg-transparent"
+                  >
                     {plan.buttonText}
                   </button>
                 )}
