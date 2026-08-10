@@ -10,6 +10,7 @@ import WalletPaymentResultPage from './sections/WalletPaymentResultPage';
 import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';
 import MonitoringPage from './sections/MonitoringPage';
+import ReportsPage from './sections/ReportsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
 const menuItems: MenuItem[] = [
@@ -21,6 +22,7 @@ const menuItems: MenuItem[] = [
   { icon: '📡', label: 'Monitoring',   path: '/school/monitoring' },
   { icon: '💳', label: 'Wallet',       path: '/school/wallet' },
   { icon: '🔐', label: 'Face Approval', path: '/school/biometric' },
+  { icon: '📊', label: 'Reports',      path: '/school/reports' },
   { icon: '👤', label: 'My Profile',   path: '/school/profile' },
 ];
 
@@ -39,6 +41,7 @@ export default function SchoolAdminDashboardPage() {
           <Route path="wallet" element={<WalletPage />} />
           <Route path="wallet-result" element={<WalletPaymentResultPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />
+          <Route path="reports" element={<ReportsPage />} />
           <Route path="profile" element={<ProfileDetailPage />} />
         </Routes>
       </div>
