@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCheckCircle, FiEdit2, FiPlus, FiX } from 'react-icons/fi';
+import { FiCheckCircle, FiEdit2, FiPlus, FiSearch, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -56,7 +56,7 @@ function fmt(iso: string) {
 function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
   const [form, setForm] = useState<CreatePricingPayload>({
-    serviceType: 'ATTENDANCE_UNIT',
+    serviceType: 'SUBSCRIPTION_MONTHLY',
     unitPrice: 0,
     effectiveDate: new Date().toISOString().slice(0, 10),
   });
@@ -97,8 +97,6 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
               value={form.serviceType}
               onChange={(v) => setForm((f) => ({ ...f, serviceType: v as typeof f.serviceType }))}
               options={[
-                {value:'ATTENDANCE_UNIT',label:'Attendance'},
-                {value:'PROCTORING_PER_HOUR',label:'Exam Proctoring'},
                 {value:'SUBSCRIPTION_MONTHLY',label:'Monthly Subscription'},
                 {value:'SUBSCRIPTION_YEARLY',label:'Yearly Subscription'},
               ]}
@@ -107,7 +105,15 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>
-            <input type="number" min={1} value={form.unitPrice || ''} onChange={set('unitPrice')} placeholder="e.g. 50" className={inp} required />
+            <input
+              type="number"
+              min={1}
+              value={form.unitPrice || ''}
+              onChange={set('unitPrice')}
+              placeholder="e.g. 50"
+              className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
+              required
+            />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Effective Date</label>
@@ -177,7 +183,15 @@ function EditPricingModal({
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>
-            <input type="number" min={1} value={form.unitPrice || ''} onChange={set('unitPrice')} placeholder="e.g. 50" className={inp} required />
+            <input
+              type="number"
+              min={1}
+              value={form.unitPrice || ''}
+              onChange={set('unitPrice')}
+              placeholder="e.g. 50"
+              className={`${inp} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none`}
+              required
+            />
           </div>
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Effective Date</label>
@@ -211,12 +225,34 @@ function EditPricingModal({
 
 // ─── Page ─────────────────────────────────────────────────────────────────
 
+const SERVICE_TYPE_OPTIONS = [
+  { value: 'all', label: 'All Service Types' },
+  { value: 'SUBSCRIPTION_MONTHLY', label: 'Monthly Subscription' },
+  { value: 'SUBSCRIPTION_YEARLY', label: 'Yearly Subscription' },
+];
+
+// Attendance/Exam Proctoring không còn được tính phí theo config này nữa — ẩn hẳn khỏi trang
+// Pricing Plans (không chỉ ẩn khỏi filter) để khỏi gây nhầm lẫn với các config cũ còn sót trong DB.
+const HIDDEN_SERVICE_TYPES: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR'];
+
+const HISTORY_STATUS_OPTIONS = [
+  { value: 'all', label: 'All Statuses' },
+  { value: 'active', label: 'Active' },
+  { value: 'past', label: 'Past' },
+  { value: 'inactive', label: 'Inactive' },
+];
+
 export default function PricingPlansPage() {
   const [showModal, setShowModal] = useState(false);
   const [editTarget, setEditTarget] = useState<ApiPricingConfig | null>(null);
+  const [search, setSearch] = useState('');
+  const [serviceTypeFilter, setServiceTypeFilter] = useState('all');
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
 
   const { data, loading, error, reload } = useAsyncData(fetchPricingConfigs, []);
-  const configs: ApiPricingConfig[] = data ?? [];
+  const configs: ApiPricingConfig[] = (data ?? []).filter(
+    (c) => !HIDDEN_SERVICE_TYPES.includes(c.serviceType as ServiceType),
+  );
 
   // Group by serviceType
   const grouped = configs.reduce<Record<string, ApiPricingConfig[]>>((acc, c) => {
@@ -239,7 +275,20 @@ export default function PricingPlansPage() {
     activeByType[type] = arr.find((c) => c.isActive);
   });
 
-  const serviceTypes: ServiceType[] = ['ATTENDANCE_UNIT', 'PROCTORING_PER_HOUR', 'SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'];
+  const serviceTypes: ServiceType[] = ['SUBSCRIPTION_MONTHLY', 'SUBSCRIPTION_YEARLY'];
+
+  const filteredConfigs = configs
+    .filter((c) => {
+      const meta = SERVICE_META[c.serviceType as ServiceType];
+      const q = search.trim().toLowerCase();
+      const matchSearch = !q || (meta?.label ?? c.serviceType).toLowerCase().includes(q);
+      const matchServiceType = serviceTypeFilter === 'all' || c.serviceType === serviceTypeFilter;
+      const isActiveOfType = activeByType[c.serviceType]?.id === c.id;
+      const status = isActiveOfType ? 'active' : c.isActive ? 'past' : 'inactive';
+      const matchStatus = historyStatusFilter === 'all' || status === historyStatusFilter;
+      return matchSearch && matchServiceType && matchStatus;
+    })
+    .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime());
 
   return (
     <div className="space-y-6">
@@ -255,7 +304,7 @@ export default function PricingPlansPage() {
       </div>
 
       {/* Active Pricing Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {serviceTypes.map((type) => {
           const meta = SERVICE_META[type];
           const active = activeByType[type];
@@ -294,9 +343,25 @@ export default function PricingPlansPage() {
 
       {/* History Table */}
       <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-          <p className="text-sm font-bold text-white-soft">Pricing History</p>
-          <span className="text-xs text-muted">{configs.length} records</span>
+        <div className="px-5 py-4 border-b border-border">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-bold text-white-soft">Pricing History</p>
+            <span className="text-xs text-muted">{filteredConfigs.length} of {configs.length} records</span>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <div className="flex items-center gap-3 flex-1 min-w-50 bg-navy border border-border rounded-xl px-4 py-2.5 focus-within:border-blue-bright/40 transition-colors">
+              <FiSearch className="text-muted shrink-0" />
+              <input
+                type="text"
+                placeholder="Search service type..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+              />
+            </div>
+            <CustomSelect value={serviceTypeFilter} onChange={setServiceTypeFilter} options={SERVICE_TYPE_OPTIONS} />
+            <CustomSelect value={historyStatusFilter} onChange={setHistoryStatusFilter} options={HISTORY_STATUS_OPTIONS} />
+          </div>
         </div>
         {loading ? (
           <div className="divide-y divide-border">
@@ -314,10 +379,11 @@ export default function PricingPlansPage() {
           </div>
         ) : configs.length === 0 ? (
           <div className="py-12 text-center text-muted text-sm">No pricing configs yet.</div>
+        ) : filteredConfigs.length === 0 ? (
+          <div className="py-12 text-center text-muted text-sm">No pricing history matches your search.</div>
         ) : (
           <div className="divide-y divide-border">
-            {configs
-              .sort((a, b) => new Date(b.effectiveDate).getTime() - new Date(a.effectiveDate).getTime())
+            {filteredConfigs
               .map((c) => {
                 const meta = SERVICE_META[c.serviceType as ServiceType];
                 const isActiveOfType = activeByType[c.serviceType]?.id === c.id;

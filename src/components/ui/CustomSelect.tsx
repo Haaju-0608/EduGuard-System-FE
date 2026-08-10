@@ -61,6 +61,11 @@ export default function CustomSelect({
     setOpen(true);
   };
 
+  const toggleDropdown = () => {
+    if (open) { setOpen(false); return; }
+    openDropdown();
+  };
+
   const select = (val: string) => { onChange(val); setOpen(false); };
 
   // Close on outside click
@@ -118,7 +123,7 @@ export default function CustomSelect({
         ref={triggerRef}
         type="button"
         disabled={disabled}
-        onClick={openDropdown}
+        onClick={toggleDropdown}
         className={variant === 'inline' ? inlineTrigger : defaultTrigger}
       >
         <span className="truncate">{selectedLabel}</span>
