@@ -30,7 +30,7 @@ const camCells: CamCell[] = [
   { initials: 'BK', gradient: 'linear-gradient(135deg, #06B6D4, #10B981)', type: 'warn', status: '⚠ 2 Faces', scan: false, scanDelay: null },
 ];
 
-export default function HeroSection(): React.ReactElement {
+export default function HeroSection({ onContactClick }: { onContactClick: () => void }): React.ReactElement {
   return (
     <section className="hero-grid-bg hero-responsive min-h-screen grid grid-cols-2 items-center gap-16 pt-[100px] pb-[80px] px-[5vw] relative overflow-hidden">
       {/* Glow Orb */}
@@ -65,7 +65,11 @@ export default function HeroSection(): React.ReactElement {
 
         {/* Action Buttons */}
         <div className="animate-fade-slide-in-3 flex gap-4 flex-wrap">
-          <button className="bg-linear-to-br from-blue to-cyan border-none text-white py-[0.8rem] px-8 rounded-[10px] text-[1rem] cursor-pointer font-dm font-semibold shadow-[0_0_28px_rgba(37,99,235,0.55)] transition-all duration-200 hover:shadow-[0_0_44px_rgba(6,182,212,0.6)] hover:-translate-y-[2px]">
+          <button
+            type="button"
+            onClick={onContactClick}
+            className="bg-linear-to-br from-blue to-cyan border-none text-white py-[0.8rem] px-8 rounded-[10px] text-[1rem] cursor-pointer font-dm font-semibold shadow-[0_0_28px_rgba(37,99,235,0.55)] transition-all duration-200 hover:shadow-[0_0_44px_rgba(6,182,212,0.6)] hover:-translate-y-[2px]"
+          >
             📩 Contact Us
           </button>
         </div>

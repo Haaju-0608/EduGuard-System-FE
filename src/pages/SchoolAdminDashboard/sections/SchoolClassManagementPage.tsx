@@ -268,11 +268,11 @@ function EnrollmentPanel({
               <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
                 <FiTrash2 className="text-red" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="font-syne font-bold text-white-soft text-base">Remove Student</h3>
                 <p className="text-muted text-sm mt-1">
                   Remove{' '}
-                  <span className="text-white-soft font-semibold">{removeTarget.name}</span>{' '}
+                  <span className="text-white-soft font-semibold break-all">{removeTarget.name}</span>{' '}
                   from this class?
                 </p>
               </div>
@@ -752,11 +752,11 @@ export default function SchoolClassManagementPage() {
               <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
                 <FiTrash2 className="text-red" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="font-syne font-bold text-white-soft text-base">Delete Class</h3>
                 <p className="text-muted text-sm mt-1">
                   Are you sure you want to delete{' '}
-                  <span className="text-white-soft font-semibold">"{deleteClassTarget.name}"</span>?
+                  <span className="text-white-soft font-semibold break-all">"{deleteClassTarget.name}"</span>?
                   This action cannot be undone.
                 </p>
               </div>

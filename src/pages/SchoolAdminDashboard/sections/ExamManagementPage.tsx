@@ -736,16 +736,17 @@ export default function ExamManagementPage() {
                   )}
                   <button
                     onClick={() => openEdit(slot)}
-                    className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"
-                    title="Edit"
+                    disabled={slot.status === 'ongoing'}
+                    className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted disabled:hover:border-border bg-transparent"
+                    title={slot.status === 'ongoing' ? 'Cannot edit while the exam is in progress' : 'Edit'}
                   >
                     <FiEdit2 className="text-xs" />
                   </button>
                   <button
                     onClick={() => setDeleteTarget(slot)}
-                    disabled={deletingId === slot.id}
-                    className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"
-                    title="Cancel exam"
+                    disabled={deletingId === slot.id || slot.status === 'ongoing'}
+                    className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted disabled:hover:border-border bg-transparent"
+                    title={slot.status === 'ongoing' ? 'Cannot cancel while the exam is in progress' : 'Cancel exam'}
                   >
                     <FiTrash2 className="text-xs" />
                   </button>
@@ -777,11 +778,11 @@ export default function ExamManagementPage() {
               <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
                 <FiTrash2 className="text-red" />
               </div>
-              <div>
+              <div className="flex-1 min-w-0">
                 <h3 className="font-syne font-bold text-white-soft text-base">Cancel Exam Slot</h3>
                 <p className="text-muted text-sm mt-1">
                   Are you sure you want to cancel{' '}
-                  <span className="text-white-soft font-semibold">"{deleteTarget.examName}"</span>?
+                  <span className="text-white-soft font-semibold break-all">"{deleteTarget.examName}"</span>?
                   It will be marked Cancelled and kept in the list for history — it won't be actually removed.
                 </p>
               </div>
