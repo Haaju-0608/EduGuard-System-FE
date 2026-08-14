@@ -20,6 +20,7 @@ import {
   fetchClassEnrollments,
   fetchLecturers,
   fetchSchoolAdminClasses,
+  fetchSchoolAdminStudents,
   fetchUsers,
   updateClass,
   updateEnrollment,
@@ -168,7 +169,13 @@ function EnrollmentPanel({
           </button>
         </div>
 
-        {/* Add student — search dropdown */}
+        {/* Add student — search dropdown — khoá khi lớp đã Completed, không cho thêm học sinh nữa */}
+        {cls.status === 'completed' ? (
+          <div className="px-6 py-4 border-b border-border shrink-0 flex items-center gap-3 bg-gold/5">
+            <span className="text-lg">🔒</span>
+            <p className="text-xs text-gold">This class has ended — students can no longer be added.</p>
+          </div>
+        ) : (
         <div className="px-6 py-4 border-b border-border shrink-0">
           <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Add Student</p>
           <div className="flex gap-2">
@@ -221,6 +228,7 @@ function EnrollmentPanel({
             </button>
           </div>
         </div>
+        )}
 
         {/* Student list */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -554,6 +562,7 @@ function ClassCard({
   onDelete: (cls: LecturerClass) => void;
   onManageStudents: (cls: LecturerClass) => void;
 }) {
+  const isCompleted = cls.status === 'completed';
   return (
     <div className="bg-navy-card border border-border rounded-[20px] p-5 flex flex-col gap-4 hover:border-blue/30 transition-colors">
       <div className="flex items-start justify-between gap-3">
@@ -591,7 +600,9 @@ function ClassCard({
         </button>
         <button
           onClick={() => onEdit(cls)}
-          className="w-9 h-9 rounded-xl border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-colors bg-transparent"
+          disabled={isCompleted}
+          title={isCompleted ? 'This class has ended and can no longer be edited.' : undefined}
+          className="w-9 h-9 rounded-xl border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-colors bg-transparent disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-muted disabled:hover:border-border"
         >
           <FiEdit2 className="text-sm" />
         </button>
@@ -625,19 +636,26 @@ export default function SchoolClassManagementPage() {
     [],
   );
 
-  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments") mỗi khi có lớp mới/đổi
-  // sĩ số — trước đây phải tự F5 mới thấy.
-  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
-  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
-  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
-    if (payload.resource !== 'classes' && payload.resource !== 'class-enrollments') return;
-    reload();
-  });
-
   const { data: lecturerRes } = useAsyncData(
     () => fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
     [user?.institutionId],
   );
+
+  // Đếm số sinh viên THẬT của trường (khớp với trang Students) — KHÔNG dùng tổng studentCount
+  // cộng dồn qua từng lớp, vì 1 sinh viên học nhiều lớp sẽ bị đếm trùng nhiều lần ở cách đó.
+  const { data: studentRes, reload: reloadStudents } = useAsyncData(
+    () => fetchSchoolAdminStudents({ page: 1, pageSize: 1000, institutionId: user?.institutionId ?? undefined }),
+    [user?.institutionId],
+  );
+
+  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments"/"users") mỗi khi có lớp
+  // mới/đổi sĩ số/thêm sinh viên — trước đây phải tự F5 mới thấy.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource === 'classes' || payload.resource === 'class-enrollments') reload();
+    if (payload.resource === 'class-enrollments' || payload.resource === 'users') reloadStudents();
+  });
 
   const lecturers: LecturerStudent[] = lecturerRes?.items ?? [];
   const lecturerMap = new Map(lecturers.map((l) => [l.id, l.name]));
@@ -646,12 +664,15 @@ export default function SchoolClassManagementPage() {
     lecturerName: lecturerMap.get(cls.lecturerId) ?? cls.lecturerName,
   }));
 
-  const filtered = search.trim()
+  const searched = search.trim()
     ? classes.filter((c) =>
         c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.code.toLowerCase().includes(search.toLowerCase()),
       )
     : classes;
+
+  // Active classes float to the top — everything else keeps its existing relative order.
+  const filtered = [...searched].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -679,7 +700,7 @@ export default function SchoolClassManagementPage() {
   const institutionId = user?.institutionId ?? '';
 
   const activeCount = classes.filter((c) => c.status === 'active').length;
-  const totalStudents = classes.reduce((s, c) => s + c.studentCount, 0);
+  const totalStudents = studentRes?.items.length ?? 0;
 
   return (
     <div className="space-y-6">

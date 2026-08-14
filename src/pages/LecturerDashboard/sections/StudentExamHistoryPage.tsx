@@ -16,6 +16,7 @@ import {
   updateStudentExamRecord,
 } from '../../../services/schoolAdminApi';
 import { parseExamRecord } from '../../../utils/examRecord';
+import { getPassageAndQuestion } from '../../../utils/readingQuestion';
 import type { ApiExamQuestion, ApiStudentExamRecord } from '../../../types/api';
 
 type RecordStatus = 'Marked' | 'Completed';
@@ -182,26 +183,41 @@ function RecordAnswerBreakdown({ record }: { record: ApiStudentExamRecord }) {
     );
   }
 
+  let lastPassage: string | null = null;
+
   return (
     <div className="px-3.5 pb-3.5 space-y-2">
       {parsed.answers.map((a, idx) => {
         const q: ApiExamQuestion | undefined = questionsById.get(a.questionId);
         const selectedOpt = a.optionId ? q?.options.find((o) => o.id === a.optionId) : undefined;
+        const { passage, question: questionText } = q
+          ? getPassageAndQuestion(q)
+          : { passage: null, question: '(question text unavailable)' };
+        const showPassage = passage !== null && passage !== lastPassage;
+        lastPassage = passage;
         return (
-          <div key={a.questionId} className="bg-navy-card border border-border/60 rounded-lg p-3">
-            <div className="flex items-start justify-between gap-2 mb-1.5">
-              <p className="text-xs text-white-soft/90 leading-relaxed">
-                <span className="text-muted font-mono mr-1.5">Q{idx + 1}</span>
-                {q?.questionContent ?? '(question text unavailable)'}
+          <div key={a.questionId}>
+            {showPassage && (
+              <div className="bg-navy border border-blue-bright/20 rounded-lg p-3 mb-2">
+                <p className="text-[10px] font-bold text-blue-bright uppercase tracking-wider mb-1.5">Reading Passage</p>
+                <p className="text-xs text-white-soft/80 leading-relaxed whitespace-pre-wrap">{passage}</p>
+              </div>
+            )}
+            <div className="bg-navy-card border border-border/60 rounded-lg p-3">
+              <div className="flex items-start justify-between gap-2 mb-1.5">
+                <p className="text-xs text-white-soft/90 leading-relaxed">
+                  <span className="text-muted font-mono mr-1.5">Q{idx + 1}</span>
+                  {questionText}
+                </p>
+                <span className={`text-[10px] font-bold shrink-0 ${a.awardedPoints >= a.maxPoints ? 'text-green' : a.awardedPoints > 0 ? 'text-gold' : 'text-red'}`}>
+                  {a.awardedPoints} / {a.maxPoints} pts
+                </span>
+              </div>
+              <p className="text-xs text-muted">
+                Selected <strong className="text-white-soft/80">{a.selectedOption ?? '—'}</strong>
+                {selectedOpt && <> — {selectedOpt.optionContent}</>}
               </p>
-              <span className={`text-[10px] font-bold shrink-0 ${a.awardedPoints >= a.maxPoints ? 'text-green' : a.awardedPoints > 0 ? 'text-gold' : 'text-red'}`}>
-                {a.awardedPoints} / {a.maxPoints} pts
-              </span>
             </div>
-            <p className="text-xs text-muted">
-              Selected <strong className="text-white-soft/80">{a.selectedOption ?? '—'}</strong>
-              {selectedOpt && <> — {selectedOpt.optionContent}</>}
-            </p>
           </div>
         );
       })}
