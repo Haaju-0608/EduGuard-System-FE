@@ -12,6 +12,7 @@ import type {
   ApiEnrollment,
   ApiExamParticipation,
   ApiExamQuestion,
+  ApiReadingPassage,
   ApiExamSlot,
   ApiInstitution,
   ApiQuestionOption,
@@ -923,6 +924,7 @@ export interface CreateQuestionOptionPayload {
 
 export interface CreateExamQuestionPayload {
   examSlotId: string;
+  passageId?: string | null;
   questionType: string;
   questionContent: string;
   audioUrl?: string | null;
@@ -933,6 +935,7 @@ export interface CreateExamQuestionPayload {
 }
 
 export interface UpdateExamQuestionPayload {
+  passageId?: string | null;
   questionType: string;
   questionContent: string;
   audioUrl?: string | null;
@@ -992,6 +995,23 @@ export async function updateQuestionOption(
 /** DELETE /api/exam-questions/options/{optionId} */
 export async function deleteQuestionOption(optionId: string): Promise<void> {
   await apiDelete(`/api/exam-questions/options/${optionId}`);
+}
+
+// ─── Reading Passages ───────────────────────────────────────────────────
+
+/** POST /api/reading-passages — tạo 1 đoạn văn Reading dùng chung cho nhiều câu hỏi */
+export async function createReadingPassage(examSlotId: string, passageText: string): Promise<ApiReadingPassage> {
+  return apiPost<ApiReadingPassage>('/api/reading-passages', { examSlotId, passageText });
+}
+
+/** PUT /api/reading-passages/{id} — sửa 1 lần, mọi câu hỏi trỏ tới passageId này tự đồng bộ */
+export async function updateReadingPassage(id: string, passageText: string): Promise<ApiReadingPassage> {
+  return apiPut<ApiReadingPassage>(`/api/reading-passages/${id}`, { passageText });
+}
+
+/** DELETE /api/reading-passages/{id} — BE chặn (400) nếu còn câu hỏi trỏ tới */
+export async function deleteReadingPassage(id: string): Promise<void> {
+  await apiDelete(`/api/reading-passages/${id}`);
 }
 
 // ─── Student Exam Records (nộp bài + chấm điểm) ──────────────────────────

@@ -57,11 +57,8 @@ export default function FeaturesSection(): React.ReactElement {
           </p>
         </div>
 
-        {/* Cards Grid */}
-        <div
-          className="grid gap-6"
-          style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }}
-        >
+        {/* Cards Grid — 1 col mobile, 2 tablet, all 5 in a single row on desktop */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
           {featuresData.map((feature, index) => (
             <div
               key={index}

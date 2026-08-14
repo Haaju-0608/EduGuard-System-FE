@@ -19,8 +19,8 @@ interface Plan {
 const pricingData: Plan[] = [
   {
     name: 'Starter',
-    price: '$199',
-    period: '/ month',
+    price: 'Contact',
+    period: '',
     featured: false,
     buttonText: 'Contact Us',
     buttonStyle: 'ghost',
@@ -35,8 +35,8 @@ const pricingData: Plan[] = [
   },
   {
     name: 'Professional',
-    price: '$599',
-    period: '/ month',
+    price: 'Contact',
+    period: '',
     featured: true,
     tag: 'Most Popular',
     buttonText: 'Contact Us',
@@ -125,13 +125,14 @@ export default function PricingSection({ onContactClick }: { onContactClick: () 
                   {plan.name}
                 </h3>
 
-                {/* Price */}
+                {/* Price — white text needs its own colored background (card background flips to
+                    white in light theme, so plain white text on white would disappear). */}
                 <div className="relative z-10 mb-6">
-                  <span className="text-[2.4rem] font-syne font-extrabold text-white-soft">
+                  <span className="inline-block text-[1.5rem] font-syne font-extrabold text-white px-4 py-1.5 rounded-[10px] bg-gradient-to-r from-blue to-cyan">
                     {plan.price}
                   </span>
                   {plan.period && (
-                    <span className="text-muted text-sm">{plan.period}</span>
+                    <span className="text-muted text-sm ml-2">{plan.period}</span>
                   )}
                 </div>
 

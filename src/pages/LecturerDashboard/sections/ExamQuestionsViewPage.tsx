@@ -1,8 +1,57 @@
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiArrowLeft, FiCheck } from 'react-icons/fi';
+import { FiArrowLeft, FiBookOpen, FiCheck } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { fetchExamQuestions } from '../../../services/schoolAdminApi';
+import { getPassageAndQuestion, groupQuestionsByPassage } from '../../../utils/readingQuestion';
 import type { ApiExamQuestion } from '../../../types/api';
+
+function QuestionBody({ q, index }: { q: ApiExamQuestion; index: number }) {
+  const { question: questionText } = getPassageAndQuestion(q);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <span className="w-7 h-7 rounded-lg bg-blue/10 border border-blue/20 grid place-items-center text-xs font-bold text-blue-bright shrink-0">
+          {index + 1}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm text-white-soft leading-relaxed">{questionText}</p>
+        </div>
+        <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full shrink-0">
+          {q.points} pt{q.points !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {q.imageUrl && (
+        <img
+          src={q.imageUrl}
+          alt={`Question ${index + 1}`}
+          className="w-full max-h-60 object-contain rounded-xl border border-border/50 bg-navy/40"
+        />
+      )}
+
+      {q.options.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {q.options.map((opt) => (
+            <div
+              key={opt.id}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm transition-colors ${
+                opt.isCorrect
+                  ? 'border-green/30 bg-green/10 text-green font-semibold'
+                  : 'border-border/50 bg-navy/40 text-muted'
+              }`}
+            >
+              <span className={`text-[11px] font-bold w-5 text-center shrink-0 ${opt.isCorrect ? 'text-green' : 'text-muted'}`}>
+                {opt.optionLabel}
+              </span>
+              <span className="flex-1 leading-snug">{opt.optionContent || <em className="opacity-40">—</em>}</span>
+              {opt.isCorrect && <FiCheck className="text-green shrink-0 text-xs" />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function ExamQuestionsViewPage() {
   const { examId } = useParams<{ examId: string }>();
@@ -14,6 +63,7 @@ export default function ExamQuestionsViewPage() {
   );
   const questions = [...(data?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
   const examName = questions[0]?.examName ?? `Exam ${examId?.slice(0, 8) ?? ''}…`;
+  const groups = groupQuestionsByPassage(questions);
 
   return (
     <div className="space-y-6">
@@ -52,52 +102,43 @@ export default function ExamQuestionsViewPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {questions.map((q, idx) => (
-            <div key={q.id} className="bg-navy-card border border-border rounded-[20px] p-5 space-y-4">
-              {/* Question header */}
-              <div className="flex items-start gap-3">
-                <span className="w-7 h-7 rounded-lg bg-blue/10 border border-blue/20 grid place-items-center text-xs font-bold text-blue-bright shrink-0">
-                  {idx + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white-soft leading-relaxed">{q.questionContent}</p>
-                </div>
-                <span className="text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2 py-0.5 rounded-full shrink-0">
-                  {q.points} pt{q.points !== 1 ? 's' : ''}
-                </span>
-              </div>
+          {(() => {
+            let running = 0;
+            return groups.map((group, gi) => {
+              const startIndex = running;
+              running += group.items.length;
 
-              {q.imageUrl && (
-                <img
-                  src={q.imageUrl}
-                  alt={`Question ${idx + 1}`}
-                  className="w-full max-h-60 object-contain rounded-xl border border-border/50 bg-navy/40"
-                />
-              )}
+              if (group.passage === null) {
+                const q = group.items[0];
+                return (
+                  <div key={q.id} className="bg-navy-card border border-border rounded-[20px] p-5">
+                    <QuestionBody q={q} index={startIndex} />
+                  </div>
+                );
+              }
 
-              {/* Options */}
-              {q.options.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {q.options.map((opt) => (
-                    <div
-                      key={opt.id}
-                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border text-sm transition-colors ${
-                        opt.isCorrect
-                          ? 'border-green/30 bg-green/10 text-green font-semibold'
-                          : 'border-border/50 bg-navy/40 text-muted'
-                      }`}
-                    >
-                      <span className={`text-[11px] font-bold w-5 text-center shrink-0 ${opt.isCorrect ? 'text-green' : 'text-muted'}`}>
-                        {opt.optionLabel}
-                      </span>
-                      <span className="flex-1 leading-snug">{opt.optionContent || <em className="opacity-40">—</em>}</span>
-                      {opt.isCorrect && <FiCheck className="text-green shrink-0 text-xs" />}
+              return (
+                <div key={`passage-${gi}`} className="bg-navy-card border border-blue-bright/20 rounded-[20px] overflow-hidden">
+                  <div className="px-5 py-4 bg-blue-bright/5 border-b border-blue-bright/20 flex items-start gap-3">
+                    <FiBookOpen className="text-blue-bright shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-bold text-blue-bright uppercase tracking-wider mb-1.5">
+                        Reading Passage — {group.items.length} question{group.items.length !== 1 ? 's' : ''}
+                      </p>
+                      <p className="text-sm text-white-soft/90 leading-relaxed whitespace-pre-wrap">{group.passage}</p>
                     </div>
-                  ))}
+                  </div>
+                  <div className="divide-y divide-border">
+                    {group.items.map((q, i) => (
+                      <div key={q.id} className="p-5">
+                        <QuestionBody q={q} index={startIndex + i} />
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-            </div>
-          ))}
+              );
+            });
+          })()}
         </div>
       )}
     </div>

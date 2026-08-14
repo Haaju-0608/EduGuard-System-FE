@@ -233,6 +233,8 @@ export interface ApiExamQuestion {
   id: string;
   examSlotId: string;
   examName: string | null;
+  passageId: string | null;
+  passageText: string | null;
   questionType: string;
   questionContent: string;
   audioUrl: string | null;
@@ -241,6 +243,15 @@ export interface ApiExamQuestion {
   displayOrder: number;
   createdAt: string;
   options: ApiQuestionOption[];
+}
+
+/** Đoạn văn Reading từ GET/POST/PUT /api/reading-passages */
+export interface ApiReadingPassage {
+  id: string;
+  examSlotId: string;
+  passageText: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** Kết quả bài thi từ POST /api/student-exam-records/submit */

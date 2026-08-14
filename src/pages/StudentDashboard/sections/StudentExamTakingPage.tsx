@@ -19,6 +19,7 @@ import {
   submitExamParticipation,
   submitStudentExamRecord,
 } from '../../../services/schoolAdminApi';
+import { getPassageAndQuestion } from '../../../utils/readingQuestion';
 
 // ─── Termination Modal ─────────────────────────────────────────────────────
 // Hiện ngay khi phát hiện bài thi bị terminate (SignalR hoặc status check) — không có nút huỷ,
@@ -693,6 +694,7 @@ export default function StudentExamTakingPage() {
   }
 
   const q = questions[current];
+  const { passage, question: questionText } = getPassageAndQuestion(q);
   const isLowTime = remaining <= 300;
 
   return (
@@ -733,13 +735,21 @@ export default function StudentExamTakingPage() {
         <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
           {/* Scrollable area: question + options */}
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-5 pb-3 space-y-4 custom-scrollbar">
+            {/* Reading passage — shown above the question whenever this question belongs to one */}
+            {passage && (
+              <div className="bg-navy-card border border-blue-bright/20 rounded-xl p-4">
+                <p className="text-[10px] font-bold text-blue-bright uppercase tracking-wider mb-2">Reading Passage</p>
+                <p className="text-sm text-white-soft/85 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar pr-1">{passage}</p>
+              </div>
+            )}
+
             {/* Question header */}
             <div className="flex items-start gap-3">
               <span className="w-8 h-8 rounded-xl bg-blue/10 border border-blue/30 text-blue-bright text-sm font-bold grid place-items-center shrink-0 mt-0.5">
                 {current + 1}
               </span>
               <div className="flex-1 space-y-3">
-                <p className="text-white-soft font-semibold text-base leading-relaxed">{q.questionContent}</p>
+                <p className="text-white-soft font-semibold text-base leading-relaxed">{questionText}</p>
                 {q.imageUrl && (
                   <img src={q.imageUrl} alt="Question" className="max-w-full max-h-56 rounded-xl border border-border object-contain" />
                 )}
