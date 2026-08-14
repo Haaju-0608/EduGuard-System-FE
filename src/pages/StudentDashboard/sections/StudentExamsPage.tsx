@@ -86,6 +86,8 @@ export default function StudentExamsPage() {
   const toast = useToast();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<StudentStatus | 'all'>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
 
@@ -155,7 +157,10 @@ export default function StudentExamsPage() {
       slot.className.toLowerCase().includes(q);
     const status = deriveStudentStatus(slot, participations[slot.id], !!records[slot.id], attendance[slot.id]);
     const matchFilter = filter === 'all' || status === filter;
-    return matchSearch && matchFilter;
+    const examStart = new Date(slot.startTime).getTime();
+    const matchFrom = !dateFrom || examStart >= new Date(`${dateFrom}T00:00:00`).getTime();
+    const matchTo = !dateTo || examStart <= new Date(`${dateTo}T23:59:59`).getTime();
+    return matchSearch && matchFilter && matchFrom && matchTo;
   });
 
   // Bài thi đang "Available" (bấm Start Exam được luôn) đẩy lên đầu danh sách để học sinh thấy và
@@ -172,7 +177,7 @@ export default function StudentExamsPage() {
   const safePage = Math.min(page, totalPages);
   const pageItems = sortedFiltered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  useEffect(() => { setPage(1); }, [search, filter, classId]);
+  useEffect(() => { setPage(1); }, [search, filter, dateFrom, dateTo, classId]);
 
   const handleStart = async (slot: ExamSlot) => {
     if (!user?.id || checkingId) return;
@@ -260,6 +265,32 @@ export default function StudentExamsPage() {
             className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
           />
         </div>
+        <div className="flex items-center gap-2 bg-navy-card border border-border rounded-xl px-3 py-2 focus-within:border-blue-bright/40 transition-colors">
+          <FiCalendar className="text-muted shrink-0 text-sm" />
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted [color-scheme:dark]"
+          />
+          <span className="text-muted text-xs">–</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted [color-scheme:dark]"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              className="text-[11px] text-muted hover:text-white-soft underline cursor-pointer bg-transparent border-none shrink-0"
+            >
+              Clear
+            </button>
+          )}
+        </div>
         <div className="flex gap-2 flex-wrap">
           {(['all', 'available', 'no-attendance', 'upcoming', 'submitted', 'missed'] as const).map((s) => (
             <button
@@ -293,7 +324,9 @@ export default function StudentExamsPage() {
       ) : sortedFiltered.length === 0 ? (
         <div className="bg-navy-card border border-border rounded-[20px] py-16 text-center">
           <p className="text-3xl mb-3">📝</p>
-          <p className="text-muted text-sm">No exams found.</p>
+          <p className="text-muted text-sm">
+            {search || filter !== 'all' || dateFrom || dateTo ? 'No exams match your filters.' : 'No exams found.'}
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">

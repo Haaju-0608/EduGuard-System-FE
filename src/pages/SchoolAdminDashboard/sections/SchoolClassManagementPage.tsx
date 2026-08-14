@@ -9,6 +9,8 @@ import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateClassPayload,
   createClass,
@@ -20,6 +22,7 @@ import {
   fetchSchoolAdminClasses,
   fetchUsers,
   updateClass,
+  updateEnrollment,
 } from '../../../services/schoolAdminApi';
 import type { ApiEnrollment, ApiUser } from '../../../types/api';
 import type { LecturerClass, LecturerStudent } from '../../../types/lecturer';
@@ -63,6 +66,7 @@ function EnrollmentPanel({
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string } | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const { data: enrollData, loading, reload } = useAsyncData(
     () => fetchClassEnrollments(cls.id),
@@ -115,6 +119,21 @@ function EnrollmentPanel({
       toast.error('Error', msg);
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handleToggleStatus = async (studentId: string, currentStatus: string) => {
+    const next = currentStatus === 'active' ? 'dropped' : 'active';
+    setTogglingId(studentId);
+    try {
+      await updateEnrollment(cls.id, studentId, next);
+      toast.success('Updated', `Enrollment marked as ${next}.`);
+      reload();
+      onEnrollmentChange();
+    } catch {
+      toast.error('Error', 'Failed to update enrollment status.');
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -232,9 +251,18 @@ function EnrollmentPanel({
                       <p className="text-sm font-semibold text-white-soft truncate">{name}</p>
                       <p className="text-[11px] text-muted truncate">{code && <span className="font-mono mr-1">{code}</span>}{code && email && '· '}{email}</p>
                     </div>
-                    <span className={`text-[10px] font-bold px-2 py-1 rounded-full border shrink-0 ${
-                      e.status === 'active' ? 'text-green bg-green/10 border-green/25' : 'text-muted bg-white/5 border-border'
-                    }`}>{e.status}</span>
+                    <button
+                      onClick={() => handleToggleStatus(e.studentId, e.status)}
+                      disabled={togglingId === e.studentId}
+                      title={`Click to mark as ${e.status === 'active' ? 'dropped' : 'active'}`}
+                      className={`text-[10px] font-bold px-2 py-1 rounded-full border shrink-0 cursor-pointer transition-colors disabled:opacity-40 ${
+                        e.status === 'active'
+                          ? 'text-green bg-green/10 border-green/25 hover:bg-green/20'
+                          : 'text-muted bg-white/5 border-border hover:bg-white/10'
+                      }`}
+                    >
+                      {togglingId === e.studentId ? '…' : e.status}
+                    </button>
                     <button
                       onClick={() => setRemoveTarget({ studentId: e.studentId, name })}
                       disabled={isRemoving}
@@ -596,6 +624,16 @@ export default function SchoolClassManagementPage() {
     () => fetchSchoolAdminClasses({ page: 1, pageSize: 100 }),
     [],
   );
+
+  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments") mỗi khi có lớp mới/đổi
+  // sĩ số — trước đây phải tự F5 mới thấy.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'classes' && payload.resource !== 'class-enrollments') return;
+    reload();
+  });
+
   const { data: lecturerRes } = useAsyncData(
     () => fetchLecturers({ page: 1, pageSize: 200, institutionId: user?.institutionId ?? undefined }),
     [user?.institutionId],

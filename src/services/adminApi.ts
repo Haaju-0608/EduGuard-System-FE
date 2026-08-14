@@ -1,7 +1,9 @@
 /**
  * API Super Admin — institutions, pricing configs.
  */
-import { apiDelete, apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
+import { API_BASE_URL, ApiError, apiDelete, apiGet, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
+import { getAccessToken } from './authStorage';
+import type { InstitutionDashboard, LecturerDashboard, SystemDashboard } from '../types/api';
 import type {
   ApiInstitution,
   ApiPricingConfig,
@@ -241,4 +243,59 @@ export async function fetchRevenueReport(
   params: { from?: string; to?: string; groupBy?: 'day' | 'month' } = {},
 ): Promise<RevenueReport> {
   return apiGet<RevenueReport>(`/api/reports/revenue${buildQueryParams(params)}`);
+}
+
+export interface ExportReportParams {
+  reportType: 'attendance' | 'violations' | 'wallet' | 'revenue';
+  /** BE (ReportExportService) chỉ sinh được xlsx hoặc pdf — không có CSV. */
+  format: 'xlsx' | 'pdf';
+  institutionId?: string;
+  classId?: string;
+  examSlotId?: string;
+  walletId?: string;
+  from?: string;
+  to?: string;
+  groupBy?: 'day' | 'month';
+}
+
+/** GET /api/reports/export — BE tự sinh file (ClosedXML cho xlsx, PdfSharp cho pdf) và trả
+ *  thẳng binary, không qua envelope JSON như các API khác nên phải fetch tay + xử lý blob. */
+export async function exportReport(params: ExportReportParams): Promise<void> {
+  const query = buildQueryParams(params as unknown as Record<string, string | number | undefined | null>);
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE_URL}/api/reports/export${query}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    throw new ApiError(body?.message ?? 'Failed to export report.', res.status);
+  }
+  const blob = await res.blob();
+  const datePart = new Date().toISOString().slice(0, 10);
+  const filename = `eduguard-${params.reportType}-report-${datePart}.${params.format}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ─── Dashboard Stats ─────────────────────────────────────────────────────────
+
+/** GET /api/dashboard/system — SuperAdmin only */
+export async function fetchSystemDashboard(params: { from?: string; to?: string } = {}): Promise<SystemDashboard> {
+  return apiGet<SystemDashboard>(`/api/dashboard/system${buildQueryParams(params)}`);
+}
+
+/** GET /api/dashboard/institution — SchoolAdmin or SuperAdmin (scoped by institutionId) */
+export async function fetchInstitutionDashboard(params: { institutionId?: string; from?: string; to?: string } = {}): Promise<InstitutionDashboard> {
+  return apiGet<InstitutionDashboard>(`/api/dashboard/institution${buildQueryParams(params)}`);
+}
+
+/** GET /api/dashboard/lecturer — Lecturer, SchoolAdmin, or SuperAdmin */
+export async function fetchLecturerDashboard(params: { lecturerId?: string; from?: string; to?: string } = {}): Promise<LecturerDashboard> {
+  return apiGet<LecturerDashboard>(`/api/dashboard/lecturer${buildQueryParams(params)}`);
 }

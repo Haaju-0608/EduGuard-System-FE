@@ -8,6 +8,8 @@ import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateInstitutionPayload,
   activateInstitution,
@@ -192,6 +194,14 @@ export default function InstitutionsPage() {
     [],
   );
   const institutions: ApiInstitution[] = data?.items ?? [];
+
+  // Realtime: BE bắn ResourceChanged(resource="institutions") mỗi khi có trường mới/đổi trạng thái.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, true);
+  useHubGroup(HubRoute.Dashboard, 'JoinSystemDashboard', []);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'institutions') return;
+    reload();
+  });
 
   const filtered = search.trim()
     ? institutions.filter((i) =>

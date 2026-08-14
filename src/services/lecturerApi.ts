@@ -248,6 +248,19 @@ export async function createAttendanceRecord(
   return mapApiAttendanceRecord(record);
 }
 
+/** PUT /api/attendance-records/{id} — sửa lại trạng thái 1 record đã điểm danh (lecturer đánh nhầm
+ *  Present/Absent). BE chặn duy nhất trường hợp session đã Cancelled, còn lại (kể cả sau khi session
+ *  đã Completed) vẫn sửa được — không cần session đang mở. */
+export async function updateAttendanceRecord(
+  recordId: string,
+  status: AttendanceRecord['status'],
+): Promise<void> {
+  await apiPut(`/api/attendance-records/${recordId}`, {
+    status: STATUS_TO_BE[status],
+    method: 'Manual',
+  });
+}
+
 /** POST /api/attendance-sessions/{sessionId}/records/ai-video — điểm danh hàng loạt bằng AI quét
  *  video lớp học (AttendanceRecordsController.CreateBulkByAiVideo, DTOs/Request/AcademicRequestDtos.cs
  *  AiVideoAttendanceDto). BE upload video lên Supabase qua FastAPI, tách vector khuôn mặt từng người

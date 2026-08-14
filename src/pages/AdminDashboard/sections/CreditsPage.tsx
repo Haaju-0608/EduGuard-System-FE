@@ -3,6 +3,8 @@ import { FiRefreshCw, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent } from '../../../hooks/useHubConnection';
+import { HubRoute, joinHubGroup } from '../../../services/realtimeClient';
 import { fetchInstitutions } from '../../../services/adminApi';
 import { fetchWallet } from '../../../services/schoolAdminApi';
 import { billingModelLabel } from '../../../utils/billingModel';
@@ -89,6 +91,20 @@ export default function CreditsPage() {
   const [walletsPage, setWalletsPage] = useState(1);
 
   const items: InstWithWallet[] = data ?? [];
+
+  // Realtime: SuperAdmin không tự join group của institution nào cả (khác SchoolAdmin), nên phải tự
+  // xin join "InstitutionAdmins" của TỪNG institution đang hiện trên trang này để nghe được
+  // WalletBalanceUpdated — BE cho phép SuperAdmin join group của bất kỳ institution nào
+  // (IsAdminForInstitution luôn true với SuperAdmin).
+  const notificationHub = useHubConnection(HubRoute.Notifications, items.length > 0);
+  useEffect(() => {
+    if (!notificationHub) return;
+    items.forEach(({ inst }) => {
+      joinHubGroup(HubRoute.Notifications, 'JoinInstitutionNotifications', [inst.id]).catch(() => undefined);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notificationHub, data]);
+  useHubEvent(notificationHub, 'WalletBalanceUpdated', () => { reloadAll(); });
 
   const filtered = items.filter(({ inst, wallet }) => {
     const q = search.trim().toLowerCase();

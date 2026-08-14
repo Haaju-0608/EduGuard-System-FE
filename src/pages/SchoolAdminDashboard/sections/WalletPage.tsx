@@ -4,6 +4,8 @@ import { FiAlertCircle, FiArrowUpRight, FiCalendar, FiCheckCircle, FiClock, FiCr
 import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
+import { useHubConnection, useHubEvent } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import { fetchInstitutionById, fetchPricingConfigs, renewInstitutionSubscription } from '../../../services/adminApi';
 import { fetchWallet, fetchWalletTransactions, topUpWallet } from '../../../services/schoolAdminApi';
 import { billingModelLabel } from '../../../utils/billingModel';
@@ -132,6 +134,12 @@ export default function WalletPage() {
   }
 
   useEffect(() => { loadWallet(); }, [institutionId]);
+
+  // Realtime: NotificationHub tự join group InstitutionAdmins(institutionId) khi connect (SchoolAdmin
+  // role) — không cần tự gọi Join gì thêm. BE bắn WalletBalanceUpdated mỗi khi có giao dịch (topup,
+  // trừ tiền do attendance session...) — trước đây phải tự F5/bấm gì đó mới thấy số dư đổi.
+  const notificationHub = useHubConnection(HubRoute.Notifications, !!institutionId);
+  useHubEvent(notificationHub, 'WalletBalanceUpdated', () => { loadWallet(); });
 
   const handleTopUp = async () => {
     if (!institutionId) return;

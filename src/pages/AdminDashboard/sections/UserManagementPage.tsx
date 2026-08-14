@@ -7,6 +7,8 @@ import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import { fetchInstitutions } from '../../../services/adminApi';
 import {
   createUser,
@@ -245,6 +247,14 @@ export default function UserManagementPage() {
     () => fetchInstitutions({ page: 1, pageSize: 100 }),
     [],
   );
+
+  // Realtime: BE bắn ResourceChanged(resource="users") mỗi khi có user mới/đổi trạng thái.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, true);
+  useHubGroup(HubRoute.Dashboard, 'JoinSystemDashboard', []);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'users') return;
+    reload();
+  });
   const fetchedUsers: ApiUser[] = data?.items ?? [];
   const institutions: ApiInstitution[] = instData?.items ?? [];
   const institutionNameById = new Map(institutions.map((inst) => [inst.id, inst.name ?? inst.id]));

@@ -1,8 +1,9 @@
 import React from 'react';
 import { FiAlertTriangle, FiBriefcase, FiDollarSign, FiRefreshCw, FiTrendingUp, FiUsers } from 'react-icons/fi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchInstitutions, fetchRevenueReport, type RevenueReportItem } from '../../../services/adminApi';
-import { fetchUsers } from '../../../services/schoolAdminApi';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
+import { fetchInstitutions, fetchRevenueReport, fetchSystemDashboard, type RevenueReportItem } from '../../../services/adminApi';
 import { billingModelLabel } from '../../../utils/billingModel';
 
 interface KpiCardProps {
@@ -60,8 +61,8 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
     () => fetchInstitutions({ page: 1, pageSize: 100 }),
     [],
   );
-  const { data: userRes, loading: loadingU, reload: reloadU } = useAsyncData(
-    () => fetchUsers({ page: 1, pageSize: 200 }),
+  const { data: systemStats, loading: loadingS, reload: reloadS } = useAsyncData(
+    () => fetchSystemDashboard(),
     [],
   );
   const { data: revenue, loading: loadingR, reload: reloadR } = useAsyncData(() => {
@@ -72,15 +73,28 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
   }, []);
 
   const institutions = institutionRes?.items ?? [];
-  const users = userRes?.items ?? [];
 
-  const activeInst = institutions.filter((i) => i.status?.toLowerCase() === 'active').length;
-  const students = users.filter((u) => u.role?.toLowerCase() === 'student').length;
-  const lecturers = users.filter((u) => ['lecturer', 'instructor'].includes(u.role?.toLowerCase())).length;
+  const byStatus = systemStats?.institutions.byStatus ?? [];
+  const byRole   = systemStats?.users.byRole ?? [];
+  const totalUsers   = systemStats?.users.total ?? 0;
+  const activeInst   = byStatus.find((s) => s.status.toLowerCase() === 'active')?.count
+    ?? institutions.filter((i) => i.status?.toLowerCase() === 'active').length;
+  const suspendedInst = byStatus.find((s) => s.status.toLowerCase() === 'suspended')?.count
+    ?? institutions.filter((i) => i.status?.toLowerCase() === 'suspended').length;
+  const students     = byRole.find((r) => r.role.toLowerCase() === 'student')?.count ?? 0;
+  const lecturers    = byRole.find((r) => r.role.toLowerCase() === 'lecturer')?.count ?? 0;
+  const schoolAdmins = byRole.find((r) => r.role.toLowerCase() === 'schooladmin')?.count ?? 0;
 
-  const loading = loadingI || loadingU;
+  const loading = loadingI || loadingS;
 
-  function reloadAll() { reloadI(); reloadU(); reloadR(); }
+  function reloadAll() { reloadI(); reloadS(); reloadR(); }
+
+  // Realtime: BE bắn ResourceChanged (kèm DashboardStatsChanged/ReportDataChanged, cùng payload) tới
+  // group dashboard:system mỗi khi có thay đổi ở bất kỳ đâu trên platform — trước đây các KPI/biểu đồ
+  // doanh số trên trang này chỉ đúng tại thời điểm load, phải F5 mới thấy số mới.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, true);
+  useHubGroup(HubRoute.Dashboard, 'JoinSystemDashboard', []);
+  useHubEvent(dashboardHub, 'ResourceChanged', reloadAll);
 
   // Doanh thu = topUpAmount (nạp ví) + serviceFeeAmount (đã gồm attendance + proctoring fee) —
   // đúng 2 con số summary mà BE trả về, khớp với cách trang Reports đang hiển thị.
@@ -117,22 +131,22 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           label="Total Institutions"
-          value={institutions.length}
+          value={systemStats?.institutions.total ?? institutions.length}
           sub={`${activeInst} active`}
           icon={<FiBriefcase />}
           color="text-blue-bright"
           bg="bg-blue/10"
-          loading={loadingI}
+          loading={loadingI || loadingS}
           onClick={() => onNavigate('/admin/institutions')}
         />
         <KpiCard
           label="Total Users"
-          value={users.length}
+          value={totalUsers}
           sub={`${students} students · ${lecturers} lecturers`}
           icon={<FiUsers />}
           color="text-cyan"
           bg="bg-cyan/10"
-          loading={loadingU}
+          loading={loadingS}
           onClick={() => onNavigate('/admin/users')}
         />
         <KpiCard
@@ -147,12 +161,12 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
         />
         <KpiCard
           label="Suspended Institutions"
-          value={institutions.filter((i) => i.status?.toLowerCase() === 'suspended').length}
+          value={suspendedInst}
           sub="Requires attention"
           icon={<FiAlertTriangle />}
           color="text-red"
           bg="bg-red/10"
-          loading={loadingI}
+          loading={loadingS}
           onClick={() => onNavigate('/admin/institutions')}
         />
       </div>
@@ -277,17 +291,17 @@ export default function DashboardOverview({ onNavigate }: { onNavigate: (path: s
             <p className="text-sm font-bold text-white-soft">User Breakdown</p>
             <button onClick={() => onNavigate('/admin/users')} className="text-xs text-blue-bright hover:underline bg-transparent border-none cursor-pointer">View all</button>
           </div>
-          {loadingU ? (
+          {loadingS ? (
             <div className="space-y-3">
               {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-10 bg-white/5 rounded-xl animate-pulse" />)}
             </div>
           ) : (
             <div className="space-y-3">
               {[
-                { label: 'Students', count: students, color: 'bg-blue-bright', total: users.length },
-                { label: 'Lecturers', count: lecturers, color: 'bg-gold', total: users.length },
-                { label: 'School Admins', count: users.filter((u) => u.role?.toLowerCase().includes('schooladmin')).length, color: 'bg-cyan', total: users.length },
-                { label: 'Others', count: users.filter((u) => !['student','lecturer','instructor','schooladmin'].includes(u.role?.toLowerCase())).length, color: 'bg-muted', total: users.length },
+                { label: 'Students',     count: students,                                              color: 'bg-blue-bright', total: totalUsers },
+                { label: 'Lecturers',    count: lecturers,                                             color: 'bg-gold',        total: totalUsers },
+                { label: 'School Admins', count: schoolAdmins,                                         color: 'bg-cyan',        total: totalUsers },
+                { label: 'Others',       count: Math.max(0, totalUsers - students - lecturers - schoolAdmins), color: 'bg-muted', total: totalUsers },
               ].map(({ label, count, color, total }) => {
                 const pct = total > 0 ? Math.round((count / total) * 100) : 0;
                 return (

@@ -278,3 +278,55 @@ export interface UpdateUserMePayload {
   fullName?: string | null;
   phone?: string | null;
 }
+
+// ─── Dashboard Stats ─────────────────────────────────────────────────────────
+
+export interface SystemDashboard {
+  range: { from: string | null; to: string | null };
+  institutions: {
+    total: number;
+    byStatus: { status: string; count: number }[];
+  };
+  users: {
+    total: number;
+    byRole: { role: string; count: number }[];
+  };
+  academic: {
+    classes: number;
+    examSlots: number;
+    attendanceSessions: number;
+    violations: number;
+  };
+  wallet: {
+    totalBalance: number;
+    topUpAmount: number;
+    serviceFeeAmount: number;
+  };
+}
+
+export interface InstitutionDashboard {
+  institutionId: string;
+  range: { from: string | null; to: string | null };
+  classes: number;
+  users: { students: number; lecturers: number; admins: number };
+  attendance: { sessions: number; completed: number; recognized: number };
+  exams: { slots: number; submitted: number; disqualified: number };
+  violations: number;
+  wallet: {
+    id: string;
+    balance: number;
+    currency: string;
+    lowBalanceThreshold: number;
+  } | null;
+}
+
+export interface LecturerDashboard {
+  lecturerId: string;
+  fullName: string;
+  range: { from: string | null; to: string | null };
+  classes: number;
+  students: number;
+  attendance: { sessions: number; inProgress: number; recognized: number };
+  exams: { slots: number; inProgress: number; submitted: number };
+  violations: number;
+}

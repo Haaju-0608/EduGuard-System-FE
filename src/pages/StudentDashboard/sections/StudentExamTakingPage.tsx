@@ -24,23 +24,47 @@ import {
 // Hiện ngay khi phát hiện bài thi bị terminate (SignalR hoặc status check) — không có nút huỷ,
 // chặn toàn bộ tương tác bên dưới trong lúc chờ auto-submit chạy xong.
 
-function TerminationModal({ reason }: { reason: string | null }) {
+function TerminationModal({
+  reason,
+  isDisqualified,
+  onCheckStatus,
+}: {
+  reason: string | null;
+  isDisqualified: boolean;
+  onCheckStatus: () => void;
+}) {
   return createPortal(
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-200 flex items-center justify-center p-4">
-      <div className="bg-navy-card border border-red/40 rounded-[20px] w-full max-w-sm p-7 text-center space-y-5">
-        <div className="w-14 h-14 rounded-2xl bg-red/10 border border-red/30 grid place-items-center mx-auto">
-          <FiShieldOff className="text-red text-2xl" />
+      <div className={`bg-navy-card border rounded-[20px] w-full max-w-sm p-7 text-center space-y-5 ${isDisqualified ? 'border-gold/40' : 'border-red/40'}`}>
+        <div className={`w-14 h-14 rounded-2xl grid place-items-center mx-auto ${isDisqualified ? 'bg-gold/10 border border-gold/30' : 'bg-red/10 border border-red/30'}`}>
+          <FiShieldOff className={`text-2xl ${isDisqualified ? 'text-gold' : 'text-red'}`} />
         </div>
         <div>
-          <h2 className="font-syne font-bold text-white-soft text-xl mb-2">Exam Terminated</h2>
+          <h2 className="font-syne font-bold text-white-soft text-xl mb-2">
+            {isDisqualified ? 'Disqualified' : 'Exam Terminated'}
+          </h2>
           <p className="text-muted text-sm">
-            {reason ?? 'This exam was terminated due to a browser violation.'}
+            {reason ?? (isDisqualified
+              ? 'You have been disqualified by the lecturer.'
+              : 'This exam was terminated due to a browser violation.')}
           </p>
         </div>
-        <div className="flex items-center justify-center gap-2 text-muted text-xs">
-          <div className="w-3.5 h-3.5 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
-          Submitting your answers…
-        </div>
+        {isDisqualified ? (
+          <div className="space-y-3">
+            <p className="text-xs text-muted/70">Waiting for lecturer decision. Checking automatically every 10 seconds.</p>
+            <button
+              onClick={onCheckStatus}
+              className="w-full py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/20 transition-colors"
+            >
+              Check Now
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center gap-2 text-muted text-xs">
+            <div className="w-3.5 h-3.5 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+            Submitting your answers…
+          </div>
+        )}
       </div>
     </div>,
     document.body,
@@ -600,11 +624,14 @@ export default function StudentExamTakingPage() {
   // (proctoring.stop() dừng AI/webcam/evidence recorder), rồi auto-submit đúng 1 lần (doSubmit tự
   // guard qua `submitted`), sau đó ResultScreen thay thế toàn bộ UI thi (freeze hoàn toàn).
   useEffect(() => {
-    if (termination.isExamTerminated && !submitted) {
+    // 'disqualified' = lecturer tay — KHÔNG auto-submit ngay, cho thời gian lecturer restore.
+    // Polling 10s trong ExamTerminationContext sẽ reset isExamTerminated nếu được restore.
+    // 'browser-violation' (hoặc chưa xác định) = auto-terminate → submit luôn như cũ.
+    if (termination.isExamTerminated && !submitted && termination.terminationType !== 'disqualified') {
       proctoringRef.current.stop();
       void doSubmit();
     }
-  }, [termination.isExamTerminated, submitted, doSubmit]);
+  }, [termination.isExamTerminated, submitted, termination.terminationType, doSubmit]);
 
   const formatTime = useCallback((secs: number) => {
     if (secs <= 0) return '00:00';
@@ -910,7 +937,11 @@ export default function StudentExamTakingPage() {
       {/* Bài thi vừa bị terminate nhưng chưa kịp chuyển sang ResultScreen (đang auto-submit) —
           chặn toàn bộ tương tác phía sau ngay lập tức. */}
       {termination.isExamTerminated && !submitted && (
-        <TerminationModal reason={termination.reason} />
+        <TerminationModal
+          reason={termination.reason}
+          isDisqualified={termination.terminationType === 'disqualified'}
+          onCheckStatus={() => void termination.refreshStatus()}
+        />
       )}
 
       {/* Bắt buộc camera phải 'ready' mới được làm bài — ưu tiên hơn cả fullscreen gate vì không

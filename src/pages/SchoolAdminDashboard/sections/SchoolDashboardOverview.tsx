@@ -3,13 +3,13 @@ import { Link } from 'react-router-dom';
 import { FiAlertCircle, FiArrowRight, FiCalendar, FiClock, FiTrendingUp } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
+import { fetchInstitutionDashboard } from '../../../services/adminApi';
 import {
   fetchExamSlots,
   fetchInstitution,
   fetchSchoolAdminBiometricRequests,
-  fetchSchoolAdminClasses,
-  fetchUserRoleCounts,
-  fetchWallet,
 } from '../../../services/schoolAdminApi';
 import type { ExamSlot } from '../../../types/lecturer';
 
@@ -142,33 +142,34 @@ export default function SchoolDashboardOverview() {
   );
   const institutionName = user?.institutionName ?? institutionData?.name ?? null;
 
-  const { data: roleCounts, loading: loadingU } = useAsyncData(
-    () => fetchUserRoleCounts(),
-    [],
-  );
-  const { data: classesData, loading: loadingC } = useAsyncData(
-    () => fetchSchoolAdminClasses({ page: 1, pageSize: 1 }),
-    [],
-  );
-  const { data: walletData, loading: loadingW } = useAsyncData(
-    () => (institutionId ? fetchWallet(institutionId) : Promise.resolve(null)),
+  const { data: instDash, loading: loadingDash, reload: reloadDash } = useAsyncData(
+    () => (institutionId ? fetchInstitutionDashboard() : Promise.resolve(null)),
     [institutionId],
   );
-  const { data: biometricData } = useAsyncData(
+  const { data: biometricData, reload: reloadB } = useAsyncData(
     () => fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50, institutionId }),
     [institutionId],
   );
-  const { data: examsData, loading: loadingE } = useAsyncData(
+  const { data: examsData, loading: loadingE, reload: reloadE } = useAsyncData(
     () => fetchExamSlots({ page: 1, pageSize: 10 }),
     [],
   );
 
-  const totalStudents  = roleCounts?.students ?? 0;
-  const totalLecturers = roleCounts?.lecturers ?? 0;
-  const totalClasses   = classesData?.pagination?.totalItems ?? 0;
+  // Realtime: BE bắn ResourceChanged (kèm DashboardStatsChanged/ReportDataChanged, cùng payload) tới
+  // group DashboardInstitution mỗi khi có thay đổi liên quan (attendance, biometric, wallet, exam...)
+  // — trước đây các KPI trên trang này chỉ đúng tại thời điểm load, phải F5 mới thấy số mới.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', institutionId ? [institutionId] : null);
+  useHubEvent(dashboardHub, 'ResourceChanged', () => {
+    reloadDash(); reloadB(); reloadE();
+  });
+
+  const totalStudents  = instDash?.users.students ?? 0;
+  const totalLecturers = instDash?.users.lecturers ?? 0;
+  const totalClasses   = instDash?.classes ?? 0;
   const totalExams     = examsData?.pagination?.totalItems ?? 0;
-  const balance        = walletData?.balance ?? 0;
-  const isLowBalance   = balance < 10_000;
+  const balance        = instDash?.wallet?.balance ?? 0;
+  const isLowBalance   = balance < (instDash?.wallet?.lowBalanceThreshold ?? 10_000);
 
   const pendingBiometric = biometricData?.items.filter((r) => r.status === 'pending').length ?? 0;
 
@@ -176,23 +177,23 @@ export default function SchoolDashboardOverview() {
     .filter((e) => e.status === 'scheduled' || e.status === 'ongoing')
     .slice(0, 5);
 
-  const anyLoading = loadingU || loadingC || loadingW || loadingE;
+  const anyLoading = loadingDash || loadingE;
 
   const kpiCards: KpiCardData[] = [
     {
-      label: 'Total Students', value: loadingU ? '…' : totalStudents.toLocaleString(),
+      label: 'Total Students', value: loadingDash ? '…' : totalStudents.toLocaleString(),
       icon: '👨‍🎓', colorClass: 'text-blue-bright', bgGlow: 'from-blue/10 to-blue-bright/5',
       borderHover: 'hover:border-blue-bright/50',
       ...SPARK.blue,
     },
     {
-      label: 'Total Lecturers', value: loadingU ? '…' : String(totalLecturers),
+      label: 'Total Lecturers', value: loadingDash ? '…' : String(totalLecturers),
       icon: '👨‍🏫', colorClass: 'text-cyan', bgGlow: 'from-cyan/10 to-cyan/5',
       borderHover: 'hover:border-cyan/50',
       ...SPARK.cyan,
     },
     {
-      label: 'Total Classes', value: loadingC ? '…' : String(totalClasses),
+      label: 'Total Classes', value: loadingDash ? '…' : String(totalClasses),
       icon: '📚', colorClass: 'text-green', bgGlow: 'from-green/10 to-green/5',
       borderHover: 'hover:border-green/50',
       ...SPARK.green,
@@ -204,10 +205,10 @@ export default function SchoolDashboardOverview() {
       ...SPARK.purple,
     },
     {
-      label: 'Wallet Balance', value: loadingW ? '…' : balance.toLocaleString(),
+      label: 'Wallet Balance', value: loadingDash ? '…' : balance.toLocaleString(),
       subtitle: 'AI Credits', icon: '💳', colorClass: 'text-gold',
       bgGlow: 'from-gold/10 to-gold/5', borderHover: 'hover:border-gold/50',
-      change: isLowBalance && !loadingW ? 'Low balance' : null, changeColor: 'text-red',
+      change: isLowBalance && !loadingDash ? 'Low balance' : null, changeColor: 'text-red',
       ...SPARK.gold,
     },
   ];
@@ -265,7 +266,7 @@ export default function SchoolDashboardOverview() {
                 link: '/school/wallet',
                 color: 'text-red border-red/30 bg-red/5',
                 icon: '💳',
-                show: isLowBalance && !loadingW,
+                show: isLowBalance && !loadingDash,
                 badge: null,
               },
             ]
@@ -286,7 +287,7 @@ export default function SchoolDashboardOverview() {
                   <FiArrowRight className="text-xs shrink-0" />
                 </Link>
               ))}
-            {pendingBiometric === 0 && !isLowBalance && !loadingW && (
+            {pendingBiometric === 0 && !isLowBalance && !loadingDash && (
               <p className="text-muted text-sm text-center py-4">No urgent actions required.</p>
             )}
           </div>
@@ -294,9 +295,9 @@ export default function SchoolDashboardOverview() {
           {/* Mini stats */}
           <div className="mt-4 pt-4 border-t border-border grid grid-cols-3 gap-3 text-center">
             {[
-              { value: loadingU ? '…' : totalStudents.toLocaleString(), label: 'Students', color: 'text-blue-bright' },
-              { value: loadingU ? '…' : String(totalLecturers),         label: 'Lecturers', color: 'text-cyan' },
-              { value: loadingC ? '…' : String(totalClasses),           label: 'Classes',  color: 'text-green' },
+              { value: loadingDash ? '…' : totalStudents.toLocaleString(), label: 'Students', color: 'text-blue-bright' },
+              { value: loadingDash ? '…' : String(totalLecturers),         label: 'Lecturers', color: 'text-cyan' },
+              { value: loadingDash ? '…' : String(totalClasses),           label: 'Classes',  color: 'text-green' },
             ].map((s) => (
               <div key={s.label} className="p-2 rounded-xl bg-navy/60 border border-border">
                 <p className={`font-syne font-extrabold text-lg ${s.color}`}>{s.value}</p>

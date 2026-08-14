@@ -7,6 +7,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { fetchInstitutionById } from '../../../services/adminApi';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   createUser,
   deleteUser,
@@ -225,6 +227,14 @@ export default function SchoolStudentManagementPage() {
     [user?.institutionId],
   );
   const students: LecturerStudent[] = data?.items ?? [];
+
+  // Realtime: BE bắn ResourceChanged(resource="users") mỗi khi có student mới/đổi trạng thái.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'users') return;
+    reload();
+  });
 
   useEffect(() => { setPage(1); }, [search, sort]);
 
