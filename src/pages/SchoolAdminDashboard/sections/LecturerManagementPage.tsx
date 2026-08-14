@@ -18,6 +18,8 @@ import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModa
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import { fetchInstitutionById } from '../../../services/adminApi';
 import {
   createUser,
@@ -239,6 +241,14 @@ export default function LecturerManagementPage() {
     () => fetchLecturers({ page: 1, pageSize: 1000, institutionId: user?.institutionId ?? undefined }),
     [user?.institutionId],
   );
+
+  // Realtime: BE bắn ResourceChanged(resource="users") mỗi khi có lecturer mới/đổi trạng thái.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'users') return;
+    reload();
+  });
   const lecturers: LecturerStudent[] = data?.items ?? [];
 
   const [search, setSearch] = useState('');

@@ -229,38 +229,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Divider */}
-          <div className="flex items-center gap-4 my-7">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-muted text-xs font-medium">Demo accounts</span>
-            <div className="flex-1 h-px bg-border" />
-          </div>
-
-          {/* Demo accounts */}
-          <div className="flex flex-col gap-2.5">
-            <button
-              type="button"
-              onClick={() => { setEmail('superadmin@gmail.com'); setPassword('string'); setError(''); }}
-              className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-blue-bright/40 hover:bg-blue/5 group"
-            >
-              <div className="w-[34px] h-[34px] rounded-full bg-blue-bright/15 grid place-items-center text-sm">👑</div>
-              <div>
-                <p className="text-sm font-semibold text-white-soft group-hover:text-blue-bright transition-colors">Super Admin</p>
-                <p className="text-[11px] text-muted">superadmin@gmail.com / string</p>
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => { setEmail('schooladmin@gmail.com'); setPassword('string'); setError(''); }}
-              className="w-full flex items-center gap-3 bg-navy-card border border-border rounded-xl py-2.5 px-4 cursor-pointer text-left transition-all hover:border-cyan/40 hover:bg-cyan/5 group"
-            >
-              <div className="w-[34px] h-[34px] rounded-full bg-cyan/15 grid place-items-center text-sm">🏫</div>
-              <div>
-                <p className="text-sm font-semibold text-white-soft group-hover:text-cyan transition-colors">School Admin</p>
-                <p className="text-[11px] text-muted">schooladmin@gmail.com / string</p>
-              </div>
-            </button>
-          </div>
         </div>
       </div>
     </div>

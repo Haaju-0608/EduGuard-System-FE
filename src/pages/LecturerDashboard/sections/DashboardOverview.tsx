@@ -13,9 +13,11 @@ import {
 } from '../../../components/lecturer/LecturerUI';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
+import { HubRoute } from '../../../services/realtimeClient';
+import { fetchLecturerDashboard } from '../../../services/adminApi';
 import {
-  fetchLecturerKpis,
   fetchViolationLogs,
   fetchParticipationById,
 } from '../../../services/lecturerApi';
@@ -127,8 +129,8 @@ export default function DashboardOverview() {
         const stats = await fetchSchoolAdminOverviewStats(user?.institutionId ?? undefined);
         return { mode: 'schoolAdmin' as const, stats };
       }
-      const [rawKpis, violationLogs] = await Promise.all([
-        fetchLecturerKpis(user?.id),
+      const [lecturerDash, violationLogs] = await Promise.all([
+        fetchLecturerDashboard(),
         fetchViolationLogs({ pageSize: 30 }),
       ]);
 
@@ -138,15 +140,17 @@ export default function DashboardOverview() {
       );
       const violationGroups: ViolationGroup[] = topGroups.map((g, i) => ({ ...g, participation: participations[i] }));
 
-      // fetchLecturerKpis() để "Violations Today" cứng = '0' (BE chưa có endpoint đếm riêng) —
-      // tính lại từ chính violationLogs vừa fetch (trong pageSize hiện tại) thay vì để sai số liệu.
       const todayStr = new Date().toDateString();
       const violationsToday = violationLogs.items.filter(
         (l) => new Date(l.recordedAt ?? l.createdAt).toDateString() === todayStr,
       ).length;
-      const kpis = rawKpis.map((k) =>
-        k.label === 'Violations Today' ? { ...k, value: String(violationsToday) } : k,
-      );
+
+      const kpis: LecturerKpi[] = [
+        { label: 'Active Classes',   value: String(lecturerDash.classes),         icon: '📚', colorClass: 'text-blue-bright', bgGlow: 'uni-kpi-blue',  change: null },
+        { label: 'Total Students',   value: String(lecturerDash.students),         icon: '👥', colorClass: 'text-cyan',        bgGlow: 'uni-kpi-cyan',  change: null },
+        { label: 'Ongoing Exams',    value: String(lecturerDash.exams.inProgress), icon: '📝', colorClass: 'text-green',       bgGlow: 'uni-kpi-green', change: null },
+        { label: 'Violations Today', value: String(violationsToday),              icon: '⚠️', colorClass: 'text-red',         bgGlow: 'uni-kpi-red',   change: null },
+      ];
 
       return {
         mode: 'lecturer' as const,
@@ -157,6 +161,16 @@ export default function DashboardOverview() {
     },
     [isSchoolAdmin, user?.institutionId]
   );
+
+  // Realtime: lecturer join group dashboard:lecturer:{id}, schoolAdmin (edge case ở trang này) join
+  // dashboard:institution:{id} — BE bắn ResourceChanged mỗi khi có thay đổi liên quan tới scope đó.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, isSchoolAdmin ? !!user?.institutionId : !!user?.id);
+  useHubGroup(
+    HubRoute.Dashboard,
+    isSchoolAdmin ? 'JoinInstitutionDashboard' : 'JoinLecturerDashboard',
+    isSchoolAdmin ? (user?.institutionId ? [user.institutionId] : null) : (user?.id ? [user.id] : null),
+  );
+  useHubEvent(dashboardHub, 'ResourceChanged', () => { reload(); });
 
   const kpis = data?.mode === 'lecturer' ? data.kpis : [];
   const violationGroups = data?.mode === 'lecturer' ? data.violationGroups : [];

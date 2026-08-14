@@ -15,6 +15,8 @@ import {
   FiXCircle,
 } from 'react-icons/fi';
 import { useToast } from '../../../contexts/ToastContext';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   EmptyState,
   FilterPills,
@@ -43,6 +45,7 @@ import {
   fetchAttendanceSessionById,
   markAttendanceByAiVideo,
   startAttendanceSession,
+  updateAttendanceRecord,
 } from '../../../services/lecturerApi';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, ExamSlot, LecturerClass } from '../../../types/lecturer';
@@ -121,14 +124,16 @@ function RosterStatusBadge({ status }: { status: RosterStatus }) {
   );
 }
 
-/** Thống kê phiên điểm danh */
-function SessionStats({ session }: { session: AttendanceSession }) {
-  const presentCount = session.records.filter((r) => r.status === 'present' || r.status === 'late').length;
-  const absentCount = session.records.filter((r) => r.status === 'absent').length;
-  const rate = session.records.length > 0 ? Math.round((presentCount / session.records.length) * 100) : 0;
+/** Thống kê phiên điểm danh — nhận `records` đã gộp (session đang mở + lịch sử session trước đó
+ *  của cùng bài thi), KHÔNG dùng session.records trực tiếp — nếu không, số liệu sẽ về 0 ngay khi
+ *  vừa mở lại 1 session mới cho bài thi đã từng điểm danh trước đó. */
+function SessionStats({ records }: { records: AttendanceRecord[] }) {
+  const presentCount = records.filter((r) => r.status === 'present' || r.status === 'late').length;
+  const absentCount = records.filter((r) => r.status === 'absent').length;
+  const rate = records.length > 0 ? Math.round((presentCount / records.length) * 100) : 0;
 
   const stats = [
-    { label: 'Total Students', value: session.records.length, color: 'text-blue-bright', bg: 'bg-blue/10', icon: FiUsers },
+    { label: 'Total Students', value: records.length, color: 'text-blue-bright', bg: 'bg-blue/10', icon: FiUsers },
     { label: 'Present', value: presentCount, color: 'text-green', bg: 'bg-green/10', icon: FiCheckCircle },
     { label: 'Absent', value: absentCount, color: 'text-red', bg: 'bg-red/10', icon: FiXCircle },
     { label: 'Attendance Rate', value: `${rate}%`, color: 'text-cyan', bg: 'bg-cyan/10', icon: FiClock },
@@ -238,15 +243,22 @@ export default function AttendanceRosterPage() {
     if (!classId || !examId) return;
     setLoading(true);
     try {
-      const [examData, clsData, rosterData, activeSession] = await Promise.all([
+      // examRecords luôn được nạp (không chỉ khi không có session active) — gộp record của MỌI
+      // session từng mở cho bài thi này. Cần thiết vì 1 bài thi có thể được điểm danh qua nhiều
+      // session khác nhau (vd session trước đã End, giờ mở session mới để điểm danh bù): nếu chỉ
+      // dựa vào session.records (chỉ chứa record của riêng session đang mở), học sinh đã Present
+      // từ session trước sẽ biến mất khỏi bảng Present và bị coi là "chưa điểm danh" một cách sai lệch.
+      const [examData, clsData, rosterData, activeSession, historicalRecords] = await Promise.all([
         fetchExamSlotFallback(examId),
         fetchClassById(classId).catch(() => null),
         fetchClassEnrollmentsWithStudents(classId).catch(() => []),
         fetchActiveAttendanceSession(classId).catch(() => null),
+        fetchAttendanceRecordsByExam(classId, examId).catch(() => []),
       ]);
       setExam(examData);
       setCls(clsData);
       setRoster(rosterData);
+      setExamRecords(historicalRecords);
 
       if (activeSession && activeSession.examSlotId === examId) {
         setSession(activeSession);
@@ -254,8 +266,6 @@ export default function AttendanceRosterPage() {
       } else {
         setSession(null);
         setBlockedSession(activeSession);
-        const records = await fetchAttendanceRecordsByExam(classId, examId).catch(() => []);
-        setExamRecords(records);
       }
     } finally {
       setLoading(false);
@@ -263,6 +273,22 @@ export default function AttendanceRosterPage() {
   };
 
   useEffect(() => { void loadAll(); }, [classId, examId]);
+
+  // Realtime: BE bắn AttendanceProgressChanged mỗi khi có 1 record mới (AI scan hoặc tay đánh dấu),
+  // và AttendanceCompleted khi session tự đóng — trước đây trang này chỉ có nút Refresh tay, lecturer
+  // phải tự bấm liên tục mới biết AI quét video xong tới đâu.
+  const attendanceHub = useHubConnection(HubRoute.Attendance, !!session?.id);
+  useHubGroup(HubRoute.Attendance, 'JoinAttendanceSession', session?.id ? [session.id] : null);
+  useHubEvent(attendanceHub, 'AttendanceProgressChanged', () => {
+    if (!session?.id) return;
+    fetchAttendanceSessionById(session.id).then(setSession).catch(() => undefined);
+  });
+  useHubEvent(attendanceHub, 'AttendanceCompleted', () => {
+    if (!session) return;
+    toast.info('Session closed', 'The attendance session has ended.');
+    setSession(null);
+    void reloadExamRecords();
+  });
 
   // Bắt kịp trường hợp bài thi hết giờ NGAY khi lecturer đang xem trang, không cần đợi Refresh —
   // giống cơ chế cũ nhưng chỉ cần theo dõi đúng 1 session của bài thi đang xem thay vì quét toàn bộ.
@@ -341,6 +367,27 @@ export default function AttendanceRosterPage() {
     }
   };
 
+  // Sửa lại record đã điểm danh nhầm (Present ↔ Absent) — BE cho sửa cả khi session đã kết thúc,
+  // chỉ chặn khi session bị Cancelled. Record đang hiển thị có thể thuộc 1 session CŨ đã đóng (carry
+  // qua từ session trước, xem effectiveRecords) chứ không nhất thiết thuộc session đang mở — nên
+  // luôn refresh cả examRecords (không chỉ session hiện tại) để phản ánh đúng thay đổi dù sửa trên
+  // record của session nào.
+  const handleChangeStatus = async (record: AttendanceRecord, nextStatus: AttendanceStatus) => {
+    setMarkingId(record.rawStudentId);
+    try {
+      await updateAttendanceRecord(record.id, nextStatus);
+      await Promise.all([
+        session ? fetchAttendanceSessionById(session.id).then(setSession) : Promise.resolve(),
+        reloadExamRecords(),
+      ]);
+      toast.success('Updated', `Attendance changed to ${nextStatus}.`);
+    } catch (err) {
+      toast.error('Failed to update attendance', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setMarkingId(null);
+    }
+  };
+
   const handleVideoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] ?? null;
     setPendingVideo(file);
@@ -369,21 +416,32 @@ export default function AttendanceRosterPage() {
     }
   };
 
-  const recordedStudentIds = new Set((session?.records ?? []).map((r) => r.rawStudentId));
+  // Gộp record của session đang mở (nếu có) LÊN TRÊN record lịch sử từ các session trước đó của
+  // cùng bài thi — session đang mở luôn thắng vì mới nhất, nhưng học sinh chưa được điểm danh lại
+  // trong session mới vẫn giữ nguyên trạng thái đã ghi nhận trước đó thay vì bị coi là "chưa điểm danh".
+  const effectiveRecords: AttendanceRecord[] = (() => {
+    const map = new Map(examRecords.map((r) => [r.rawStudentId, r]));
+    if (session) {
+      for (const r of session.records) map.set(r.rawStudentId, r);
+    }
+    return [...map.values()];
+  })();
+
+  const recordedStudentIds = new Set(effectiveRecords.map((r) => r.rawStudentId));
   const missingStudents = roster.filter((e) => e.student && !recordedStudentIds.has(e.studentId));
 
   const filteredRecords: AttendanceRecord[] = session
-    ? filter === 'all' ? session.records : session.records.filter((r) => r.status === filter)
+    ? filter === 'all' ? effectiveRecords : effectiveRecords.filter((r) => r.status === filter)
     : [];
   const presentRecords = filteredRecords.filter((r) => r.status === 'present' || r.status === 'late' || r.status === 'excused');
   const absentRecords = filteredRecords.filter((r) => r.status === 'absent');
   const filterCounts = session ? {
-    all: session.records.length,
-    present: session.records.filter((r) => r.status === 'present').length,
-    absent: session.records.filter((r) => r.status === 'absent').length,
+    all: effectiveRecords.length,
+    present: effectiveRecords.filter((r) => r.status === 'present').length,
+    absent: effectiveRecords.filter((r) => r.status === 'absent').length,
   } : undefined;
 
-  const recordByStudent = new Map((session ? session.records : examRecords).map((r) => [r.rawStudentId, r]));
+  const recordByStudent = new Map(effectiveRecords.map((r) => [r.rawStudentId, r]));
   // Future = bài thi chưa tới giờ (chưa thể điểm danh). Ongoing/Completed mà chưa có record thật
   // (AI bỏ sót hoặc chưa điểm danh tay) → báo Absent ngay, không đợi giảng viên tự sửa mới thấy —
   // đây chỉ là suy luận hiển thị ở FE, không tạo record thật trong DB.
@@ -478,7 +536,7 @@ export default function AttendanceRosterPage() {
             </PrimaryButton>
           </div>
 
-          <SessionStats session={session} />
+          <SessionStats records={effectiveRecords} />
 
           <div className="mt-6 pt-6 border-t border-border/60">
             <SectionTitle
@@ -583,16 +641,26 @@ export default function AttendanceRosterPage() {
                 ) : (
                   presentRecords.map((record, i) => (
                     <div key={record.id} className="roster-item animate-stagger-in" style={{ animationDelay: `${i * 0.06}s` }}>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <StudentAvatar initials={record.initials} size="sm" variant="present" />
-                        <div>
-                          <p className="text-sm font-semibold text-white-soft">{record.name}</p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white-soft truncate">{record.name}</p>
                           <p className="text-[10px] text-muted font-mono">{record.studentId}</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <AttendanceBadge status={record.status} />
-                        {record.checkInTime && <p className="text-[10px] text-muted mt-1">{record.checkInTime}</p>}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <div className="text-right">
+                          <AttendanceBadge status={record.status} />
+                          {record.checkInTime && <p className="text-[10px] text-muted mt-1">{record.checkInTime}</p>}
+                        </div>
+                        <button
+                          onClick={() => void handleChangeStatus(record, 'absent')}
+                          disabled={markingId === record.rawStudentId}
+                          title="Mark as Absent instead"
+                          className="px-2 py-1 rounded-lg border border-border text-[10px] font-bold text-muted hover:text-red hover:border-red/40 transition-all cursor-pointer bg-transparent disabled:opacity-40"
+                        >
+                          → Absent
+                        </button>
                       </div>
                     </div>
                   ))
@@ -612,14 +680,24 @@ export default function AttendanceRosterPage() {
                 ) : (
                   absentRecords.map((record, i) => (
                     <div key={record.id} className="roster-item animate-stagger-in" style={{ animationDelay: `${i * 0.06}s` }}>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <StudentAvatar initials={record.initials} size="sm" variant="absent" />
-                        <div>
-                          <p className="text-sm font-semibold text-white-soft">{record.name}</p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white-soft truncate">{record.name}</p>
                           <p className="text-[10px] text-muted font-mono">{record.studentId}</p>
                         </div>
                       </div>
-                      <AttendanceBadge status={record.status} />
+                      <div className="flex items-center gap-2 shrink-0">
+                        <AttendanceBadge status={record.status} />
+                        <button
+                          onClick={() => void handleChangeStatus(record, 'present')}
+                          disabled={markingId === record.rawStudentId}
+                          title="Mark as Present instead"
+                          className="px-2 py-1 rounded-lg border border-border text-[10px] font-bold text-muted hover:text-green hover:border-green/40 transition-all cursor-pointer bg-transparent disabled:opacity-40"
+                        >
+                          → Present
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}

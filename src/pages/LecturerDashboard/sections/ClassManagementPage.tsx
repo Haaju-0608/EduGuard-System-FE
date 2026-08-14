@@ -19,8 +19,10 @@ import {
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
+import { HubRoute } from '../../../services/realtimeClient';
 import { fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import type { ClassStatus, LecturerClass } from '../../../types/lecturer';
 
@@ -84,7 +86,7 @@ const PAGE_SIZE = 9;
 
 export default function ClassManagementPage() {
   const navigate = useNavigate();
-  const { facultyId } = useLecturerFaculty();
+  const { facultyId, user } = useLecturerFaculty();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ClassStatus | 'all'>('all');
   const [page, setPage] = useState(1);
@@ -97,6 +99,15 @@ export default function ClassManagementPage() {
     return result.items;
   }, []);
   const classes = data ?? [];
+
+  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments") tới group
+  // dashboard:lecturer:{id} mỗi khi lớp/sĩ số của lecturer này đổi.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
+  useHubGroup(HubRoute.Dashboard, 'JoinLecturerDashboard', user?.id ? [user.id] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'classes' && payload.resource !== 'class-enrollments') return;
+    reload();
+  });
 
   const predicates = useMemo(
     () => [(cls: LecturerClass) => statusFilter === 'all' || cls.status === statusFilter],

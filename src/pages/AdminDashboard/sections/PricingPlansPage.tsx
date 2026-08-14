@@ -4,6 +4,8 @@ import { FiCheckCircle, FiEdit2, FiPlus, FiSearch, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreatePricingPayload,
   UpdatePricingPayload,
@@ -250,6 +252,14 @@ export default function PricingPlansPage() {
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
 
   const { data, loading, error, reload } = useAsyncData(fetchPricingConfigs, []);
+
+  // Realtime: BE bắn ResourceChanged(resource="pricing-configs") mỗi khi có config giá mới/đổi.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, true);
+  useHubGroup(HubRoute.Dashboard, 'JoinSystemDashboard', []);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'pricing-configs') return;
+    reload();
+  });
   const configs: ApiPricingConfig[] = (data ?? []).filter(
     (c) => !HIDDEN_SERVICE_TYPES.includes(c.serviceType as ServiceType),
   );

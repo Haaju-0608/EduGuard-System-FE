@@ -541,8 +541,9 @@ function ConfirmDialog({ log, violationCount, studentName, mode, onConfirm, onCa
           </h3>
           <p className="text-muted text-sm mt-2">
             {isRestore ? (
-              <>This will set the participation status back to <span className="text-green font-bold">Submitted</span>,
-                undoing the disqualification. The student's answers/result become gradeable again.</>
+              <>Undoes the disqualification. If exam time hasn't ended, the student can{' '}
+                <span className="text-green font-bold">resume the exam</span>; otherwise the attempt is{' '}
+                <span className="text-green font-bold">marked Submitted</span> for grading.</>
             ) : isVoid ? (
               <>This will invalidate the student's submitted answers and set the participation to{' '}
                 <span className="text-red font-bold">Disqualified</span>. The submission will no longer
@@ -919,10 +920,10 @@ export default function ViolationReviewPage() {
     else setDisqualifyingId(log.participationId);
     try {
       if (isRestore) {
-        // BE chỉ cho phép đúng chiều DISQUALIFIED -> SUBMITTED (dù trước đó bị Disqualify lúc đang
-        // thi hay Void sau khi nộp) — không có cách quay lại "Joined".
-        await updateParticipationStatus(log.participationId, 'Submitted');
-        toast.success('Participation restored', 'Status has been set back to Submitted.');
+        // Gửi "Joined" — BE's ResolveRestoreStatus tự chọn đúng:
+        // còn giờ thi → Joined (sinh viên tiếp tục làm bài), hết giờ → Submitted.
+        await updateParticipationStatus(log.participationId, 'Joined');
+        toast.success('Participation restored', 'Student can now resume the exam (if time remains).');
         setDisqualifiedIds((prev) => {
           const next = new Set(prev);
           next.delete(log.participationId);

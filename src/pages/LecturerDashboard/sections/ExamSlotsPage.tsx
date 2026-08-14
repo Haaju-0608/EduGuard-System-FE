@@ -16,7 +16,9 @@ import {
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { useListFilters } from '../../../hooks/useListFilters';
+import { HubRoute } from '../../../services/realtimeClient';
 import { fetchClassById, fetchExamSlots } from '../../../services/schoolAdminApi';
 import type { ExamSlot, ExamSlotStatus, LecturerClass } from '../../../types/lecturer';
 
@@ -110,6 +112,15 @@ export default function ExamSlotsPage() {
     const result = await fetchExamSlots({ page: 1, pageSize: 100 });
     return result.items;
   }, []);
+
+  // Realtime: BE bắn ResourceChanged(resource="exam-slots") tới group dashboard:lecturer:{id} mỗi
+  // khi có bài thi mới/đổi trạng thái liên quan tới lecturer này.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
+  useHubGroup(HubRoute.Dashboard, 'JoinLecturerDashboard', user?.id ? [user.id] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'exam-slots') return;
+    reload();
+  });
 
   // BE /api/exam-slots chưa scope theo proctor — trả về TOÀN BỘ exam slot của cả hệ thống cho
   // bất kỳ ai gọi. Lọc client-side theo đúng lớp đang xem + chỉ đề mình được phân công coi thi.

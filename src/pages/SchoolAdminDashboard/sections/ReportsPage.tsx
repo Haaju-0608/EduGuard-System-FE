@@ -1,15 +1,19 @@
 import React, { useState } from 'react';
 import { FiDownload, FiBarChart2, FiPieChart, FiInfo, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
+import { useAuth } from '../../../contexts/AuthContext';
+import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   fetchAttendanceReport,
   fetchViolationReport,
   fetchWalletReport,
+  exportReport,
   type AttendanceReportItem,
 } from '../../../services/adminApi';
 import { fetchSchoolAdminClassesSimple } from '../../../services/schoolAdminApi';
-import { downloadCsv, downloadExcel, downloadPdf } from '../../../utils/reportExport';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 // Không có bộ lọc Institution ở đây như bên SuperAdmin — SchoolAdmin chỉ quản lý đúng 1 trường,
@@ -34,9 +38,12 @@ const BAR_COLORS = ['bg-blue-bright', 'bg-cyan', 'bg-gold', 'bg-red', 'bg-green'
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const institutionId = user?.institutionId ?? '';
   const [datePreset, setDatePreset] = useState<DatePreset>('Last 30 Days');
   const [exportType, setExportType] = useState<'Attendance' | 'Violations' | 'Wallet'>('Attendance');
-  const [exportFormat, setExportFormat] = useState<'csv' | 'excel' | 'pdf'>('csv');
+  const [exportFormat, setExportFormat] = useState<'xlsx' | 'pdf'>('xlsx');
   const [exporting, setExporting] = useState(false);
 
   const { data, loading, error, reload } = useAsyncData(async () => {
@@ -48,6 +55,13 @@ export default function ReportsPage() {
     ]);
     return { attendance, violations, classNameById: new Map(classes.map((c) => [c.id, c.name])) };
   }, [datePreset]);
+
+  // Realtime: cùng broadcast ResourceChanged/DashboardStatsChanged/ReportDataChanged như Dashboard
+  // Overview — trang Reports trước đây chỉ đúng tại thời điểm load, phải bấm Refresh tay mới thấy
+  // dữ liệu mới (vd 1 buổi điểm danh vừa xong, 1 violation vừa bị flag).
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', institutionId ? [institutionId] : null);
+  useHubEvent(dashboardHub, 'ResourceChanged', () => { reload(); });
 
   // Preview cho phần Export — Attendance/Violations dùng lại data đã fetch ở trên; Wallet fetch
   // riêng vì không nằm trong dashboard chính.
@@ -77,6 +91,9 @@ export default function ReportsPage() {
     if (!attendance) return [];
     const byClass = new Map<string, AttendanceReportItem[]>();
     attendance.items.forEach((it) => {
+      // BE thỉnh thoảng trả về session attendance không gắn classId (dữ liệu cũ/orphan) —
+      // bỏ qua khi group theo lớp thay vì crash trên classId.slice() sau này.
+      if (!it.classId) return;
       const arr = byClass.get(it.classId) ?? [];
       arr.push(it);
       byClass.set(it.classId, arr);
@@ -103,30 +120,14 @@ export default function ReportsPage() {
     setExporting(true);
     try {
       const { from, to } = computeDateRange(datePreset);
-      let rows: Record<string, unknown>[] = [];
-      if (exportType === 'Attendance') {
-        const r = attendance ?? await fetchAttendanceReport({ from, to });
-        rows = r.items as unknown as Record<string, unknown>[];
-      } else if (exportType === 'Violations') {
-        const r = violations ?? await fetchViolationReport({ from, to });
-        rows = r.items as unknown as Record<string, unknown>[];
-      } else {
-        const r = await fetchWalletReport({ from, to });
-        rows = r.items as unknown as Record<string, unknown>[];
-      }
-      if (rows.length === 0) {
-        setExporting(false);
-        return;
-      }
-      const datePart = new Date().toISOString().slice(0, 10);
-      const baseName = `${exportType.toLowerCase()}_report_${datePart}`;
-      if (exportFormat === 'excel') {
-        downloadExcel(`${baseName}.xlsx`, rows);
-      } else if (exportFormat === 'pdf') {
-        downloadPdf(`${baseName}.pdf`, `${exportType} Report`, rows);
-      } else {
-        downloadCsv(`${baseName}.csv`, rows);
-      }
+      await exportReport({
+        reportType: exportType.toLowerCase() as 'attendance' | 'violations' | 'wallet',
+        format: exportFormat,
+        from,
+        to,
+      });
+    } catch (err) {
+      toast.error('Export failed', err instanceof Error ? err.message : 'Could not export the report.');
     } finally {
       setExporting(false);
     }
@@ -288,8 +289,7 @@ export default function ReportsPage() {
                   value={exportFormat}
                   onChange={(v) => setExportFormat(v as typeof exportFormat)}
                   options={[
-                    { value: 'csv', label: 'CSV' },
-                    { value: 'excel', label: 'Excel (.xlsx)' },
+                    { value: 'xlsx', label: 'Excel (.xlsx)' },
                     { value: 'pdf', label: 'PDF' },
                   ]}
                   className="w-full"
@@ -300,8 +300,8 @@ export default function ReportsPage() {
             <div className="flex items-start gap-2 bg-navy/40 border border-border/60 rounded-xl p-3 text-xs text-muted">
               <FiInfo className="text-cyan text-sm shrink-0 mt-0.5" />
               <p>
-                Downloads the raw records for the selected report type and date range — pulled live
-                from the backend and converted to {exportFormat.toUpperCase()} right in your browser.
+                Generated on the server for the selected report type and date range — styled Excel or
+                paginated PDF, downloaded straight from the backend.
               </p>
             </div>
 
@@ -311,7 +311,7 @@ export default function ReportsPage() {
               className="flex items-center justify-center gap-2 bg-linear-to-r from-blue to-blue-bright text-white font-semibold py-2.5 px-5 rounded-xl cursor-pointer hover:brightness-110 shadow-lg transition-all border-0 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
             >
               <FiDownload className="text-sm" />
-              <span>{exporting ? 'Fetching data…' : `Download ${exportFormat.toUpperCase()}`}</span>
+              <span>{exporting ? 'Generating…' : `Download ${exportFormat.toUpperCase()}`}</span>
             </button>
           </div>
         </div>

@@ -13,9 +13,11 @@ interface ExamTerminationContextType {
   reason: string | null;
   recordedAt: string | null;
   browserViolationCount: number;
+  /** 'disqualified' = bị lecturer disqualify thủ công (có thể restore); 'browser-violation' = auto-terminate do 3-strike */
+  terminationType: 'browser-violation' | 'disqualified' | null;
   /** Gọi khi trang thi biết được participationId (và gọi lại với null khi rời trang) */
   registerParticipation: (participationId: string | null) => void;
-  /** Check lại status thủ công — dùng cho recovery (F5, mất mạng rồi có lại) */
+  /** Check lại status thủ công — dùng cho recovery (F5, mất mạng rồi có lại, hoặc sau khi lecturer restore) */
   refreshStatus: () => Promise<void>;
   /**
    * Gọi ngay sau mỗi lần POST /api/browser-violations thành công — response đã có sẵn
@@ -34,6 +36,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   const [reason, setReason] = useState<string | null>(null);
   const [recordedAt, setRecordedAt] = useState<string | null>(null);
   const [browserViolationCount, setBrowserViolationCount] = useState(0);
+  const [terminationType, setTerminationType] = useState<'browser-violation' | 'disqualified' | null>(null);
 
   const participationIdRef = useRef<string | null>(null);
   participationIdRef.current = participationId;
@@ -59,6 +62,13 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
       setBrowserViolationCount(status.browserViolationCount);
       if (status.isTerminated) {
         applyTerminated({ reason: status.terminationReason, recordedAt: null });
+      } else {
+        // Participation đã được restore (Disqualified → Joined) — clear terminated state để sinh
+        // viên có thể tiếp tục làm bài mà không cần F5.
+        setIsExamTerminated(false);
+        setReason(null);
+        setRecordedAt(null);
+        setTerminationType(null);
       }
     } catch {
       // Không chặn thi nếu check status lỗi tạm thời — lần check kế / SignalR sẽ bù sau.
@@ -72,6 +82,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
       setReason(null);
       setRecordedAt(null);
       setBrowserViolationCount(0);
+      setTerminationType(null);
     }
   }, []);
 
@@ -98,18 +109,19 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
 
   useHubEvent<ExamTerminatedEventPayload>(examHub, 'ExamTerminated', (payload) => {
     if (!payload || payload.participationId !== participationIdRef.current) return;
+    setTerminationType('browser-violation');
     applyTerminated({
       reason: payload.reason ?? null,
       recordedAt: payload.terminatedAt ?? new Date().toISOString(),
     });
   });
 
-  // Lecturer đình chỉ (disqualify) thủ công từ trang review violation — bắn event riêng
-  // "Disqualified" (khác "ExamTerminated" ở trên, vốn chỉ dành cho auto-terminate do 3-strike
-  // browser violation). Không lắng nghe event này thì học sinh bị disqualify tay sẽ không bị
-  // đá ra ngay — vẫn làm bài bình thường cho tới khi F5/reconnect hoặc bấm Submit bị BE từ chối.
+  // Lecturer đình chỉ (disqualify) thủ công — event riêng 'Disqualified' (khác 'ExamTerminated'
+  // vốn chỉ dành cho auto-terminate do 3-strike browser violation). Type 'disqualified' cho phép
+  // StudentExamTakingPage KHÔNG auto-submit ngay, để lecturer có thời gian restore nếu cần.
   useHubEvent<DisqualifiedEventPayload>(examHub, 'Disqualified', (payload) => {
     if (!payload || payload.participationId !== participationIdRef.current) return;
+    setTerminationType('disqualified');
     applyTerminated({
       reason: payload.reason ?? null,
       recordedAt: payload.disqualifiedAt ?? new Date().toISOString(),
@@ -126,7 +138,15 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     }
   });
 
-  // 3) Recovery — mạng rớt rồi SignalR tự reconnect lại: check status ngay thay vì đợi event mới,
+  // 3) Polling khi bị disqualify thủ công — giúp sinh viên tự động biết được lecturer đã restore
+  //    mà không cần bấm gì hay F5. Dừng khi restored (isExamTerminated về false) hoặc rời trang.
+  useEffect(() => {
+    if (!isExamTerminated || terminationType !== 'disqualified' || !participationId) return;
+    const id = setInterval(() => { void refreshStatus(); }, 10_000);
+    return () => clearInterval(id);
+  }, [isExamTerminated, terminationType, participationId, refreshStatus]);
+
+  // 4) Recovery — mạng rớt rồi SignalR tự reconnect lại: check status ngay thay vì đợi event mới,
   //    vì trong lúc mất kết nối có thể đã bị terminate mà chưa nhận được event.
   const reconnectHandlerRegisteredRef = useRef(new WeakSet<HubConnection>());
   useEffect(() => {
@@ -147,7 +167,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   return (
     <ExamTerminationContext.Provider
       value={{
-        isExamTerminated, reason, recordedAt, browserViolationCount,
+        isExamTerminated, reason, recordedAt, browserViolationCount, terminationType,
         registerParticipation, refreshStatus, notifyViolationReported,
       }}
     >

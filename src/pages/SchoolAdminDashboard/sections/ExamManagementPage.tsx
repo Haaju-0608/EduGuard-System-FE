@@ -7,6 +7,8 @@ import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateExamSlotPayload,
   createExamSlot,
@@ -519,6 +521,14 @@ export default function ExamManagementPage() {
     const result = await fetchExamSlots({ page: 1, pageSize: 200 });
     return result.items;
   }, []);
+
+  // Realtime: BE bắn ResourceChanged(resource="exam-slots") mỗi khi có bài thi mới/đổi trạng thái.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', user?.institutionId ? [user.institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'exam-slots') return;
+    reload();
+  });
 
   const { data: classesData } = useAsyncData(async () => {
     const result = await fetchSchoolAdminClasses({ page: 1, pageSize: 200 });

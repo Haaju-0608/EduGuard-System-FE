@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiCheck, FiClock, FiSearch, FiShield, FiUser, FiX, FiChevronRight, FiImage } from 'react-icons/fi';
+import { FiCheck, FiClock, FiSearch, FiShield, FiUser, FiX, FiChevronRight, FiImage, FiTrash2 } from 'react-icons/fi';
 import {
   EmptyState,
   FilterBar,
@@ -13,8 +13,11 @@ import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
+import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
+import { HubRoute } from '../../../services/realtimeClient';
 import {
   approveBiometricRequest,
+  deleteBiometricRequest,
   fetchSchoolAdminBiometricRequests,
   fetchSignedFaceUrl,
   rejectBiometricRequest,
@@ -156,11 +159,15 @@ function StudentDetailModal({
   onClose,
   onReview,
   reviewing,
+  onDeleteRequest,
+  deleting,
 }: {
   request: BiometricRequest;
   onClose: () => void;
   onReview: (id: string, status: 'approved' | 'rejected', reason: string) => Promise<void>;
   reviewing: string | null;
+  onDeleteRequest: (request: BiometricRequest) => void;
+  deleting: string | null;
 }) {
   const [reason, setReason] = useState('');
   const toast = useToast();
@@ -259,6 +266,19 @@ function StudentDetailModal({
             </div>
           </div>
         )}
+
+        {/* Delete — always available regardless of status, separate from the pending review actions */}
+        <div className="border-t border-border p-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => onDeleteRequest(request)}
+            disabled={deleting === request.id}
+            className="w-full flex items-center justify-center gap-2 text-[11px] font-semibold text-muted hover:text-red py-2 rounded-lg cursor-pointer transition-colors disabled:opacity-50 bg-transparent border-none"
+          >
+            <FiTrash2 size={12} />
+            {deleting === request.id ? 'Deleting…' : 'Delete Request'}
+          </button>
+        </div>
       </div>
     </div>,
     document.body,
@@ -275,6 +295,8 @@ export default function BiometricApprovalPage() {
   const [search, setSearch] = useState('');
   const [reviewing, setReviewing]   = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BiometricRequest | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<BiometricRequest | null>(null);
   const [page, setPage] = useState(1);
   const toast = useToast();
 
@@ -285,6 +307,15 @@ export default function BiometricApprovalPage() {
     const result = await fetchSchoolAdminBiometricRequests({ page: 1, pageSize: 50, institutionId });
     return result.items;
   }, [user?.id, institutionId]);
+
+  // Realtime: BE bắn ResourceChanged(resource="biometric-requests"/"biometric-data") mỗi khi có yêu
+  // cầu đăng ký/re-registration mới hoặc bị duyệt — trước đây phải tự F5 mới thấy request mới.
+  const dashboardHub = useHubConnection(HubRoute.Dashboard, !!institutionId);
+  useHubGroup(HubRoute.Dashboard, 'JoinInstitutionDashboard', institutionId ? [institutionId] : null);
+  useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
+    if (payload.resource !== 'biometric-requests' && payload.resource !== 'biometric-data') return;
+    reload();
+  });
 
   const requests = data ?? [];
 
@@ -337,6 +368,22 @@ export default function BiometricApprovalPage() {
       toast.error('Failed to update', msg);
     } finally {
       setReviewing(null);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeletingId(deleteTarget.id);
+    setSelectedRequest(null);
+    try {
+      await deleteBiometricRequest(deleteTarget.id);
+      toast.success('Deleted', `${deleteTarget.studentName}'s request has been deleted.`);
+      setDeleteTarget(null);
+      await reload();
+    } catch (e) {
+      toast.error('Failed to delete', e instanceof Error ? e.message : 'Please try again.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -415,7 +462,47 @@ export default function BiometricApprovalPage() {
           onClose={() => setSelectedRequest(null)}
           onReview={handleReview}
           reviewing={reviewing}
+          onDeleteRequest={setDeleteTarget}
+          deleting={deletingId}
         />
+      )}
+
+      {deleteTarget && createPortal(
+        <div className="fixed inset-0 z-9999 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" onClick={() => setDeleteTarget(null)}>
+          <div
+            className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+                <FiTrash2 className="text-red" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-syne font-bold text-white-soft text-base">Delete Biometric Request</h3>
+                <p className="text-muted text-sm mt-1">
+                  Are you sure you want to delete{' '}
+                  <span className="text-white-soft font-semibold break-all">{deleteTarget.studentName}</span>'s
+                  biometric request? This action cannot be undone.
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void confirmDelete()}
+                className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
     </PageShell>
   );

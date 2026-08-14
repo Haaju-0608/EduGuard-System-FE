@@ -516,6 +516,11 @@ export async function rejectBiometricRequest(requestId: string, reason: string):
   await apiPost<null>(`/api/biometric-requests/${requestId}/reject`, { reason: reason.trim() });
 }
 
+/** DELETE /api/biometric-requests/{id} */
+export async function deleteBiometricRequest(requestId: string): Promise<void> {
+  await apiDelete(`/api/biometric-requests/${requestId}`);
+}
+
 /**
  * Lấy URL ảnh biometric approved của student (dùng cho verify trước khi thi) — mỗi student giờ chỉ
  * có tối đa 1 request đang approved tại 1 thời điểm (1 request = 1 lần nộp cả bộ 3 ảnh), nên chỉ cần
@@ -728,6 +733,15 @@ export async function deleteEnrollment(
   studentId: string,
 ): Promise<void> {
   await apiDelete(`/api/enrollments/${classId}/${studentId}`);
+}
+
+/** PUT /api/enrollments/{classId}/{studentId} — đổi trạng thái ghi danh (active/dropped) */
+export async function updateEnrollment(
+  classId: string,
+  studentId: string,
+  status: 'active' | 'dropped',
+): Promise<void> {
+  await apiPut(`/api/enrollments/${classId}/${studentId}`, { status });
 }
 
 /** GET /api/classes/{classId}/enrollments */
@@ -1011,6 +1025,44 @@ export async function fetchStudentExamRecords(
     page, pageSize,
   );
   return { items: data, pagination };
+}
+
+export interface CreateStudentExamRecordPayload {
+  examSlotId: string;
+  studentId: string;
+  finalScore?: number;
+  status: 'Marked' | 'Completed';
+  submittedAt?: string;
+  durationSeconds?: number;
+}
+
+/** POST /api/student-exam-records — Lecturer/SchoolAdmin/SuperAdmin tự tạo 1 record thủ công
+ *  (VD: thi bù/thi giấy không qua flow submit bình thường của student). */
+export async function createStudentExamRecord(
+  payload: CreateStudentExamRecordPayload,
+): Promise<ApiStudentExamRecord> {
+  return apiPost<ApiStudentExamRecord>('/api/student-exam-records', payload);
+}
+
+export interface UpdateStudentExamRecordPayload {
+  finalScore?: number;
+  status: 'Marked' | 'Completed';
+  submittedAt?: string;
+  durationSeconds?: number;
+}
+
+/** PUT /api/student-exam-records/{id} — sửa điểm/trạng thái 1 record (không sửa được record đã nộp
+ *  qua flow bình thường theo BE, dùng cho record tạo thủ công hoặc chỉnh sửa hành chính). */
+export async function updateStudentExamRecord(
+  id: string,
+  payload: UpdateStudentExamRecordPayload,
+): Promise<void> {
+  await apiPut(`/api/student-exam-records/${id}`, payload);
+}
+
+/** DELETE /api/student-exam-records/{id} */
+export async function deleteStudentExamRecord(id: string): Promise<void> {
+  await apiDelete(`/api/student-exam-records/${id}`);
 }
 
 
