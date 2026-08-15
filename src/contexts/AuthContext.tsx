@@ -7,6 +7,7 @@ import {
   mapApiUserToAuthUser,
   saveAuthTokens,
 } from '../services/authApi';
+import { getAuthStorage } from '../services/authStorage';
 import { ApiError } from '../services/apiClient';
 import { stopAllHubConnections } from '../services/realtimeClient';
 import { useIdleTimeout } from '../hooks/useIdleTimeout';
@@ -35,7 +36,7 @@ interface LoginResponse {
 interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<LoginResponse>;
+  login: (email: string, password: string, remember?: boolean) => Promise<LoginResponse>;
   logout: () => void;
   refreshProfile: () => Promise<void>;
 }
@@ -47,10 +48,11 @@ interface AuthProviderProps {
 }
 
 export function AuthProvider({ children }: AuthProviderProps) {
-  // sessionStorage (không phải localStorage) — user tự động bị đăng xuất khi đóng tab/trình duyệt.
+  // Nơi lưu (localStorage nếu "Remember me", sessionStorage nếu không — xem authStorage.ts) —
+  // luôn cùng 1 nơi với token, để 2 thứ không lệch nhau giữa các lần đăng nhập.
   const [user, setUser] = useState<User | null>(() => {
     try {
-      const saved = sessionStorage.getItem('eduguard_user');
+      const saved = getAuthStorage().getItem('eduguard_user');
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -66,10 +68,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   useEffect(() => {
+    const active = getAuthStorage();
+    const other = active === localStorage ? sessionStorage : localStorage;
+    other.removeItem('eduguard_user');
     if (user) {
-      sessionStorage.setItem('eduguard_user', JSON.stringify(user));
+      active.setItem('eduguard_user', JSON.stringify(user));
     } else {
-      sessionStorage.removeItem('eduguard_user');
+      active.removeItem('eduguard_user');
     }
   }, [user]);
 
@@ -87,10 +92,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     });
   }, [refreshProfile]);
 
-  const login = async (email: string, password: string): Promise<LoginResponse> => {
+  const login = async (email: string, password: string, remember = false): Promise<LoginResponse> => {
     try {
       const data = await loginApi(email, password);
-      saveAuthTokens(data.accessToken, data.refreshToken);
+      saveAuthTokens(data.accessToken, data.refreshToken, remember);
 
       const profile = await fetchCurrentUserProfile();
       const userData = mapApiUserToAuthUser(profile);

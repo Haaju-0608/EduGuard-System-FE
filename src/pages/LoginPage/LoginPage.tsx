@@ -9,6 +9,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const idleLogout = new URLSearchParams(window.location.search).get('reason') === 'idle';
@@ -40,7 +41,7 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    const result = await login(email, password);
+    const result = await login(email, password, remember);
     if (result.success && result.user) {
       toast.success('Login successful', `Welcome back, ${result.user.name}!`);
       navigate(getDashboardPath(result.user.role), { replace: true });
@@ -198,16 +199,16 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* Remember & Forgot */}
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="w-4 h-4 rounded accent-blue cursor-pointer" />
-                <span className="text-muted text-sm">Remember me</span>
-              </label>
-              <a href="#" className="text-blue-bright text-sm font-medium no-underline hover:text-cyan transition-colors">
-                Forgot password?
-              </a>
-            </div>
+            {/* Remember me */}
+            <label className="flex items-center gap-2 cursor-pointer w-fit">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="w-4 h-4 rounded accent-blue cursor-pointer"
+              />
+              <span className="text-muted text-sm">Remember me</span>
+            </label>
 
             {/* Submit */}
             <button
