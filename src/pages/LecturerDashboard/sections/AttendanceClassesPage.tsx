@@ -23,12 +23,8 @@ import {
   fetchMyOpenAttendanceSessions,
   type OpenSessionSummary,
 } from '../../../services/lecturerApi';
+import { computeAttendanceEndTime } from '../../../utils/attendanceTime';
 import type { LecturerClass } from '../../../types/lecturer';
-
-function computeEndTime(examEndTime: string | null | undefined): string {
-  if (examEndTime && new Date(examEndTime).getTime() < Date.now()) return examEndTime;
-  return new Date().toISOString();
-}
 
 function ClassCard({ cls, index, onOpen }: { cls: LecturerClass; index: number; onOpen: (cls: LecturerClass) => void }) {
   return (
@@ -108,7 +104,7 @@ export default function AttendanceClassesPage() {
       const now = Date.now();
       const expired = list.filter((s) => s.examEndTime && new Date(s.examEndTime).getTime() < now);
       if (expired.length > 0) {
-        await Promise.all(expired.map((s) => endAttendanceSession(s.id, computeEndTime(s.examEndTime)).catch(() => undefined)));
+        await Promise.all(expired.map((s) => endAttendanceSession(s.id, computeAttendanceEndTime(s.examEndTime)).catch(() => undefined)));
         const expiredIds = new Set(expired.map((s) => s.id));
         setOpenSessions(list.filter((s) => !expiredIds.has(s.id)));
       } else {
@@ -132,11 +128,11 @@ export default function AttendanceClassesPage() {
     setEndingId(id);
     try {
       const target = openSessions.find((s) => s.id === id);
-      await endAttendanceSession(id, computeEndTime(target?.examEndTime));
+      await endAttendanceSession(id, computeAttendanceEndTime(target?.examEndTime));
       toast.success('Session ended', 'Closed successfully.');
       await loadOpenSessions();
-    } catch {
-      toast.error('Failed to close session', 'Please try again in a few seconds.');
+    } catch (err) {
+      toast.error('Failed to close session', err instanceof Error ? err.message : 'Please try again in a few seconds.');
     } finally {
       setEndingId(null);
     }
