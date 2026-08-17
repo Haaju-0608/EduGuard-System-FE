@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   FiBook, FiCalendar, FiEdit2, FiPlus,
@@ -62,12 +62,13 @@ function EnrollmentPanel({
 }) {
   const toast = useToast();
   const [search, setSearch] = useState('');
-  const [selectedId, setSelectedId] = useState('');
+  const [selected, setSelected] = useState<ApiUser[]>([]);
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string } | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { data: enrollData, loading, reload } = useAsyncData(
     () => fetchClassEnrollments(cls.id),
@@ -84,10 +85,11 @@ function EnrollmentPanel({
     (u) => u.role.trim().toLowerCase() === 'student' && (!institutionId || u.institutionId === institutionId),
   );
 
-  // Lọc students chưa enrolled và khớp search
+  // Lọc students chưa enrolled, chưa được chọn để thêm, và khớp search
   const enrolledIds = new Set(enrollments.map((e) => e.studentId));
+  const selectedIds = new Set(selected.map((s) => s.id));
   const suggestions = allStudents.filter((s) => {
-    if (enrolledIds.has(s.id)) return false;
+    if (enrolledIds.has(s.id) || selectedIds.has(s.id)) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -97,27 +99,37 @@ function EnrollmentPanel({
     );
   }).slice(0, 20);
 
-  const selectedStudent = allStudents.find((s) => s.id === selectedId);
-
+  // Chọn nhiều sinh viên trước khi bấm Add — bấm 1 người thì thêm vào danh sách chờ (chip bên dưới)
+  // và xoá ô tìm kiếm ngay để tìm tiếp người kế tiếp, thay vì đóng luôn như trước (chỉ thêm được 1
+  // người/lượt).
   const handleSelect = (s: ApiUser) => {
-    setSelectedId(s.id);
-    setSearch(`${s.fullName ?? s.email} (${s.studentCode || s.email})`);
-    setShowDropdown(false);
+    setSelected((prev) => [...prev, s]);
+    setSearch('');
+    searchInputRef.current?.focus();
+  };
+
+  const handleUnselect = (id: string) => {
+    setSelected((prev) => prev.filter((s) => s.id !== id));
   };
 
   const handleAdd = async () => {
-    if (!selectedId) return;
+    if (selected.length === 0) return;
     setAdding(true);
     try {
-      await createEnrollment(cls.id, selectedId);
-      toast.success('Enrolled', `${selectedStudent?.fullName ?? 'Student'} added to class.`);
-      setSelectedId('');
+      const results = await Promise.allSettled(selected.map((s) => createEnrollment(cls.id, s.id)));
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const succeeded = results.length - failed;
+      if (succeeded > 0) {
+        toast.success('Enrolled', `${succeeded} student${succeeded !== 1 ? 's' : ''} added to class.`);
+      }
+      if (failed > 0) {
+        toast.error('Error', `Failed to add ${failed} student${failed !== 1 ? 's' : ''}.`);
+      }
+      // Chỉ giữ lại trong ô chờ những người bị lỗi, để không phải tìm lại từ đầu.
+      setSelected((prev) => prev.filter((_, i) => results[i].status === 'rejected'));
       setSearch('');
       reload();
       onEnrollmentChange();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to add student.';
-      toast.error('Error', msg);
     } finally {
       setAdding(false);
     }
@@ -177,14 +189,39 @@ function EnrollmentPanel({
           </div>
         ) : (
         <div className="px-6 py-4 border-b border-border shrink-0">
-          <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Add Student</p>
+          <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">
+            Add Students <span className="normal-case font-normal">— pick as many as you need, then Add</span>
+          </p>
+
+          {/* Chip của những sinh viên đã chọn, chưa bấm Add — bấm x để bỏ chọn */}
+          {selected.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-2.5">
+              {selected.map((s) => (
+                <span
+                  key={s.id}
+                  className="flex items-center gap-1.5 bg-blue/10 border border-blue/25 text-blue-bright text-xs font-medium pl-2.5 pr-1.5 py-1 rounded-full"
+                >
+                  {s.fullName ?? s.email}
+                  <button
+                    type="button"
+                    onClick={() => handleUnselect(s.id)}
+                    className="w-4 h-4 rounded-full grid place-items-center hover:bg-blue/20 transition-colors cursor-pointer bg-transparent border-none text-blue-bright"
+                  >
+                    <FiX size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <div className="relative flex-1">
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search by name, student code, or email..."
                 value={search}
-                onChange={(e) => { setSearch(e.target.value); setSelectedId(''); setShowDropdown(true); }}
+                onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
                 onFocus={() => setShowDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
                 className="w-full bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
@@ -215,16 +252,16 @@ function EnrollmentPanel({
                     ? 'Loading students…'
                     : search.trim()
                     ? `No students found matching "${search}"`
-                    : 'No available students to add.'}
+                    : 'No more available students to add.'}
                 </div>
               )}
             </div>
             <button
-              onClick={handleAdd}
-              disabled={!selectedId || adding}
+              onClick={() => void handleAdd()}
+              disabled={selected.length === 0 || adding}
               className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-40 transition-colors border-none shrink-0"
             >
-              <FiPlus /> {adding ? 'Adding…' : 'Add'}
+              <FiPlus /> {adding ? 'Adding…' : selected.length > 1 ? `Add ${selected.length}` : 'Add'}
             </button>
           </div>
         </div>

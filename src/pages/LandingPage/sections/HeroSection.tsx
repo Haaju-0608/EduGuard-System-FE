@@ -1,10 +1,5 @@
 import React from 'react';
 
-interface HeroStat {
-  num: string;
-  label: string;
-}
-
 interface CamCell {
   initials: string;
   gradient: string;
@@ -13,13 +8,6 @@ interface CamCell {
   scan: boolean;
   scanDelay: string | null;
 }
-
-const heroStats: HeroStat[] = [
-  { num: '300+', label: 'Organizations' },
-  { num: '50K+', label: 'Students' },
-  { num: '2M+', label: 'Attendance Checks' },
-  { num: '99.9%', label: 'Uptime' },
-];
 
 const camCells: CamCell[] = [
   { initials: 'NT', gradient: 'linear-gradient(135deg, #3B82F6, #06B6D4)', type: 'active', status: '✓ Normal', scan: true, scanDelay: null },
@@ -72,18 +60,6 @@ export default function HeroSection({ onContactClick }: { onContactClick: () => 
           >
             📩 Contact Us
           </button>
-        </div>
-
-        {/* Stats Row */}
-        <div className="animate-fade-slide-in-4 hero-stats-responsive flex gap-10 mt-12">
-          {heroStats.map((stat) => (
-            <div key={stat.label}>
-              <div className="text-gradient-white-cyan font-syne font-extrabold text-[1.7rem]">
-                {stat.num}
-              </div>
-              <div className="text-muted text-[0.82rem]">{stat.label}</div>
-            </div>
-          ))}
         </div>
       </div>
 

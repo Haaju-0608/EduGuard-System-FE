@@ -15,5 +15,4 @@ export const NAV_LINKS: NavLink[] = [
   { label: 'Students', href: '#student-feature' },
   { label: 'Admin', href: '#admin-feature' },
   { label: 'Pricing', href: '#pricing' },
-  { label: 'About Us', href: '#about' },
 ];

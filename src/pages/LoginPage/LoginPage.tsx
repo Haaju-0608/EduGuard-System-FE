@@ -83,14 +83,10 @@ export default function LoginPage() {
             <span className="font-syne font-extrabold text-[2rem] text-white-soft">EduGuard</span>
           </div>
 
-          <h1 className="font-syne font-extrabold text-[2.2rem] leading-tight mb-5">
+          <h1 className="font-syne font-extrabold text-[2.2rem] leading-tight mb-10">
             Welcome to the<br />
             <span className="text-gradient-blue-cyan">Future of Education</span>
           </h1>
-
-          <p className="text-muted text-[1.05rem] leading-relaxed mb-10">
-            AI-powered attendance & exam proctoring platform trusted by 300+ organizations worldwide.
-          </p>
 
           {/* Feature pills */}
           <div className="flex flex-wrap justify-center gap-3">
