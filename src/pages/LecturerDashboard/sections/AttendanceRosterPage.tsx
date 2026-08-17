@@ -48,17 +48,11 @@ import {
   updateAttendanceRecord,
 } from '../../../services/lecturerApi';
 import { useAuth } from '../../../contexts/AuthContext';
+import { computeAttendanceEndTime } from '../../../utils/attendanceTime';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, ExamSlot, LecturerClass } from '../../../types/lecturer';
 import type { ApiEnrollment } from '../../../types/api';
 
 type RosterStatus = AttendanceStatus | 'future';
-
-// BE (08/08) chặn EndTime > ExamSlot.EndTime cho session gắn examSlotId — nếu bài thi đã hết giờ
-// từ trước, phải gửi đúng giờ kết thúc bài thi làm EndTime thay vì "now" thật (sẽ luôn bị 400).
-function computeEndTime(examEndTime: string | null | undefined): string {
-  if (examEndTime && new Date(examEndTime).getTime() < Date.now()) return examEndTime;
-  return new Date().toISOString();
-}
 
 // Manual catch-up chỉ cần Present/Absent — Late/Excused vẫn còn dùng cho record cũ/lịch sử (badge)
 const STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
@@ -296,7 +290,7 @@ export default function AttendanceRosterPage() {
     const interval = setInterval(() => {
       const s = sessionRef.current;
       if (s?.examEndTime && new Date(s.examEndTime).getTime() < Date.now()) {
-        endAttendanceSession(s.id, computeEndTime(s.examEndTime))
+        endAttendanceSession(s.id, computeAttendanceEndTime(s.examEndTime))
           .then(() => {
             setSession(null);
             toast.info('Session auto-closed', 'The exam time has ended.');
@@ -341,12 +335,12 @@ export default function AttendanceRosterPage() {
     if (!session) return;
     setActionLoading(true);
     try {
-      await endAttendanceSession(session.id, computeEndTime(session.examEndTime));
+      await endAttendanceSession(session.id, computeAttendanceEndTime(session.examEndTime));
       setSession(null);
       toast.info('Session ended', 'Attendance data has been saved.');
       void reloadExamRecords();
-    } catch {
-      toast.error('Failed to close session', 'Please try again in a few seconds.');
+    } catch (err) {
+      toast.error('Failed to close session', err instanceof Error ? err.message : 'Please try again in a few seconds.');
     } finally {
       setActionLoading(false);
     }

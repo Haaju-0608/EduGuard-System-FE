@@ -8,6 +8,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
+import { computeAttendanceEndTime } from '../../../utils/attendanceTime';
 import type { ApiAttendanceSession } from '../../../types/api';
 import type { ExamSlot } from '../../../types/lecturer';
 
@@ -75,10 +76,7 @@ export default function MonitoringPage() {
     setEndingId(session.id);
     try {
       const exam = session.examSlotId ? examRes?.items.find((e) => e.id === session.examSlotId) : null;
-      const examEndTime = exam?.endTime ?? null;
-      const endTime = examEndTime && new Date(examEndTime).getTime() < Date.now()
-        ? examEndTime
-        : new Date().toISOString();
+      const endTime = computeAttendanceEndTime(exam?.endTime ?? null);
       await endAttendanceSession(session.id, endTime);
       toast.success('Session ended', 'Closed successfully.');
       reloadA();
