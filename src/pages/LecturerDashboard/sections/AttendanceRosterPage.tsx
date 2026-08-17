@@ -30,11 +30,9 @@ import {
 } from '../../../components/lecturer/LecturerUI';
 import Pagination from '../../../components/ui/Pagination';
 import {
-  deductAttendance,
   fetchClassById,
   fetchClassEnrollmentsWithStudents,
   fetchExamSlots,
-  fetchWallet,
   sendAttendanceStartedEmail,
 } from '../../../services/schoolAdminApi';
 import {
@@ -47,7 +45,6 @@ import {
   startAttendanceSession,
   updateAttendanceRecord,
 } from '../../../services/lecturerApi';
-import { useAuth } from '../../../contexts/AuthContext';
 import { computeAttendanceEndTime } from '../../../utils/attendanceTime';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus, ExamSlot, LecturerClass } from '../../../types/lecturer';
 import type { ApiEnrollment } from '../../../types/api';
@@ -203,7 +200,6 @@ export default function AttendanceRosterPage() {
   const { classId, examId } = useParams<{ classId: string; examId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
   const toast = useToast();
 
   const stateData = (location.state as { exam?: ExamSlot; cls?: LecturerClass } | null) ?? null;
@@ -311,19 +307,6 @@ export default function AttendanceRosterPage() {
       setBlockedSession(null);
       toast.success('Attendance started', `${exam.examName} — ${exam.classCode} ${exam.className}`);
       void notifyStudentsAttendanceStarted(classId, exam.className);
-
-      if (user?.institutionId) {
-        try {
-          const wallet = await fetchWallet(user.institutionId);
-          await deductAttendance({
-            walletId: wallet.id,
-            attendanceSessionId: newSession.id,
-            studentCount: newSession.totalStudents || 0,
-          });
-        } catch {
-          toast.warning('Wallet', 'Could not deduct attendance credits from wallet.');
-        }
-      }
     } catch (err) {
       toast.error('Failed to open session', err instanceof Error ? err.message : 'Please try again in a few seconds.');
     } finally {
@@ -335,6 +318,9 @@ export default function AttendanceRosterPage() {
     if (!session) return;
     setActionLoading(true);
     try {
+      // Phí điểm danh giờ BE tự trừ ngầm server-side ngay khi session chuyển sang Completed
+      // (AttendanceSessionService.TryDeductAttendanceFeeAsync) — Lecturer không cần/không nên tự
+      // gọi API ví hay API trừ tiền nữa (2 API đó chỉ cho SchoolAdmin/SuperAdmin gọi).
       await endAttendanceSession(session.id, computeAttendanceEndTime(session.examEndTime));
       setSession(null);
       toast.info('Session ended', 'Attendance data has been saved.');

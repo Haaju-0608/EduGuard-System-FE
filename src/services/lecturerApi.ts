@@ -306,6 +306,34 @@ export async function fetchAttendanceSessions(
   return { items: data, pagination };
 }
 
+/** Tỷ lệ điểm danh (%) của 1 lớp — gộp TOÀN BỘ record từ mọi session từng mở cho lớp đó (mọi ca
+ *  thi cộng lại), tính present+late / tổng số record đã điểm danh. Trước đây `attendanceRate` bị
+ *  hard-code = 0 ở `mapApiClassToLecturerClass` (không có dữ liệu điểm danh trong response
+ *  `/api/classes`) — hàm này tính bù bằng cách gọi thêm API, chỉ dùng ở trang cần hiển thị con số
+ *  này (không nhét vào mapper dùng chung, tránh làm chậm các trang khác không cần tới rate). */
+export async function fetchClassAttendanceRate(classId: string): Promise<number> {
+  const sessions = await apiGetAllPages<ApiAttendanceSession>(
+    (page, pageSize) => `/api/attendance-sessions${buildQueryParams({ page, pageSize, classId })}`,
+  );
+  if (sessions.length === 0) return 0;
+
+  const recordLists = await Promise.all(
+    sessions.map((s) =>
+      apiGetAllPages<ApiAttendanceRecord>(
+        (page, pageSize) => `/api/attendance-records${buildQueryParams({ page, pageSize, sessionId: s.id })}`,
+      ).catch(() => [] as ApiAttendanceRecord[]),
+    ),
+  );
+  const records = recordLists.flat();
+  if (records.length === 0) return 0;
+
+  const attended = records.filter((r) => {
+    const s = r.status.trim().toLowerCase();
+    return s === 'present' || s === 'late';
+  }).length;
+  return Math.round((attended / records.length) * 100);
+}
+
 /** GET /api/attendance-sessions + /api/attendance-records — gộp record của TẤT CẢ session từng mở
  *  cho 1 bài thi cụ thể trong 1 lớp (không chỉ session "đang active"). Dùng cho trang xem trạng thái
  *  điểm danh theo bài thi (roster luôn xem được, kể cả sau khi session đã đóng) — khác

@@ -17,13 +17,6 @@ interface ScheduleItem {
   statusColor: string;
 }
 
-interface Stat {
-  icon: string;
-  value: string;
-  label: string;
-  gradientClass: string;
-}
-
 const features: Feature[] = [
   {
     icon: '📸',
@@ -59,13 +52,6 @@ const scheduleItems: ScheduleItem[] = [
   { time: '07:30', name: 'Web Programming', room: 'A2-301', status: 'done', statusText: '✓ Done', statusColor: 'text-green' },
   { time: '09:45', name: 'Databases', room: 'B1-205', status: 'next', statusText: 'Next', statusColor: 'text-gold' },
   { time: '13:30', name: 'Discrete Math', room: 'C3-102', status: 'later', statusText: 'Afternoon', statusColor: 'text-muted' },
-];
-
-const stats: Stat[] = [
-  { icon: '📱', value: '50K+', label: 'App Downloads', gradientClass: 'text-gradient-gold-green' },
-  { icon: '⚡', value: '< 3s', label: 'Recognition Time', gradientClass: 'text-gradient-blue-cyan' },
-  { icon: '🎯', value: '99.3%', label: 'AI Accuracy', gradientClass: 'text-gradient-cyan-green' },
-  { icon: '⭐', value: '4.8/5', label: 'App Rating', gradientClass: 'text-gradient-gold-red' },
 ];
 
 export default function StudentSection(): React.ReactElement {
@@ -235,36 +221,7 @@ export default function StudentSection(): React.ReactElement {
                 </div>
               ))}
             </div>
-
-            {/* Download buttons */}
-            <div className="flex items-center gap-4 flex-wrap">
-              <a
-                href="#"
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-xl font-syne font-bold text-sm text-navy
-                  bg-gradient-to-r from-gold to-green shadow-[0_0_24px_rgba(245,158,11,0.25)]
-                  hover:shadow-[0_0_32px_rgba(245,158,11,0.4)] hover:scale-105 transition-all duration-300"
-              >
-                🤖 Download Android App
-              </a>
-              <span className="text-muted text-sm font-dm">iOS coming Q3 2025</span>
-            </div>
           </div>
-        </div>
-
-        {/* Bottom stats row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 stats-responsive">
-          {stats.map((stat, i) => (
-            <div
-              key={i}
-              className="bg-navy-card border border-border rounded-2xl p-6 text-center hover:border-blue-bright/30 transition-colors duration-300"
-            >
-              <span className="text-2xl mb-2 block">{stat.icon}</span>
-              <p className={`font-syne font-extrabold text-2xl mb-1 ${stat.gradientClass}`}>
-                {stat.value}
-              </p>
-              <p className="text-muted text-sm">{stat.label}</p>
-            </div>
-          ))}
         </div>
       </div>
     </section>

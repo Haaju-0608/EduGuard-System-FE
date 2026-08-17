@@ -72,8 +72,12 @@ async function fetchPagedOrAll<T>(
 
 function deriveClassStatus(startDate: string, endDate: string): ClassStatus {
   const now = new Date();
+  // startDate tính từ 0h đầu ngày, endDate tính tới 23h59:59.999 cuối ngày — tránh lớp học
+  // ngay-trong-ngày-hôm-nay (start === end) bị coi là "completed" ngay khi qua nửa đêm.
   const start = new Date(startDate);
+  start.setHours(0, 0, 0, 0);
   const end = new Date(endDate);
+  end.setHours(23, 59, 59, 999);
   if (now < start) return 'upcoming';
   if (now > end) return 'completed';
   return 'active';

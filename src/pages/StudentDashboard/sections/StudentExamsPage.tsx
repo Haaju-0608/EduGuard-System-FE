@@ -35,9 +35,12 @@ function deriveStudentStatus(
   hasRecord: boolean,
   attendanceStatus: StudentAttendanceRecord['status'] | undefined,
 ): StudentStatus {
+  // Disqualified phải thắng dù đã có record/điểm — trường hợp sinh viên nộp bài xong mới bị phát
+  // hiện vi phạm (lecturer disqualify sau khi review), vẫn phải hiện Disqualified chứ không phải
+  // Submitted, vì đó là quyết định cuối cùng.
+  if (participationStatus === 'Disqualified') return 'disqualified';
   // Có StudentExamRecord (đã nộp bài, BE đã chấm) hoặc participation Submitted → coi là đã nộp
   if (hasRecord || participationStatus === 'Submitted') return 'submitted';
-  if (participationStatus === 'Disqualified') return 'disqualified';
 
   const now = Date.now();
   const start = new Date(slot.startTime).getTime();

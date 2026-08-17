@@ -23,15 +23,10 @@ export default function CTABanner({ onContactClick }: { onContactClick: () => vo
         </div>
 
         {/* Title */}
-        <h2 className="font-syne text-[2.2rem] md:text-[3rem] font-extrabold leading-[1.15] mb-5">
+        <h2 className="font-syne text-[2.2rem] md:text-[3rem] font-extrabold leading-[1.15] mb-10">
           Ready to transform{' '}
           <span className="text-gradient-blue-cyan">your organization?</span>
         </h2>
-
-        {/* Description */}
-        <p className="text-muted text-lg leading-relaxed mb-10 max-w-[600px] mx-auto">
-          Over 300+ educational institutions trust EduGuard to automate attendance checks, monitor online exams, and manage students. Get started today.
-        </p>
 
         {/* CTA Buttons */}
         <div className="flex items-center justify-center gap-4 flex-wrap">

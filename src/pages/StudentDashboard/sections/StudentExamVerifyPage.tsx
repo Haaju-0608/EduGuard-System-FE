@@ -17,21 +17,20 @@ import {
   joinExamParticipation,
 } from '../../../services/schoolAdminApi';
 import { MediaPipeFaceLandmarkerService } from '../../../ai/services/MediaPipeFaceLandmarkerService';
-import { captureLiveFrame, computeFaceSimilarity, extractLandmarksFromImage, type LandmarkSet } from '../../../ai/services/FaceVerificationService';
+import { captureLiveFrame } from '../../../ai/services/FaceVerificationService';
 
-// Điểm tương đồng tối thiểu (0-1) để tính 1 frame là khớp mặt — tăng từ 0.55 lên 0.72 sau khi phát
-// hiện ngưỡng cũ + thuật toán cũ (10 điểm mốc) để lọt người khác mặt vẫn "Identity Verified" được.
-// Cần test lại với người thật: nếu người đúng cũng bị từ chối liên tục, hạ dần xuống; nếu người khác
-// vẫn lọt qua được, tăng thêm.
-const SIMILARITY_THRESHOLD = 0.72;
-// Số frame liên tiếp đạt yêu cầu để xác nhận verify thành công (~2s ở 30fps)
-const VERIFY_FRAMES_NEEDED = 60;
-// Quá thời gian này mà chưa verify được thì dừng lại báo lỗi, tránh treo "Verifying…" vô thời hạn
+// Quyết định khớp danh tính CHỈ do BE + AI service thật quyết định (confirmWithBackend). Local ở
+// đây chỉ còn nhiệm vụ phát hiện "có mặt người trong khung hình" để biết lúc nào tự động chụp gửi
+// lên — không còn so khớp landmark với ảnh đăng ký nữa (thuật toán so hình học cũ dễ khiến 2 người
+// khác nhau "trùng hình dạng" ngẫu nhiên, gây false-accept ngay ở lớp lẽ ra chỉ nên là UX gate).
+// Số frame liên tiếp phát hiện có mặt để tự động chụp & gửi BE xác minh (~1s ở 30fps)
+const FACE_DETECT_FRAMES_NEEDED = 30;
+// Quá thời gian này mà chưa phát hiện được mặt ổn định thì dừng lại báo lỗi, tránh treo vô thời hạn
 const SCAN_TIMEOUT_MS = 25_000;
 
-// 'confirming' = đã qua bước quét local (MediaPipe, chỉ để hiện thanh confidence mượt trên UI),
-// đang chờ BE + AI service thật xác nhận khuôn mặt (POST /join kèm liveCapture) — đây mới là bước
-// quyết định cuối cùng, không phải điểm similarity tính tay ở trên trình duyệt.
+// 'confirming' = đã qua bước phát hiện mặt local (MediaPipe, chỉ để biết lúc nào chụp), đang chờ
+// BE + AI service thật xác nhận khuôn mặt (POST /join kèm liveCapture) — đây là bước quyết định
+// duy nhất, không có bước so khớp nào khác ở trình duyệt.
 type VerifyStep = 'loading' | 'no-biometric' | 'idle' | 'starting' | 'scanning' | 'confirming' | 'verified' | 'failed';
 
 export default function StudentExamVerifyPage() {
@@ -42,13 +41,12 @@ export default function StudentExamVerifyPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
-  const refLandmarksRef = useRef<LandmarkSet | null>(null);
   const goodFramesRef = useRef(0);
   const participationIdRef = useRef<string | null>(null);
 
   const [step, setStep] = useState<VerifyStep>('loading');
   const [cameraError, setCameraError] = useState<string | null>(null);
-  const [similarity, setSimilarity] = useState(0);
+  const [scanProgress, setScanProgress] = useState(0);
   const [referencePhotoUrl, setReferencePhotoUrl] = useState<string | null>(null);
   const [hasRefPhoto, setHasRefPhoto] = useState(false);
 
@@ -92,31 +90,19 @@ export default function StudentExamVerifyPage() {
         await videoRef.current.play();
       }
 
-      // Khởi tạo landmarker chế độ VIDEO trước, XONG mới trích landmark chế độ IMAGE từ ảnh đã lưu —
-      // chạy tuần tự (không Promise.all) vì 2 lần khởi tạo FaceLandmarker (WASM + GPU delegate) cùng
-      // lúc dễ tranh chấp tài nguyên GPU/WebGL khiến lần khởi tạo IMAGE mode fail âm thầm.
+      // Chỉ cần khởi tạo landmarker để phát hiện "có mặt trong khung hình" — không còn trích/so
+      // landmark với ảnh đăng ký nữa (việc so khớp danh tính chuyển hẳn cho BE + AI service thật).
       const svc = MediaPipeFaceLandmarkerService.getInstance();
       await svc.initialize();
-      const refLandmarks = referencePhotoUrl ? await extractLandmarksFromImage(referencePhotoUrl) : null;
 
-      // Fail closed: nếu có ảnh đăng ký nhưng không trích được landmark (lỗi CORS/GPU/model...),
-      // KHÔNG được coi như khớp mặt mặc định — trước đây lỡ để `score = 1` ở nhánh này khiến bất kỳ
-      // ai đứng trước cam cũng "Identity Verified" được, bỏ qua hoàn toàn bước xác minh danh tính.
-      if (hasRefPhoto && !refLandmarks) {
-        setCameraError('Could not verify against your registered photo. Please retry, or contact your administrator if this keeps happening.');
-        setStep('failed');
-        return;
-      }
-
-      refLandmarksRef.current = refLandmarks;
       goodFramesRef.current = 0;
-      setSimilarity(0);
+      setScanProgress(0);
       setStep('scanning');
     } catch {
       setCameraError('Cannot access camera. Please allow camera permission and try again.');
       setStep('failed');
     }
-  }, [referencePhotoUrl, hasRefPhoto]);
+  }, []);
 
   // Lấy participationId để gọi /join — tạo mới nếu chưa có, hoặc tìm lại bản ghi cũ nếu tạo bị từ
   // chối (thường do đã tồn tại từ lần verify trước đó bị thoát giữa chừng). Cache trong ref để không
@@ -141,10 +127,10 @@ export default function StudentExamVerifyPage() {
     return null;
   }, [examId, user?.id]);
 
-  // Bước quyết định thật — gọi đúng AI service BE vừa push (POST /exam-participations/{id}/join kèm
-  // liveCapture): quét local (computeFaceSimilarity) ở trên chỉ là ước lượng để hiện thanh confidence
-  // mượt, không phải nguồn xác nhận cuối; đạt ngưỡng local rồi mới chụp 1 frame gửi lên cho BE so với
-  // BiometricData.FaceVector thật sự đã duyệt, BE từ chối thì hiện thẳng lý do thật (vd distance).
+  // Bước quyết định duy nhất — gọi AI service thật qua BE (POST /exam-participations/{id}/join kèm
+  // liveCapture): vòng lặp phát hiện mặt ở trên chỉ để biết lúc nào chụp, không so khớp gì cả; chụp
+  // xong gửi thẳng 1 frame lên cho BE so với BiometricData.FaceVector thật sự đã duyệt, BE từ chối
+  // thì hiện thẳng lý do thật (vd distance).
   const confirmWithBackend = useCallback(async () => {
     setStep('confirming');
     try {
@@ -174,8 +160,8 @@ export default function StudentExamVerifyPage() {
     }
   }, [ensureParticipationId]);
 
-  // Vòng lặp nhận diện / so sánh khuôn mặt (local, chỉ để hiện thanh confidence — quyết định thật
-  // nằm ở confirmWithBackend phía trên)
+  // Vòng lặp phát hiện mặt (local, chỉ để biết lúc nào tự động chụp — quyết định khớp danh tính
+  // thật nằm 100% ở confirmWithBackend/BE phía trên, không so sánh gì ở đây nữa)
   useEffect(() => {
     if (step !== 'scanning') {
       cancelAnimationFrame(rafRef.current);
@@ -189,30 +175,18 @@ export default function StudentExamVerifyPage() {
       if (!video) return;
 
       const result = svc.detectForVideo(video, performance.now());
-      const liveLandmarks = result?.faceLandmarks?.[0];
+      const faceDetected = !!result?.faceLandmarks?.[0] && video.videoWidth > 0 && video.videoHeight > 0;
 
-      if (liveLandmarks && video.videoWidth && video.videoHeight) {
-        // Fail closed: startCamera() đã chặn không cho vào 'scanning' nếu refLandmarksRef rỗng trong
-        // khi có ảnh đăng ký — nhánh else ở đây chỉ còn là an toàn dự phòng, không được coi là khớp.
-        const liveSet: LandmarkSet = { landmarks: liveLandmarks, width: video.videoWidth, height: video.videoHeight };
-        const score = refLandmarksRef.current
-          ? computeFaceSimilarity(refLandmarksRef.current, liveSet)
-          : 0;
-
-        setSimilarity(score);
-
-        if (score >= SIMILARITY_THRESHOLD) {
-          goodFramesRef.current += 1;
-          if (goodFramesRef.current >= VERIFY_FRAMES_NEEDED) {
-            void confirmWithBackend();
-            return;
-          }
-        } else {
-          goodFramesRef.current = Math.max(0, goodFramesRef.current - 2);
+      if (faceDetected) {
+        goodFramesRef.current += 1;
+        setScanProgress(Math.min(1, goodFramesRef.current / FACE_DETECT_FRAMES_NEEDED));
+        if (goodFramesRef.current >= FACE_DETECT_FRAMES_NEEDED) {
+          void confirmWithBackend();
+          return;
         }
       } else {
         goodFramesRef.current = 0;
-        setSimilarity(0);
+        setScanProgress(0);
       }
 
       rafRef.current = requestAnimationFrame(detect);
@@ -247,7 +221,7 @@ export default function StudentExamVerifyPage() {
     cancelAnimationFrame(rafRef.current);
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
-    setSimilarity(0);
+    setScanProgress(0);
     goodFramesRef.current = 0;
     startCamera();
   };
@@ -258,8 +232,8 @@ export default function StudentExamVerifyPage() {
     : step === 'verified' ? 2
     : 0;
 
-  const similarityPct = Math.round(similarity * 100);
-  const aboveThreshold = similarity >= SIMILARITY_THRESHOLD;
+  const scanProgressPct = Math.round(scanProgress * 100);
+  const faceSteady = scanProgress >= 1;
 
   return (
     <div className="h-screen overflow-hidden bg-navy flex flex-col">
@@ -340,7 +314,7 @@ export default function StudentExamVerifyPage() {
                 <>
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                     <div className={`w-[55%] h-[70%] rounded-full border-2 transition-colors duration-300 ${
-                      aboveThreshold
+                      faceSteady
                         ? 'border-green/80 shadow-[0_0_20px_rgba(34,197,94,0.35)]'
                         : 'border-blue-bright/70 shadow-[0_0_20px_rgba(99,179,237,0.4)]'
                     }`} />
@@ -379,20 +353,20 @@ export default function StudentExamVerifyPage() {
               )}
             </div>
 
-            {/* Thanh độ tin cậy khớp mặt (local, ước lượng) — giữ hiển thị luôn trong lúc chờ BE
-                confirm, đóng băng ở mức % local cuối cùng đã đạt ngưỡng */}
+            {/* Thanh tiến trình phát hiện mặt (local) — chỉ báo "đã thấy mặt ổn định chưa" để biết
+                lúc nào tự động chụp gửi BE, không phải điểm khớp danh tính (điểm đó chỉ BE mới có). */}
             {(step === 'scanning' || step === 'confirming') && (
               <div className="mt-4 space-y-1.5">
                 <div className="flex justify-between text-xs text-muted">
-                  <span>{hasRefPhoto ? 'Match confidence' : 'Face detected'}</span>
-                  <span className={aboveThreshold ? 'text-green font-semibold' : ''}>{similarityPct}%</span>
+                  <span>Face detected</span>
+                  <span className={faceSteady ? 'text-green font-semibold' : ''}>{scanProgressPct}%</span>
                 </div>
                 <div className="h-1.5 bg-border rounded-full overflow-hidden">
                   <div
                     className="h-full rounded-full transition-all duration-150"
                     style={{
-                      width: `${similarityPct}%`,
-                      background: aboveThreshold
+                      width: `${scanProgressPct}%`,
+                      background: faceSteady
                         ? '#22c55e'
                         : 'linear-gradient(to right, #2b6cb0, #63b3ed)',
                     }}
@@ -442,13 +416,9 @@ export default function StudentExamVerifyPage() {
             }`}>
               {step === 'loading' && 'Loading your biometric profile…'}
               {step === 'no-biometric' && 'No approved biometric photo found. Please register your face first or contact your administrator.'}
-              {step === 'idle' && (hasRefPhoto
-                ? 'Click below to start camera and verify your identity.'
-                : 'No biometric on file — face presence check only.')}
+              {step === 'idle' && 'Click below to start camera and verify your identity.'}
               {step === 'starting' && 'Opening camera, please wait…'}
-              {step === 'scanning' && (hasRefPhoto
-                ? 'Look directly at the camera and keep still.'
-                : 'Face detected — hold still to verify.')}
+              {step === 'scanning' && 'Look directly at the camera and keep still.'}
               {step === 'confirming' && 'Confirming your identity with our AI verification service…'}
               {step === 'verified' && 'Identity verified! You can now start the exam.'}
               {step === 'failed' && (cameraError ?? 'Verification failed. Please retry.')}

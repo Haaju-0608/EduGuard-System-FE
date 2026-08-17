@@ -23,6 +23,7 @@ import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHu
 import { useListFilters } from '../../../hooks/useListFilters';
 import { useLecturerFaculty } from '../../../hooks/useLecturerFaculty';
 import { HubRoute } from '../../../services/realtimeClient';
+import { fetchClassAttendanceRate } from '../../../services/lecturerApi';
 import { fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import type { ClassStatus, LecturerClass } from '../../../types/lecturer';
 
@@ -96,16 +97,21 @@ export default function ClassManagementPage() {
 
   const { data, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchSchoolAdminClasses({ page: 1, pageSize: 50 });
-    return result.items;
+    // attendanceRate luôn về 0 từ fetchSchoolAdminClasses (response /api/classes không có dữ liệu
+    // điểm danh) — tính bù ở đây bằng cách gộp record từ mọi session từng mở cho từng lớp.
+    const rates = await Promise.all(
+      result.items.map((cls) => fetchClassAttendanceRate(cls.id).catch(() => 0)),
+    );
+    return result.items.map((cls, i) => ({ ...cls, attendanceRate: rates[i] }));
   }, []);
   const classes = data ?? [];
 
-  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments") tới group
-  // dashboard:lecturer:{id} mỗi khi lớp/sĩ số của lecturer này đổi.
+  // Realtime: BE bắn ResourceChanged(resource="classes"/"class-enrollments"/"attendance-records")
+  // tới group dashboard:lecturer:{id} mỗi khi lớp/sĩ số/điểm danh của lecturer này đổi.
   const dashboardHub = useHubConnection(HubRoute.Dashboard, !!user?.id);
   useHubGroup(HubRoute.Dashboard, 'JoinLecturerDashboard', user?.id ? [user.id] : null);
   useHubEvent<{ resource: string }>(dashboardHub, 'ResourceChanged', (payload) => {
-    if (payload.resource !== 'classes' && payload.resource !== 'class-enrollments') return;
+    if (!['classes', 'class-enrollments', 'attendance-records', 'attendance-sessions'].includes(payload.resource)) return;
     reload();
   });
 

@@ -13,7 +13,6 @@ import ExamSlotsPage from './sections/ExamSlotsPage';
 import ExamQuestionsViewPage from './sections/ExamQuestionsViewPage';
 import LiveMonitoringPage from './sections/LiveMonitoringPage';
 import ViolationReviewPage from './sections/ViolationReviewPage';
-import LecturerGuidePage from './sections/LecturerGuidePage';
 import LecturerNotFoundPage from './sections/NotFoundPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
@@ -25,7 +24,6 @@ const menuItems: MenuItem[] = [
   { icon: '📝', label: 'Exams', path: '/lecture/exams' },
   { icon: '📡', label: 'Live Monitoring', path: '/lecture/live-monitoring' },
   { icon: '🚨', label: 'Violations', path: '/lecture/violations' },
-  { icon: '📖', label: 'Proctoring Guide', path: '/lecture/guide' },
   { icon: '👤', label: 'My Profile', path: '/lecture/profile' },
 ];
 
@@ -46,7 +44,6 @@ export default function LecturerDashboardPage() {
         <Route path="exams/:examId/questions" element={<ExamQuestionsViewPage />} />
         <Route path="live-monitoring" element={<LiveMonitoringPage />} />
         <Route path="violations" element={<ViolationReviewPage />} />
-        <Route path="guide" element={<LecturerGuidePage />} />
         <Route path="profile" element={<ProfileDetailPage />} />
         <Route path="*" element={<LecturerNotFoundPage />} />
       </Routes>
