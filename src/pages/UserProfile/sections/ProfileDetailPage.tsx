@@ -3,11 +3,19 @@ import { FiAlertCircle, FiAward, FiCheckCircle, FiEdit2, FiLock, FiMail, FiPhone
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchInstitution, updateMyProfile } from '../../../services/schoolAdminApi';
+import { fetchInstitution, fetchMyApprovedBiometricPhoto, updateMyProfile } from '../../../services/schoolAdminApi';
 
 export default function ProfileDetailPage() {
   const { user, refreshProfile } = useAuth();
   const toast = useToast();
+
+  // Chỉ Student mới có biometric request — hiện ảnh mặt đã duyệt thay avatar chữ cái nếu có,
+  // trả null (giữ nguyên avatar chữ cái) khi chưa đăng ký hoặc chưa được duyệt.
+  const isStudent = user?.role === 'user';
+  const { data: approvedPhotoUrl } = useAsyncData(
+    () => (isStudent && user?.id ? fetchMyApprovedBiometricPhoto(user.id) : Promise.resolve(null)),
+    [isStudent, user?.id],
+  );
 
   // GET /api/users/me không phải lúc nào cũng trả kèm institution.name (tuỳ role) — nếu thiếu
   // thì tự fetch riêng theo institutionId, giống cách SchoolDashboardOverview.tsx đã làm.
@@ -207,9 +215,17 @@ export default function ProfileDetailPage() {
           </h2>
 
           <div className="w-24 h-24 rounded-full bg-linear-to-br from-blue to-cyan p-0.5 shadow-[0_0_24px_rgba(37,99,235,0.25)]">
-            <div className="w-full h-full rounded-full bg-navy-mid flex items-center justify-center text-white font-syne font-extrabold text-3xl">
-              {initials}
-            </div>
+            {approvedPhotoUrl ? (
+              <img
+                src={approvedPhotoUrl}
+                alt="Registered face"
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full rounded-full bg-navy-mid flex items-center justify-center text-white font-syne font-extrabold text-3xl">
+                {initials}
+              </div>
+            )}
           </div>
 
           <div>
