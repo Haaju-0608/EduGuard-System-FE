@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { FiChevronLeft, FiChevronRight, FiEdit2, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
+import { FiChevronLeft, FiChevronRight, FiEdit2, FiEye, FiEyeOff, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -58,6 +58,7 @@ function StudentFormModal({
   const toast = useToast();
   const [form, setForm] = useState<FormData>(EMPTY);
   const [saving, setSaving] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const isEdit = !!target;
 
   useEffect(() => {
@@ -166,7 +167,23 @@ function StudentFormModal({
           {!isEdit && (
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Password *</label>
-              <input type="password" value={form.password} onChange={set('password')} placeholder="••••••••" className={inp} required />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={set('password')}
+                  placeholder="••••••••"
+                  className={`${inp} pr-10`}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 bg-transparent border-none text-muted hover:text-white-soft cursor-pointer transition-colors p-0"
+                >
+                  {showPassword ? <FiEyeOff className="text-sm" /> : <FiEye className="text-sm" />}
+                </button>
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 gap-3">

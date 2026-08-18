@@ -95,7 +95,6 @@ export default function AdminFeatureSection() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-syne font-bold text-sm text-white-soft">Dashboard · School Admin</h3>
-                <p className="text-[10px] text-muted">May 21, 2025 · Semester 2</p>
               </div>
               <div className="flex items-center gap-2 text-muted text-sm">
                 <span>🔔</span>
