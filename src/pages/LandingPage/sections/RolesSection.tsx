@@ -35,14 +35,14 @@ const rolesData: RoleData[] = [
   },
   {
     icon: '👨‍🏫',
-    title: 'Instructor',
+    title: 'Lecturer',
     description: 'Interact via web dashboard',
     iconBg: 'rgba(16,185,129,0.18)',
     permissions: [
       'Start AI attendance sessions',
       'Create & manage exams',
       'Real-time proctoring dashboard',
-      'Export violation reports',
+      'Review violations & disqualify students',
     ],
   },
   {
