@@ -35,7 +35,7 @@ const featuresData: FeatureData[] = [
   {
     icon: '📱',
     name: 'Mobile App',
-    description: 'Android application for students — biometric face registration, schedules, and exam entry on the go.',
+    description: 'Android application for students — biometric face registration, exam schedules, and attendance & violation history on the go.',
     iconBg: 'rgba(139,92,246,0.18)',
   },
 ];

@@ -72,7 +72,6 @@ export default function HeroSection({ onContactClick }: { onContactClick: () => 
             <div className="flex items-center justify-between mb-[1.2rem]">
               <div>
                 <div className="font-syne font-bold text-[1rem]">Live Proctoring</div>
-                <div className="text-muted text-[0.78rem]">Math Midterm – CS101</div>
               </div>
               <div className="bg-[rgba(16,185,129,0.15)] border border-[rgba(16,185,129,0.4)] text-green rounded-full py-[0.2rem] px-[0.7rem] text-[0.75rem] font-semibold flex items-center gap-[0.4rem]">
                 <span className="animate-blink w-[6px] h-[6px] bg-green rounded-full inline-block" />

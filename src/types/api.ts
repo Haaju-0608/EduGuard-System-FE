@@ -192,6 +192,19 @@ export interface ApiInstitution {
   createdAt: string;
 }
 
+/** Đơn "Contact Us / Request Demo" từ landing page — GET /api/contact-requests. Status là chuỗi
+ *  chữ hoa tự do từ BE, không phải enum thật: 'PENDING' | 'CONTACTED' | 'APPROVED' | 'REJECTED'. */
+export interface ApiContactRequest {
+  id: string;
+  schoolName: string;
+  contactPersonName: string;
+  email: string;
+  phoneNumber: string;
+  message: string | null;
+  status: string;
+  createdAt: string;
+}
+
 /** Pricing config từ GET /api/pricing-configs */
 export interface ApiPricingConfig {
   id: string;

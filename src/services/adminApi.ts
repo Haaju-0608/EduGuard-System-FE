@@ -5,6 +5,7 @@ import { API_BASE_URL, ApiError, apiDelete, apiGet, apiGetPaginated, apiPost, ap
 import { getAccessToken } from './authStorage';
 import type { InstitutionDashboard, LecturerDashboard, SystemDashboard } from '../types/api';
 import type {
+  ApiContactRequest,
   ApiInstitution,
   ApiPricingConfig,
   ListQueryParams,
@@ -83,6 +84,33 @@ export async function activateInstitution(id: string): Promise<ApiInstitution> {
  *  lần renew về gói Monthly + tính phí Monthly dù trường đang ở gói Yearly. */
 export async function renewInstitutionSubscription(id: string, billingModel: 'Monthly' | 'Yearly'): Promise<void> {
   await apiPost<null>(`/api/institutions/${id}/renew-subscription`, { billingModel });
+}
+
+// ─── Contact Requests ─────────────────────────────────────────────────────
+// Đơn "Contact Us / Request Demo" gửi từ landing page (contactApi.ts requestDemo) — chỉ SuperAdmin
+// xem/xử lý được (BE: [SupabaseAuthorize(AppRole.SuperAdmin)] toàn bộ ContactRequestsController).
+
+export interface FetchContactRequestsParams extends ListQueryParams {
+  search?: string;
+  sort?: string;
+  status?: string;
+}
+
+/** GET /api/contact-requests */
+export async function fetchContactRequests(
+  params: FetchContactRequestsParams = {},
+): Promise<PagedResult<ApiContactRequest>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 50;
+  const { data, pagination } = await apiGetPaginated<ApiContactRequest[]>(
+    `/api/contact-requests${buildQueryParams({ page, pageSize, search: params.search, sort: params.sort, status: params.status })}`,
+  );
+  return { items: data, pagination };
+}
+
+/** PUT /api/contact-requests/{id}/status — status phải là 1 trong PENDING/CONTACTED/APPROVED/REJECTED. */
+export async function updateContactRequestStatus(id: string, status: string): Promise<void> {
+  await apiPut<null>(`/api/contact-requests/${id}/status`, { status });
 }
 
 // ─── Pricing Configs ──────────────────────────────────────────────────────

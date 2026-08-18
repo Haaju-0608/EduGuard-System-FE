@@ -549,11 +549,11 @@ function ClassFormModal({
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
                 Semester{!isEdit && <span className="text-gold ml-1">*</span>} <span className="normal-case font-normal">(no numbers — put the year in Academic Year)</span>
               </label>
-              <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Spring" className={inputCls} />
+              <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Fall" className={inputCls} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year{!isEdit && <span className="text-gold ml-1">*</span>}</label>
-              <input type="text" value={form.academicYear} onChange={set('academicYear')} placeholder="e.g. 2024-2025" className={inputCls} />
+              <input type="text" value={form.academicYear} onChange={set('academicYear')} placeholder="e.g. 2026" className={inputCls} />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Start Date</label>
