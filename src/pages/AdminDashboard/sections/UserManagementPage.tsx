@@ -163,7 +163,7 @@ function UserFormModal({
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-                Student / Staff Code{form.role === 'Student' && <span className="text-gold ml-1">*</span>}
+                Code{form.role === 'Student' && <span className="text-gold ml-1">*</span>}
               </label>
               <input type="text" value={form.studentCode} onChange={set('studentCode')} placeholder="SV001" className={inp} maxLength={MAX_STUDENT_CODE_LENGTH} />
             </div>

@@ -25,7 +25,6 @@ const pricingData: Plan[] = [
     buttonText: 'Contact Us',
     buttonStyle: 'ghost',
     features: [
-      { text: 'Up to 500 students', included: true },
       { text: 'Smart Attendance', included: true },
       { text: '50 exam sessions/month', included: true },
       { text: 'Basic reports', included: true },
@@ -42,7 +41,6 @@ const pricingData: Plan[] = [
     buttonText: 'Contact Us',
     buttonStyle: 'primary',
     features: [
-      { text: 'Up to 5,000 students', included: true },
       { text: 'Smart Attendance + Proctoring', included: true },
       { text: 'Unlimited exam sessions', included: true },
       { text: 'Advanced analytics', included: true },
@@ -58,7 +56,6 @@ const pricingData: Plan[] = [
     buttonText: 'Contact Us',
     buttonStyle: 'ghost',
     features: [
-      { text: 'Unlimited students', included: true },
       { text: 'All features included', included: true },
       { text: 'On-premise deployment', included: true },
       { text: '99.9% SLA guaranteed', included: true },

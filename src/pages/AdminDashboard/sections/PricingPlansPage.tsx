@@ -106,7 +106,7 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price</label>
             <input
               type="number"
               min={1}
@@ -184,7 +184,7 @@ function EditPricingModal({
         </div>
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price (Credits per student)</label>
+            <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Unit Price</label>
             <input
               type="number"
               min={1}

@@ -53,9 +53,20 @@ export default function ProfileDetailPage() {
     setIsEditing(false);
   };
 
+  // user?.role là app-role nội bộ (xem AuthContext.tsx): 'user' = Student, 'lecture' = Lecturer,
+  // 'schooladmin' = School Admin, 'admin' = Super Admin — không hiện thẳng giá trị thô này ra UI.
+  const ROLE_LABELS: Record<string, string> = {
+    user: 'Student',
+    lecture: 'Lecturer',
+    schooladmin: 'School Admin',
+    admin: 'Super Admin',
+  };
+  const roleLabel = user?.role ? (ROLE_LABELS[user.role] ?? user.role) : '—';
+  const codeLabel = user?.role === 'user' ? 'Student Code' : user?.role === 'lecture' ? 'Lecturer Code' : 'Staff Code';
+
   const readOnlyFields = [
-    { label: 'Student / Staff Code', value: user?.studentId || '—', icon: FiAward, isMono: true },
-    { label: 'Role', value: user?.role ?? '—', icon: FiShield },
+    { label: codeLabel, value: user?.studentId || '—', icon: FiAward, isMono: true },
+    { label: 'Role', value: roleLabel, icon: FiShield },
     { label: 'University Email', value: user?.email ?? '—', icon: FiMail },
   ];
 
@@ -205,7 +216,7 @@ export default function ProfileDetailPage() {
             <h3 className="font-syne font-bold text-base text-white-soft">{user?.name || 'User'}</h3>
             <p className="text-xs text-muted font-mono mt-0.5">{user?.email}</p>
             <div className="mt-2 inline-flex items-center gap-1 px-3 py-1 rounded-full bg-blue/10 border border-blue/20 text-xs text-blue-bright font-semibold">
-              {user?.role}
+              {roleLabel}
             </div>
           </div>
 
@@ -216,18 +227,21 @@ export default function ProfileDetailPage() {
                 <FiCheckCircle className="text-[10px]" /> Active
               </span>
             </div>
-            <div className="flex justify-between items-center border-t border-border/30 pt-3">
-              <span className="text-muted">Institution:</span>
-              {user?.institutionId
-                ? <span className="text-white-soft font-medium text-right max-w-[60%] truncate">
-                    {institutionName ?? `${user.institutionId.slice(0, 8)}…`}
-                  </span>
-                : <span className="text-muted italic">Not assigned</span>
-              }
-            </div>
+            {/* BE (UserResponseDto) chưa trả tên trường, chỉ có institutionId — SchoolAdmin/SuperAdmin
+                có đường vòng gọi GET /api/institutions/{id} lấy tên thật, còn Lecturer/Student bị
+                endpoint đó chặn 403 nên không cách nào resolve ra tên, chỉ có ID thô. Ẩn hẳn dòng này
+                cho 2 role đó thay vì hiện ID khó hiểu cho người dùng. */}
+            {canFetchInstitution && user?.institutionId && (
+              <div className="flex justify-between items-center border-t border-border/30 pt-3">
+                <span className="text-muted">Institution:</span>
+                <span className="text-white-soft font-medium text-right max-w-[60%] truncate">
+                  {institutionName ?? `${user.institutionId.slice(0, 8)}…`}
+                </span>
+              </div>
+            )}
             {user?.studentId && (
               <div className="flex justify-between items-center border-t border-border/30 pt-3">
-                <span className="text-muted">Staff / Student Code:</span>
+                <span className="text-muted">{codeLabel}:</span>
                 <span className="text-white-soft font-mono font-medium">{user.studentId}</span>
               </div>
             )}
