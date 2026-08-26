@@ -62,7 +62,7 @@ export default function ExamQuestionsViewPage() {
     [examId],
   );
   const questions = [...(data?.items ?? [])].sort((a, b) => a.displayOrder - b.displayOrder);
-  const examName = questions[0]?.examName ?? `Exam ${examId?.slice(0, 8) ?? ''}…`;
+  const examName = questions[0]?.examQuestionName ?? `Exam ${examId?.slice(0, 8) ?? ''}…`;
   const groups = groupQuestionsByPassage(questions);
 
   return (

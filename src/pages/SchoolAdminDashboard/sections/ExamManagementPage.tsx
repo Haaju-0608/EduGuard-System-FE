@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiBell, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import { FiBell, FiBookOpen, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -11,9 +11,11 @@ import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHu
 import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateExamSlotPayload,
+  ExamQuestionSetSummary,
   createExamSlot,
   deleteExamSlot,
   fetchClassEnrollmentsWithStudents,
+  fetchExamQuestionSets,
   fetchExamSlots,
   fetchLecturers,
   fetchSchoolAdminClasses,
@@ -187,7 +189,7 @@ function ProctorDropdown({
 interface SlotForm {
   classIds: string[];
   classId: string;
-  examName: string;
+  examQuestionName: string;
   startTime: string;
   endTime: string;
   durationMinutes: string;
@@ -195,15 +197,16 @@ interface SlotForm {
 }
 
 const EMPTY_FORM: SlotForm = {
-  classIds: [], classId: '', examName: '', startTime: '', endTime: '', durationMinutes: '', proctorId: '',
+  classIds: [], classId: '', examQuestionName: '', startTime: '', endTime: '', durationMinutes: '', proctorId: '',
 };
 
 function ExamFormModal({
-  target, classes, lecturers, onClose, onSaved,
+  target, classes, lecturers, questionSets, onClose, onSaved,
 }: {
   target: ExamSlot | null;
   classes: LecturerClass[];
   lecturers: LecturerStudent[];
+  questionSets: ExamQuestionSetSummary[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -218,7 +221,7 @@ function ExamFormModal({
     setForm(target ? {
       classIds: [],
       classId: target.classId ?? '',
-      examName: target.examName,
+      examQuestionName: target.examQuestionName,
       startTime: toLocalDT(target.startTime),
       endTime: toLocalDT(target.endTime),
       durationMinutes: target.durationMinutes > 0 ? String(target.durationMinutes) : '',
@@ -248,13 +251,8 @@ function ExamFormModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.examName.trim() || !form.startTime || !form.endTime) {
-      toast.warning('Required', 'Exam name, start and end time are required.');
-      return;
-    }
-    // BE (CreateExamSlotDto/UpdateExamSlotDto) giới hạn ExamName tối đa 255 ký tự.
-    if (form.examName.trim().length > 255) {
-      toast.warning('Invalid', 'Exam name must be 255 characters or fewer.');
+    if (!form.examQuestionName || !form.startTime || !form.endTime) {
+      toast.warning('Required', 'Question set, start and end time are required.');
       return;
     }
     if (new Date(form.endTime) <= new Date(form.startTime)) {
@@ -281,7 +279,7 @@ function ExamFormModal({
     setSaving(true);
     try {
       const base: Omit<CreateExamSlotPayload, 'classId'> = {
-        examName: form.examName.trim(),
+        examQuestionName: form.examQuestionName,
         startTime: new Date(form.startTime).toISOString(),
         endTime: new Date(form.endTime).toISOString(),
         expectedDurationMinutes: form.durationMinutes ? Number(form.durationMinutes) : undefined,
@@ -298,7 +296,7 @@ function ExamFormModal({
           form.classIds.map((classId) => createExamSlot({ classId, ...base })),
         );
         toast.success('Created', `${form.classIds.length} exam slot${form.classIds.length > 1 ? 's' : ''} created.`);
-        void notifyStudentsExamCreated(form.classIds, base.examName, base.startTime);
+        void notifyStudentsExamCreated(form.classIds, base.examQuestionName, base.startTime);
       }
       onSaved(); onClose();
     } catch (err) {
@@ -411,20 +409,35 @@ function ExamFormModal({
             </div>
           )}
 
-          {/* Exam Name */}
+          {/* Question Set — BE (commit 250a884) giờ yêu cầu Exam Slot trỏ vào 1 bộ đề CÓ SẴN trong
+              trường (không còn nhập tên thi tự do), tạo/import bộ đề trước ở trang Question Bank. */}
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-              Exam Name * <span className="normal-case font-normal">({form.examName.length}/255)</span>
+              Question Set *
             </label>
-            <input
-              type="text"
-              value={form.examName}
-              onChange={(e) => setForm((f) => ({ ...f, examName: e.target.value }))}
-              placeholder="e.g. Midterm Exam"
-              maxLength={255}
-              className={inp}
-              required
-            />
+            {questionSets.length === 0 && !form.examQuestionName ? (
+              <p className="text-xs text-gold bg-gold/5 border border-gold/20 rounded-xl px-3 py-2.5">
+                No question sets yet — create or import one from the Question Bank page first.
+              </p>
+            ) : (
+              <CustomSelect
+                value={form.examQuestionName}
+                onChange={(v) => setForm((f) => ({ ...f, examQuestionName: v }))}
+                options={[
+                  { value: '', label: '— Select a question set —' },
+                  // Bộ đề hiện tại của slot đang sửa có thể không còn câu hỏi nào (nên biến mất khỏi
+                  // questionSets, vốn gom từ chính các câu hỏi còn tồn tại) — vẫn phải hiện được để
+                  // không mất giá trị đang chọn khi mở form Edit.
+                  ...(form.examQuestionName && !questionSets.some((s) => s.name === form.examQuestionName)
+                    ? [{ value: form.examQuestionName, label: `${form.examQuestionName} (current)` }]
+                    : []),
+                  ...questionSets.map((s) => ({
+                    value: s.name,
+                    label: `${s.name} (${s.questionCount} question${s.questionCount !== 1 ? 's' : ''})`,
+                  })),
+                ]}
+              />
+            )}
           </div>
 
           {/* Start / End */}
@@ -540,8 +553,13 @@ export default function ExamManagementPage() {
     return result.items;
   }, [user?.institutionId]);
 
+  // Bộ đề có sẵn để chọn khi tạo/sửa exam slot — refetch mỗi lần mở form vì Question Bank có thể
+  // vừa được thêm bộ đề mới ở trang khác.
+  const { data: questionSetsData, reload: reloadQuestionSets } = useAsyncData(fetchExamQuestionSets, []);
+
   const classes: LecturerClass[] = classesData ?? [];
   const lecturers: LecturerStudent[] = lecturersData ?? [];
+  const questionSets: ExamQuestionSetSummary[] = questionSetsData ?? [];
   const myClassIds = new Set(classes.map((c) => c.id));
   const slots: ExamSlot[] = (slotsData ?? []).filter((s) => myClassIds.has(s.classId));
 
@@ -577,8 +595,8 @@ export default function ExamManagementPage() {
   };
 
   const navigate = useNavigate();
-  const openCreate = () => { setEditTarget(null); setShowForm(true); };
-  const openEdit   = (slot: ExamSlot) => { setEditTarget(slot); setShowForm(true); };
+  const openCreate = () => { setEditTarget(null); setShowForm(true); void reloadQuestionSets(); };
+  const openEdit   = (slot: ExamSlot) => { setEditTarget(slot); setShowForm(true); void reloadQuestionSets(); };
 
   const handleSendReminder = async (slot: ExamSlot) => {
     setSendingReminderId(slot.id);
@@ -622,12 +640,20 @@ export default function ExamManagementPage() {
           <h1 className="font-syne text-2xl font-extrabold text-white-soft">Exam Slots</h1>
           <p className="text-muted text-sm mt-1">Create and manage exam sessions for your institution.</p>
         </div>
-        <button
-          onClick={openCreate}
-          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none shrink-0"
-        >
-          <FiPlus /> New Exam Slot
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={() => navigate('/school/exams/question-bank')}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-cyan/30 text-cyan text-sm font-semibold cursor-pointer hover:bg-cyan/10 transition-all bg-transparent"
+          >
+            <FiBookOpen /> Question Bank
+          </button>
+          <button
+            onClick={openCreate}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none"
+          >
+            <FiPlus /> New Exam Slot
+          </button>
+        </div>
       </div>
 
       {/* KPIs */}
@@ -776,6 +802,7 @@ export default function ExamManagementPage() {
           target={editTarget}
           classes={classes}
           lecturers={lecturers}
+          questionSets={questionSets}
           onClose={() => setShowForm(false)}
           onSaved={reload}
         />

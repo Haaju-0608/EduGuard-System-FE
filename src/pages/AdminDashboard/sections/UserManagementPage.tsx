@@ -5,6 +5,7 @@ import {
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
+import StudentDetailModal from '../../../components/shared/StudentDetailModal';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
@@ -234,6 +235,7 @@ export default function UserManagementPage() {
   const [editTarget, setEditTarget] = useState<ApiUser | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteUserTarget, setDeleteUserTarget] = useState<ApiUser | null>(null);
+  const [detailTarget, setDetailTarget] = useState<string | null>(null);
 
   // Debounce ô search 350ms trước khi gọi BE — gõ liên tục không nên bắn 1 request/ký tự.
   useEffect(() => {
@@ -411,6 +413,9 @@ export default function UserManagementPage() {
                   <div className="hidden sm:block shrink-0"><StatusDot status={u.status ?? 'Active'} /></div>
                   <p className="hidden md:block text-[11px] text-muted shrink-0">{fmt(u.createdAt)}</p>
                   <div className="flex gap-1.5 shrink-0">
+                    {u.role.trim().toLowerCase() === 'student' && (
+                      <button onClick={() => setDetailTarget(u.id)} title="View detail" className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-cyan hover:border-cyan/30 transition-all bg-transparent"><FiEye className="text-xs" /></button>
+                    )}
                     <button onClick={() => { setEditTarget(u); setShowForm(true); }} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"><FiEdit2 className="text-xs" /></button>
                     <button onClick={() => setDeleteUserTarget(u)} disabled={isDeleting} className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent"><FiTrash2 className="text-xs" /></button>
                   </div>
@@ -450,6 +455,10 @@ export default function UserManagementPage() {
           onImported={reload}
           allowedRoles="Student, Lecturer, or SchoolAdmin"
         />
+      )}
+
+      {detailTarget && (
+        <StudentDetailModal studentId={detailTarget} onClose={() => setDetailTarget(null)} />
       )}
 
       {deleteUserTarget && createPortal(

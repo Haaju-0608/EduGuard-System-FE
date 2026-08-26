@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { FiChevronLeft, FiChevronRight, FiEdit2, FiEye, FiEyeOff, FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiX } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import BulkImportUsersModal from '../../../components/shared/BulkImportUsersModal';
+import StudentDetailModal from '../../../components/shared/StudentDetailModal';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { fetchInstitutionById } from '../../../services/adminApi';
@@ -238,6 +239,7 @@ export default function SchoolStudentManagementPage() {
   const [editTarget, setEditTarget] = useState<LecturerStudent | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteStudentTarget, setDeleteStudentTarget] = useState<LecturerStudent | null>(null);
+  const [detailTarget, setDetailTarget] = useState<string | null>(null);
 
   const { data, loading, reload } = useAsyncData(
     () => fetchSchoolAdminStudents({ page: 1, pageSize: 1000, institutionId: user?.institutionId ?? undefined }),
@@ -389,6 +391,13 @@ export default function SchoolStudentManagementPage() {
                   <StatusBadge status={s.status === 'active' ? 'Active' : s.status === 'inactive' ? 'Inactive' : 'Pending'} />
                   <div className="flex gap-1.5 shrink-0">
                     <button
+                      onClick={() => setDetailTarget(s.id)}
+                      title="View detail"
+                      className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-cyan hover:border-cyan/30 transition-all bg-transparent"
+                    >
+                      <FiEye className="text-xs" />
+                    </button>
+                    <button
                       onClick={() => { setEditTarget(s); setShowForm(true); }}
                       className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft hover:border-blue/30 transition-all bg-transparent"
                     >
@@ -448,6 +457,10 @@ export default function SchoolStudentManagementPage() {
           allowedRoles="Student"
           requiresInstitutionId={false}
         />
+      )}
+
+      {detailTarget && (
+        <StudentDetailModal studentId={detailTarget} onClose={() => setDetailTarget(null)} />
       )}
 
       {deleteStudentTarget && createPortal(

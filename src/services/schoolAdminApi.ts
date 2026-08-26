@@ -12,10 +12,12 @@ import type {
   ApiEnrollment,
   ApiExamParticipation,
   ApiExamQuestion,
+  ApiImportExamQuestionsResult,
   ApiReadingPassage,
   ApiExamSlot,
   ApiInstitution,
   ApiQuestionOption,
+  ApiStudentDetail,
   ApiStudentExamRecord,
   ApiTransaction,
   ApiUser,
@@ -148,6 +150,7 @@ function mapApiExamSlot(slot: ApiExamSlot, classMap: Map<string, LecturerClass>)
     classCode: cls?.code ?? slot.classId.slice(0, 8),
     className: cls?.name ?? 'Unknown class',
     examName: slot.examName,
+    examQuestionName: slot.examQuestionName,
     startTime: slot.startTime,
     endTime: slot.endTime,
     durationMinutes: slot.expectedDurationMinutes,
@@ -353,9 +356,22 @@ export async function fetchExamRealtimeState(examId: string): Promise<ExamRealti
   return apiGet<ExamRealtimeStateResponse>(`/api/exam-slots/${examId}/realtime-state`);
 }
 
+/** POST /api/exam-participations/{id}/manual-approve-identity — Lecturer (đúng lớp/giám thị ca thi
+ *  đó)/SchoolAdmin/SuperAdmin. Dùng khi sinh viên bị AI xác thực khuôn mặt từ chối liên tục lúc vào
+ *  thi (vd ánh sáng kém, máy ảnh xấu) — giám thị xác nhận danh tính bằng mắt rồi duyệt tay, sinh viên
+ *  gọi lại /join sẽ được bỏ qua bước xác thực AI (BE: ExamWorkflowService.JoinAsync đọc
+ *  ExamParticipation.IdentityVerifiedAt). */
+export async function manualApproveIdentity(participationId: string): Promise<void> {
+  await apiPost<null>(`/api/exam-participations/${participationId}/manual-approve-identity`, {});
+}
+
 export interface CreateExamSlotPayload {
   classId: string;
-  examName: string;
+  /** BE (commit 250a884) đổi field body từ "examName" (text tự do) sang "examQuestionName" — giờ
+   *  PHẢI khớp (không phân biệt hoa thường) với 1 bộ đề đã tồn tại trong cùng institution (tạo qua
+   *  createExamQuestion hoặc importExamQuestionsFromExcel), không còn nhập tên tuỳ ý được nữa. BE
+   *  từ chối với "Exam question set not found in this institution." nếu không khớp bộ đề nào. */
+  examQuestionName: string;
   startTime: string;
   endTime: string;
   expectedDurationMinutes?: number;
@@ -571,6 +587,14 @@ export async function fetchUsers(
     page, pageSize,
   );
   return { items: data, pagination };
+}
+
+/** GET /api/users/{id}/detail — hồ sơ tổng hợp 1 sinh viên: sinh trắc học, kết quả thi, lịch sử
+ *  tham gia thi, lịch sử điểm danh. Chỉ SuperAdmin/SchoolAdmin gọi được, và chỉ áp dụng cho user có
+ *  Role = Student — gọi cho Lecturer/SchoolAdmin khác sẽ bị BE trả 404. SchoolAdmin chỉ xem được
+ *  sinh viên cùng trường mình (BE tự chặn, trả null nếu khác trường). */
+export async function fetchStudentDetail(userId: string): Promise<ApiStudentDetail> {
+  return apiGet<ApiStudentDetail>(`/api/users/${userId}/detail`);
 }
 
 export interface CreateUserPayload {
@@ -927,7 +951,10 @@ export interface CreateQuestionOptionPayload {
 }
 
 export interface CreateExamQuestionPayload {
-  examSlotId: string;
+  /** BE (commit 250a884) bỏ hẳn examSlotId khỏi DTO tạo câu hỏi — câu hỏi giờ gắn vào Institution +
+   *  tên bộ đề (examQuestionName) thay vì 1 exam slot cụ thể, để dùng lại được cho nhiều slot. */
+  institutionId: string;
+  examQuestionName: string;
   passageId?: string | null;
   questionType: string;
   questionContent: string;
@@ -936,6 +963,15 @@ export interface CreateExamQuestionPayload {
   points: number;
   displayOrder: number;
   options?: CreateQuestionOptionPayload[];
+}
+
+/** 1 bộ đề (question set) gộp từ danh sách câu hỏi cùng examQuestionName — BE không có endpoint
+ *  liệt kê riêng các bộ đề, phải tự gom nhóm ở FE từ GET /api/exam-questions (tự scope theo
+ *  institution của user đang gọi, xem ExamQuestionService.GetAllAsync). */
+export interface ExamQuestionSetSummary {
+  name: string;
+  questionCount: number;
+  totalPoints: number;
 }
 
 export interface UpdateExamQuestionPayload {
@@ -962,9 +998,57 @@ export async function fetchExamQuestions(
   return { items: data, pagination };
 }
 
+/** Lấy toàn bộ câu hỏi của 1 bộ đề theo TÊN, không cần biết trước 1 exam slot nào đang dùng nó — BE
+ *  không có endpoint lọc theo examQuestionName trực tiếp (chỉ có ?examSlotId=), nên phải lấy hết
+ *  (đã tự scope theo institution của user gọi) rồi lọc client-side. Dùng cho trang Question Bank
+ *  khi quản lý 1 bộ đề độc lập, chưa gắn với exam slot nào. */
+export async function fetchExamQuestionsBySetName(examQuestionName: string): Promise<ApiExamQuestion[]> {
+  const key = examQuestionName.trim().toLowerCase();
+  const data = await apiGetAllPages<ApiExamQuestion>(
+    (page, pageSize) => `/api/exam-questions${buildQueryParams({ page, pageSize })}`,
+  );
+  return data.filter((q) => q.examQuestionName.trim().toLowerCase() === key);
+}
+
 /** POST /api/exam-questions — có thể kèm luôn options trong 1 request */
 export async function createExamQuestion(payload: CreateExamQuestionPayload): Promise<ApiExamQuestion> {
   return apiPost<ApiExamQuestion>('/api/exam-questions', payload);
+}
+
+/** POST /api/exam-questions/import-excel — import cả 1 bộ đề trắc nghiệm từ file .xlsx (cột bắt
+ *  buộc: Stt, Question, A, B, C, D, Answers — Answers chỉ nhận A/B/C/D). Tên bộ đề = TÊN FILE (bỏ
+ *  .xlsx), BE tự đặt, không truyền tay được. Giới hạn 5MB, tối đa 500 câu/lần, Stt không được trùng
+ *  với câu đã có sẵn trong 1 bộ đề cùng tên (kể cả khác lần import). */
+export async function importExamQuestionsFromExcel(
+  institutionId: string,
+  file: File,
+): Promise<ApiImportExamQuestionsResult> {
+  const formData = new FormData();
+  formData.append('institutionId', institutionId);
+  formData.append('file', file);
+  return apiPost<ApiImportExamQuestionsResult>('/api/exam-questions/import-excel', formData);
+}
+
+/** Gom GET /api/exam-questions (tự scope theo institution của SchoolAdmin/Lecturer đang gọi) thành
+ *  danh sách các bộ đề duy nhất theo examQuestionName — dùng để chọn bộ đề khi tạo Exam Slot, và để
+ *  hiển thị trang Question Bank. Không phân biệt hoa/thường khi gom nhóm, khớp cách BE so khớp tên
+ *  bộ đề (ExamslotServices.CreateAsync dùng ToLower()). */
+export async function fetchExamQuestionSets(): Promise<ExamQuestionSetSummary[]> {
+  const data = await apiGetAllPages<ApiExamQuestion>(
+    (page, pageSize) => `/api/exam-questions${buildQueryParams({ page, pageSize })}`,
+  );
+  const byKey = new Map<string, ExamQuestionSetSummary>();
+  for (const q of data) {
+    const key = q.examQuestionName.trim().toLowerCase();
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.questionCount += 1;
+      existing.totalPoints += q.points;
+    } else {
+      byKey.set(key, { name: q.examQuestionName, questionCount: 1, totalPoints: q.points });
+    }
+  }
+  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 /** PUT /api/exam-questions/{id} — chỉ sửa field câu hỏi, không sửa options */

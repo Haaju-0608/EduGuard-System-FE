@@ -134,6 +134,9 @@ export interface ExamSlot {
   classCode: string;
   className: string;
   examName: string;
+  /** Tên bộ đề (question set) gắn với slot này — dùng để gọi các API câu hỏi mới (BE giờ định danh
+   *  bộ đề bằng institutionId + examQuestionName thay vì examSlotId, xem ApiExamQuestion). */
+  examQuestionName: string;
   startTime: string;
   endTime: string;
   durationMinutes: number;

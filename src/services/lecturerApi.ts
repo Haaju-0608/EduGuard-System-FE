@@ -261,30 +261,6 @@ export async function updateAttendanceRecord(
   });
 }
 
-/** POST /api/attendance-sessions/{sessionId}/records/ai-video — điểm danh hàng loạt bằng AI quét
- *  video lớp học (AttendanceRecordsController.CreateBulkByAiVideo, DTOs/Request/AcademicRequestDtos.cs
- *  AiVideoAttendanceDto). BE upload video lên Supabase qua FastAPI, tách vector khuôn mặt từng người
- *  trong video, so khớp với BiometricData.FaceVector đã duyệt (ngưỡng 0.40) để tự đánh Present cho
- *  từng sinh viên nhận diện được.
- *
- *  BE (commit f62273e, 09/08) đã sửa: session KHÔNG còn tự đóng (Status vẫn giữ InProgress) sau khi
- *  quét xong nữa — chỉ đơn thuần "thêm record" như điểm danh tay, session vẫn mở để giảng viên tự
- *  kiểm tra + điểm danh bù thủ công rồi mới tự bấm "End Session" khi xong. Chỉ gọi được khi session
- *  đang InProgress và trong khung giờ [StartTime, EndTime] của session (BE tự chặn 400 nếu sai
- *  điều kiện). */
-export async function markAttendanceByAiVideo(
-  sessionId: string,
-  videoFile: File,
-): Promise<AttendanceRecord[]> {
-  const formData = new FormData();
-  formData.append('videoFile', videoFile);
-  const records = await apiPost<ApiAttendanceRecord[]>(
-    `/api/attendance-sessions/${sessionId}/records/ai-video`,
-    formData,
-  );
-  return records.map(mapApiAttendanceRecord);
-}
-
 /** GET /api/attendance-sessions — danh sách tất cả sessions */
 export async function fetchAttendanceSessions(
   params: ListQueryParams = {},
