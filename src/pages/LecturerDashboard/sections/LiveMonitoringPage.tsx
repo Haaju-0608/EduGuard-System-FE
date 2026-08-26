@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  FiAlertTriangle, FiCheckCircle, FiClock, FiRadio, FiUser, FiUsers, FiWifi, FiWifiOff,
+  FiAlertTriangle, FiCheckCircle, FiClock, FiRadio, FiUser, FiUserCheck, FiUsers, FiWifi, FiWifiOff,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import {
@@ -11,7 +11,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
-import { fetchExamRealtimeState, fetchExamSlots, fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
+import { fetchExamRealtimeState, fetchExamSlots, fetchSchoolAdminClasses, manualApproveIdentity } from '../../../services/schoolAdminApi';
 import { getViolationLabel } from '../../../utils/violationLabels';
 import type {
   BrowserViolationDetectedEventPayload,
@@ -49,6 +49,9 @@ function StatusBadge({ status }: { status: string }) {
     s === 'submitted' ? { label: 'Submitted', cls: 'text-blue-bright bg-blue/10 border-blue/25' } :
     s === 'disqualified' ? { label: 'Disqualified', cls: 'text-red bg-red/10 border-red/25' } :
     s === 'left' ? { label: 'Left', cls: 'text-muted bg-white/5 border-border' } :
+    // Absent = chưa qua được cổng vào thi (điểm danh/xác thực khuôn mặt) — khác "In Progress"
+    // (Joined), trước đây bị gộp nhầm chung 1 nhãn "In Progress".
+    s === 'absent' ? { label: 'Not Joined', cls: 'text-gold bg-gold/10 border-gold/25' } :
     { label: 'In Progress', cls: 'text-green bg-green/10 border-green/25' };
   return <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${config.cls}`}>{config.label}</span>;
 }
@@ -80,6 +83,21 @@ export default function LiveMonitoringPage() {
   const [examLabel, setExamLabel] = useState('');
   const [loadingState, setLoadingState] = useState(false);
   const [feed, setFeed] = useState<FeedItem[]>([]);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
+  // Duyệt tay danh tính cho sinh viên bị AI từ chối liên tục (vd ánh sáng kém, camera xấu) — giám
+  // thị xác nhận bằng mắt rồi bấm duyệt, sinh viên gọi lại /join sẽ được bỏ qua bước chụp ảnh AI.
+  const handleApproveIdentity = async (participationId: string, fullName: string) => {
+    setApprovingId(participationId);
+    try {
+      await manualApproveIdentity(participationId);
+      toast.success('Identity approved', `${fullName} can now enter the exam.`);
+    } catch (err) {
+      toast.error('Failed to approve', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setApprovingId(null);
+    }
+  };
 
   const { data: examsData, loading: loadingExams } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 100 });
@@ -273,6 +291,18 @@ export default function LiveMonitoringPage() {
                     <p className="text-[10px] text-muted mt-2 flex items-center gap-1">
                       <FiClock size={10} /> Last seen {fmtTime(s.lastSeenAt)}
                     </p>
+                    {s.status.toLowerCase() === 'absent' && (
+                      <button
+                        type="button"
+                        onClick={() => void handleApproveIdentity(s.participationId, s.fullName)}
+                        disabled={approvingId === s.participationId}
+                        title="Manually confirm this student's identity if AI face verification keeps rejecting them"
+                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-gold/30 bg-gold/10 text-gold text-[11px] font-semibold cursor-pointer hover:bg-gold/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <FiUserCheck size={12} />
+                        {approvingId === s.participationId ? 'Approving…' : 'Approve Identity'}
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

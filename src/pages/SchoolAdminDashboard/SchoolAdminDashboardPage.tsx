@@ -9,6 +9,7 @@ import WalletPage from './sections/WalletPage';
 import WalletPaymentResultPage from './sections/WalletPaymentResultPage';
 import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';
+import QuestionBankPage from './sections/QuestionBankPage';
 import MonitoringPage from './sections/MonitoringPage';
 import ReportsPage from './sections/ReportsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
@@ -36,6 +37,8 @@ export default function SchoolAdminDashboardPage() {
           <Route path="lecturers" element={<LecturerManagementPage />} />
           <Route path="classes" element={<SchoolClassManagementPage />} />
           <Route path="exams" element={<ExamManagementPage />} />
+          <Route path="exams/question-bank" element={<QuestionBankPage />} />
+          <Route path="exams/question-bank/:setName/questions" element={<ExamQuestionsPage />} />
           <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
           <Route path="monitoring" element={<MonitoringPage />} />
           <Route path="wallet" element={<WalletPage />} />

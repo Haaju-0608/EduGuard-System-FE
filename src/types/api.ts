@@ -50,6 +50,55 @@ export interface ApiUser {
   createdAt: string;
 }
 
+/** GET /api/users/{id}/detail — hồ sơ tổng hợp 1 sinh viên (SuperAdmin/SchoolAdmin cùng trường) */
+export interface ApiStudentDetail {
+  id: string;
+  fullName: string;
+  email: string;
+  studentCode: string | null;
+  phone: string | null;
+  status: string;
+  institutionId: string | null;
+  createdAt: string;
+  biometric: {
+    hasActiveBiometric: boolean;
+    activeVectorCount: number;
+    latestRequestStatus: string | null;
+    latestRequestReviewedAt: string | null;
+    latestRequestReason: string | null;
+  };
+  examResults: {
+    id: string;
+    examSlotId: string;
+    examName: string | null;
+    courseName: string | null;
+    finalScore: number | null;
+    status: string;
+    submittedAt: string | null;
+    durationSeconds: number | null;
+  }[];
+  examParticipations: {
+    id: string;
+    examSlotId: string;
+    examName: string | null;
+    courseName: string | null;
+    status: string;
+    actualStart: string | null;
+    actualEnd: string | null;
+    disqualifiedReason: string | null;
+    identityVerified: boolean;
+  }[];
+  attendanceHistory: {
+    id: string;
+    sessionId: string;
+    classId: string;
+    courseName: string | null;
+    status: string;
+    method: string;
+    checkinAt: string | null;
+  }[];
+}
+
 export interface PagedResult<T> {
   items: T[];
   pagination: PaginationMeta;
@@ -75,6 +124,10 @@ export interface ApiExamSlot {
   id: string;
   classId: string;
   examName: string;
+  /** Tên bộ đề (question set) mà slot này trỏ tới — BE (commit 250a884) set examName VÀ
+   *  examQuestionName cùng bằng giá trị này khi tạo, giữ song song vì examName vẫn hiển thị được
+   *  như tên buổi thi cũ. */
+  examQuestionName: string;
   startTime: string;
   endTime: string;
   expectedDurationMinutes: number;
@@ -241,11 +294,13 @@ export interface ApiQuestionOption {
   isCorrect: boolean | null;
 }
 
-/** Câu hỏi thi từ GET /api/exam-questions */
+/** Câu hỏi thi từ GET /api/exam-questions — BE (commit 250a884) đổi model: câu hỏi không còn gắn
+ *  cứng 1 examSlot nữa mà gắn vào Institution + tên bộ đề (examQuestionName, chuỗi text chứ không
+ *  phải FK) — 1 bộ đề dùng lại được cho nhiều ExamSlot miễn cùng trường + trùng tên. */
 export interface ApiExamQuestion {
   id: string;
-  examSlotId: string;
-  examName: string | null;
+  institutionId: string;
+  examQuestionName: string;
   passageId: string | null;
   passageText: string | null;
   questionType: string;
@@ -256,6 +311,13 @@ export interface ApiExamQuestion {
   displayOrder: number;
   createdAt: string;
   options: ApiQuestionOption[];
+}
+
+/** Kết quả POST /api/exam-questions/import-excel — tên bộ đề = tên file Excel (bỏ .xlsx), BE tự đặt. */
+export interface ApiImportExamQuestionsResult {
+  institutionId: string;
+  examQuestionName: string;
+  importedCount: number;
 }
 
 /** Đoạn văn Reading từ GET/POST/PUT /api/reading-passages */

@@ -1,15 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   FiArrowLeft,
   FiCheckCircle,
   FiClock,
-  FiFilm,
   FiPlay,
   FiRefreshCw,
   FiStopCircle,
-  FiUpload,
   FiUserPlus,
   FiUsers,
   FiXCircle,
@@ -41,7 +38,6 @@ import {
   fetchActiveAttendanceSession,
   fetchAttendanceRecordsByExam,
   fetchAttendanceSessionById,
-  markAttendanceByAiVideo,
   startAttendanceSession,
   updateAttendanceRecord,
 } from '../../../services/lecturerApi';
@@ -143,54 +139,6 @@ function SessionStats({ records }: { records: AttendanceRecord[] }) {
   );
 }
 
-/** Xác nhận trước khi upload video AI. */
-function AiVideoConfirmDialog({
-  fileName, uploading, onConfirm, onCancel,
-}: { fileName: string; uploading: boolean; onConfirm: () => void; onCancel: () => void }) {
-  return createPortal(
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
-      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-5">
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center shrink-0">
-            <FiFilm className="text-blue-bright" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h3 className="font-syne font-bold text-white-soft text-base">Scan Video & Mark Attendance?</h3>
-            <p className="text-muted text-sm mt-1">
-              AI will scan <span className="text-white-soft font-medium break-all">"{fileName}"</span>, match faces
-              against approved biometric photos, and mark recognized students as Present.
-            </p>
-            <p className="text-gold text-xs mt-2">
-              ℹ️ The session stays open after scanning — you can still manually mark anyone AI missed, then
-              end the session yourself when you're done.
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            disabled={uploading}
-            className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={onConfirm}
-            disabled={uploading}
-            className="flex-1 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none flex items-center justify-center gap-2"
-          >
-            {uploading ? (
-              <><span className="animate-spin">⏳</span> Processing…</>
-            ) : (
-              <><FiUpload size={14} /> Scan & Mark</>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
 
 /** Roster điểm danh của 1 bài thi cụ thể — trước khi điểm danh: hiện trạng thái từng sinh viên
  *  (Future / Not Marked / Present / Absent...). Bấm "Start Attendance" để vào phiên điểm danh sống
@@ -215,10 +163,6 @@ export default function AttendanceRosterPage() {
   const [filter, setFilter] = useState<AttendanceStatus | 'all'>('all');
   const [markingId, setMarkingId] = useState<string | null>(null);
   const [rosterPage, setRosterPage] = useState(1);
-
-  const videoInputRef = useRef<HTMLInputElement>(null);
-  const [pendingVideo, setPendingVideo] = useState<File | null>(null);
-  const [uploadingVideo, setUploadingVideo] = useState(false);
 
   const sessionRef = useRef<AttendanceSession | null>(null);
   useEffect(() => { sessionRef.current = session; }, [session]);
@@ -368,34 +312,6 @@ export default function AttendanceRosterPage() {
     }
   };
 
-  const handleVideoSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0] ?? null;
-    setPendingVideo(file);
-    e.target.value = '';
-  };
-
-  // BE (commit f62273e, 09/08) không còn tự đóng session sau khi quét video nữa — session vẫn
-  // InProgress, chỉ cần refresh lại đúng session này (thêm record mới) rồi ở nguyên màn hình sống để
-  // giảng viên tự điểm danh bù/kiểm tra tiếp, tự bấm End Session khi xong (giống điểm danh tay).
-  const handleConfirmAiVideo = async () => {
-    if (!session || !pendingVideo) return;
-    setUploadingVideo(true);
-    try {
-      const recognized = await markAttendanceByAiVideo(session.id, pendingVideo);
-      toast.success(
-        'Attendance marked by AI',
-        `Recognized ${recognized.length} student${recognized.length !== 1 ? 's' : ''} as Present. Session is still open — mark anyone missed, then End Session when done.`,
-      );
-      const refreshed = await fetchAttendanceSessionById(session.id);
-      setSession(refreshed);
-    } catch (err) {
-      toast.error('Failed to process video', err instanceof Error ? err.message : 'Please try again.');
-    } finally {
-      setUploadingVideo(false);
-      setPendingVideo(null);
-    }
-  };
-
   // Gộp record của session đang mở (nếu có) LÊN TRÊN record lịch sử từ các session trước đó của
   // cùng bài thi — session đang mở luôn thắng vì mới nhất, nhưng học sinh chưa được điểm danh lại
   // trong session mới vẫn giữ nguyên trạng thái đã ghi nhận trước đó thay vì bị coi là "chưa điểm danh".
@@ -517,33 +433,6 @@ export default function AttendanceRosterPage() {
           </div>
 
           <SessionStats records={effectiveRecords} />
-
-          <div className="mt-6 pt-6 border-t border-border/60">
-            <SectionTitle
-              icon={<FiFilm className="text-blue-bright" />}
-              title="AI Video Attendance"
-              subtitle="Upload a classroom video — AI will recognize enrolled students by face and mark them Present. This will end the session once processing finishes."
-            />
-            <input
-              ref={videoInputRef}
-              type="file"
-              accept="video/*"
-              onChange={handleVideoSelected}
-              className="hidden"
-            />
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                onClick={() => videoInputRef.current?.click()}
-                disabled={uploadingVideo}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-blue/30 text-blue-bright text-sm font-semibold cursor-pointer hover:bg-blue/10 transition-all disabled:opacity-50 bg-transparent"
-              >
-                <FiUpload size={14} /> Choose Video File
-              </button>
-              {pendingVideo && !uploadingVideo && (
-                <span className="text-xs text-muted truncate max-w-[240px]">📎 {pendingVideo.name}</span>
-              )}
-            </div>
-          </div>
 
           <div className="mt-6 pt-6 border-t border-border/60">
             <SectionTitle
@@ -723,15 +612,6 @@ export default function AttendanceRosterPage() {
             <Pagination page={safeRosterPage} totalPages={rosterTotalPages} onChange={setRosterPage} className="px-5 py-3.5 border-t border-border" />
           )}
         </div>
-      )}
-
-      {pendingVideo && (
-        <AiVideoConfirmDialog
-          fileName={pendingVideo.name}
-          uploading={uploadingVideo}
-          onConfirm={() => void handleConfirmAiVideo()}
-          onCancel={() => setPendingVideo(null)}
-        />
       )}
     </PageShell>
   );
