@@ -829,9 +829,14 @@ export async function createExamParticipation(payload: {
  *  BE giờ bắt buộc kèm ảnh liveCapture để verify khuôn mặt (so với BiometricData.FaceVector đã approved)
  *  trước khi cho join — thiếu file này BE trả 400. Gửi multipart/form-data field tên "liveCapture" đúng
  *  tên param IFormFile ở ExamparticipationController.Join. */
-export async function joinExamParticipation(participationId: string, liveCapture: Blob): Promise<void> {
+/** NHÁNH TEST (test-skip-verification, không merge lên main): liveCapture giờ nhận null để bỏ qua
+ *  hẳn bước chụp ảnh — BE (IFormFile? liveCapture, optional) chấp nhận thiếu file, nhưng vẫn chặn
+ *  cứng ở ExamWorkflowService.JoinAsync nếu ExamParticipation.IdentityVerifiedAt chưa được set. Để
+ *  nhánh test này vào thi được, nhánh BE tương ứng của Giang cần tự nới lỏng/bỏ check đó — FE không
+ *  thể tự vượt qua được chặn phía BE. */
+export async function joinExamParticipation(participationId: string, liveCapture: Blob | null): Promise<void> {
   const formData = new FormData();
-  formData.append('liveCapture', liveCapture, 'live-capture.jpg');
+  if (liveCapture) formData.append('liveCapture', liveCapture, 'live-capture.jpg');
   await apiPost(`/api/exam-participations/${participationId}/join`, formData);
 }
 

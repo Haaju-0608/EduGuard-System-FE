@@ -160,6 +160,28 @@ export default function StudentExamVerifyPage() {
     }
   }, [ensureParticipationId]);
 
+  // NHÁNH TEST (test-skip-verification, không merge lên main) — cho Giang test đánh giá vi phạm/
+  // evidence mà không cần camera/mobile: bỏ hẳn bước quét mặt local + AI xác thực thật, tạo
+  // participation rồi gọi /join không kèm ảnh, vào thẳng bài thi. BE (ExamWorkflowService.JoinAsync)
+  // vẫn chặn cứng nếu ExamParticipation.IdentityVerifiedAt chưa có — nhánh BE test tương ứng cần tự
+  // nới lỏng/bỏ check đó thì bước này mới thật sự qua được, FE không tự vượt qua chặn phía BE được.
+  const skipVerificationAndJoin = useCallback(async () => {
+    setStep('confirming');
+    try {
+      const participationId = await ensureParticipationId();
+      if (!participationId) {
+        setCameraError('Could not start your exam session. Please go back and try again.');
+        setStep('failed');
+        return;
+      }
+      await joinExamParticipation(participationId, null);
+      setStep('verified');
+    } catch (err) {
+      setCameraError(err instanceof Error ? err.message : 'Join failed. Please retry.');
+      setStep('failed');
+    }
+  }, [ensureParticipationId]);
+
   // Vòng lặp phát hiện mặt (local, chỉ để biết lúc nào tự động chụp — quyết định khớp danh tính
   // thật nằm 100% ở confirmWithBackend/BE phía trên, không so sánh gì ở đây nữa)
   useEffect(() => {
@@ -416,7 +438,7 @@ export default function StudentExamVerifyPage() {
             }`}>
               {step === 'loading' && 'Loading your biometric profile…'}
               {step === 'no-biometric' && 'No approved biometric photo found. Please register your face first or contact your administrator.'}
-              {step === 'idle' && 'Click below to start camera and verify your identity.'}
+              {step === 'idle' && 'TEST MODE — identity verification is skipped on this branch. Click below to join.'}
               {step === 'starting' && 'Opening camera, please wait…'}
               {step === 'scanning' && 'Look directly at the camera and keep still.'}
               {step === 'confirming' && 'Confirming your identity with our AI verification service…'}
@@ -479,7 +501,7 @@ export default function StudentExamVerifyPage() {
             )}
             {(step === 'idle' || step === 'failed') && (
               <button
-                onClick={step === 'failed' ? stopAndRetry : startCamera}
+                onClick={() => void skipVerificationAndJoin()}
                 className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold cursor-pointer transition-colors border text-sm ${
                   step === 'failed'
                     ? 'bg-gold/10 border-gold/30 text-gold hover:bg-gold/20'
@@ -488,7 +510,7 @@ export default function StudentExamVerifyPage() {
               >
                 {step === 'failed'
                   ? <><FiRefreshCw /> Retry</>
-                  : <><FiCamera /> Start Camera Verification</>}
+                  : <><FiCamera /> Join Exam (Test Mode — No Verification)</>}
               </button>
             )}
             {step === 'verified' && (
