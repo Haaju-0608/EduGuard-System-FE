@@ -81,12 +81,8 @@ function newBlock(points: number): QuestionBlock {
 // ─── Modal ────────────────────────────────────────────────────────────────
 
 interface ModalProps {
-  /** examId = id thật của Exam Slot đang xem — vẫn cần cho Reading Passage (ReadingPassage vẫn gắn
-   *  cứng vào 1 ExamSlot cụ thể, BE KHÔNG decoupled phần này giống ExamQuestion, xem ghi chú ở
-   *  handleSave). Câu hỏi trắc nghiệm thường thì dùng institutionId + examQuestionName bên dưới.
-   *  null khi đang quản lý bộ đề độc lập từ Question Bank (chưa gắn exam slot nào) — Reading bị ẩn
-   *  khỏi lựa chọn trong trường hợp đó vì chưa có examSlotId thật để tạo ReadingPassage. */
-  examId: string | null;
+  /** BE (commit 423ecda) tách ReadingPassage khỏi ExamSlot — giờ Reading cũng gắn theo institutionId
+   *  + examQuestionName giống hệt ExamQuestion, không cần biết trước exam slot nào cả. */
   institutionId: string;
   examQuestionName: string;
   displayOrder: number;
@@ -99,14 +95,11 @@ interface ModalProps {
 }
 
 function QuestionModal({
-  examId, institutionId, examQuestionName, displayOrder, initial, otherQuestionsPoints, onClose, onSaved,
+  institutionId, examQuestionName, displayOrder, initial, otherQuestionsPoints, onClose, onSaved,
 }: ModalProps) {
   const toast = useToast();
   const isEdit = !!initial;
   const initialParsed = initial ? getPassageAndQuestion(initial) : null;
-  // Reading cần 1 examSlotId thật để tạo ReadingPassage — ẩn lựa chọn này khi đang quản lý bộ đề
-  // độc lập ở Question Bank (examId null, chưa gắn exam slot nào).
-  const selectableTypes = examId ? SELECTABLE_QUESTION_TYPES : SELECTABLE_QUESTION_TYPES.filter((t) => t.value !== 'Reading');
 
   const [questionType, setQuestionType] = useState<QuestionType>(() => {
     const match = QUESTION_TYPES.find((t) => t.value.toLowerCase() === initial?.questionType.toLowerCase());
@@ -169,13 +162,6 @@ function QuestionModal({
     });
 
   const handleSave = async () => {
-    // Reading cần 1 examSlotId thật để tạo/sửa ReadingPassage — không thể xảy ra qua UI bình thường
-    // (selectableTypes đã ẩn Reading khi examId null) trừ khi đang sửa 1 câu Reading có sẵn được mở
-    // từ Question Bank (bộ đề dùng chung có thể có câu Reading tạo từ 1 slot khác) — chặn tay ở đây.
-    if (isReading && !examId) {
-      toast.error('Not available', 'This question has a reading passage — edit it from its exam slot instead of Question Bank.');
-      return;
-    }
     if (isReading && !passage.trim()) { toast.warning('Required', 'Enter the reading passage.'); return; }
     for (const b of blocks) {
       if (!b.text.trim()) { toast.warning('Required', 'Enter question text for every question.'); return; }
@@ -197,10 +183,9 @@ function QuestionModal({
         // riêng, chưa có passageId) được "nâng cấp" luôn tại đây: tạo 1 passage mới rồi gắn vào.
         let passageId: string | null = null;
         if (isReading) {
-          if (!examId) return; // đã chặn ở đầu handleSave, chỉ để TS narrow examId: string
           passageId = initial.passageId
             ? (await updateReadingPassage(initial.passageId, passage.trim())).id
-            : (await createReadingPassage(examId, passage.trim())).id;
+            : (await createReadingPassage(institutionId, examQuestionName, passage.trim())).id;
         }
 
         await updateExamQuestion(initial.id, {
@@ -231,11 +216,7 @@ function QuestionModal({
         toast.success('Updated', 'Question updated.');
       } else {
         // Reading: tạo đúng 1 passage dùng chung, rồi tạo từng câu hỏi con trỏ tới cùng passageId đó.
-        let passageId: string | null = null;
-        if (isReading) {
-          if (!examId) return; // đã chặn ở đầu handleSave, chỉ để TS narrow examId: string
-          passageId = (await createReadingPassage(examId, passage.trim())).id;
-        }
+        const passageId = isReading ? (await createReadingPassage(institutionId, examQuestionName, passage.trim())).id : null;
 
         await Promise.all(blocks.map((block, i) =>
           createExamQuestion({
@@ -291,7 +272,7 @@ function QuestionModal({
           <div>
             <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Question Type</label>
             <div className="grid grid-cols-2 gap-2">
-              {selectableTypes.map(({ value, label }) => (
+              {SELECTABLE_QUESTION_TYPES.map(({ value, label }) => (
                 <button
                   key={value}
                   type="button"
@@ -568,9 +549,10 @@ function QuestionCard({
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function ExamQuestionsPage() {
-  // 2 route trỏ tới cùng page này: /school/exams/:examId/questions (từ 1 exam slot cụ thể — cho
-  // phép cả Reading) và /school/exams/question-bank/:setName/questions (từ Question Bank, quản lý
-  // 1 bộ đề độc lập chưa gắn slot nào — chỉ MCQ, xem selectableTypes trong QuestionModal).
+  // 2 route trỏ tới cùng page này: /school/exams/:examId/questions (từ 1 exam slot cụ thể) và
+  // /school/exams/question-bank/:setName/questions (từ Question Bank, quản lý 1 bộ đề độc lập chưa
+  // gắn slot nào). BE (commit 423ecda) đã tách ReadingPassage khỏi ExamSlot nên cả 2 route đều cho
+  // phép Reading như nhau — không còn cần phân biệt "examId có/không" để bật/tắt Reading nữa.
   const { examId, setName } = useParams<{ examId?: string; setName?: string }>();
   const bankMode = !examId;
   const navigate = useNavigate();
@@ -616,14 +598,7 @@ export default function ExamQuestionsPage() {
 
   // Reading gắn với 1 examSlotId thật — không sửa được từ Question Bank (không có slot để tham
   // chiếu), chỉ sửa được từ đúng exam slot đang dùng câu hỏi đó.
-  const openEdit = (q: ApiExamQuestion) => {
-    if (bankMode && q.questionType.toLowerCase() === 'reading') {
-      toast.warning('Not available here', 'This question has a reading passage — edit it from its exam slot instead of Question Bank.');
-      return;
-    }
-    setEditing(q);
-    setModal('edit');
-  };
+  const openEdit = (q: ApiExamQuestion) => { setEditing(q); setModal('edit'); };
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -779,7 +754,6 @@ export default function ExamQuestionsPage() {
 
       {(modal === 'create' || modal === 'edit') && examQuestionName && user?.institutionId && (
         <QuestionModal
-          examId={examId ?? null}
           institutionId={user.institutionId}
           examQuestionName={examQuestionName}
           // BE (commit 250a884) giờ validate DisplayOrder > 0 khi tạo câu hỏi mới (trước không kiểm

@@ -125,8 +125,8 @@ export default function WalletPage() {
       } finally {
         setLoadingTx(false);
       }
-    } catch {
-      toast.error('Error', 'Failed to load wallet data.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to load wallet data.');
       setLoadingTx(false);
     } finally {
       setLoadingWallet(false);
@@ -158,8 +158,8 @@ export default function WalletPage() {
         setShowTopUp(false);
         loadWallet();
       }
-    } catch {
-      toast.error('Error', 'Top-up failed. Please try again.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Top-up failed. Please try again.');
     } finally {
       setSubmitting(false);
     }

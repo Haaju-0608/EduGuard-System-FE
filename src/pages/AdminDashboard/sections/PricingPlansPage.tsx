@@ -76,8 +76,8 @@ function NewPricingModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
       await createPricingConfig(form);
       toast.success('Created', 'New pricing config is now active.');
       onSaved(); onClose();
-    } catch {
-      toast.error('Error', 'Failed to create pricing config.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to create pricing config.');
     } finally { setSaving(false); }
   };
 

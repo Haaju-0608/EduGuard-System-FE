@@ -49,8 +49,8 @@ export default function ProfileDetailPage() {
       await refreshProfile();
       toast.success('Saved', 'Profile updated successfully.');
       setIsEditing(false);
-    } catch {
-      toast.error('Error', 'Failed to update profile. Please try again.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to update profile. Please try again.');
     } finally {
       setSaving(false);
     }

@@ -313,7 +313,7 @@ export default function UserManagementPage() {
       await deleteUser(u.id);
       toast.success('Deleted', 'User removed.');
       reload();
-    } catch { toast.error('Error', 'Failed to delete user.'); }
+    } catch (err) { toast.error('Error', err instanceof Error ? err.message : 'Failed to delete user.'); }
     finally { setDeletingId(null); }
   };
 

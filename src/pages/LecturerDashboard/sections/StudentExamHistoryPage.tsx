@@ -272,8 +272,8 @@ export default function StudentExamHistoryPage() {
       toast.success('Deleted', 'Exam record deleted.');
       setDeleteTarget(null);
       reload();
-    } catch {
-      toast.error('Error', 'Failed to delete exam record.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to delete exam record.');
     } finally {
       setDeleting(false);
     }

@@ -136,8 +136,8 @@ function StudentFormModal({
       }
       onSaved();
       onClose();
-    } catch {
-      toast.error('Error', `Failed to ${isEdit ? 'update' : 'create'} student.`);
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : `Failed to ${isEdit ? 'update' : 'create'} student.`);
     } finally {
       setSaving(false);
     }
@@ -279,8 +279,8 @@ export default function SchoolStudentManagementPage() {
       await deleteUser(s.id);
       toast.success('Deleted', 'Student account removed.');
       reload();
-    } catch {
-      toast.error('Error', 'Failed to delete student.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to delete student.');
     } finally {
       setDeletingId(null);
     }

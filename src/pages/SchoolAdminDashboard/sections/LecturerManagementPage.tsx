@@ -302,8 +302,8 @@ export default function LecturerManagementPage() {
       await updateUser(target.id, { status: newStatus });
       toast.success('Updated', `Lecturer ${newStatus === 'Suspended' ? 'suspended' : 'activated'}.`);
       reload();
-    } catch {
-      toast.error('Error', 'Failed to update lecturer status.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to update lecturer status.');
     } finally {
       setActionId(null);
     }
@@ -318,8 +318,8 @@ export default function LecturerManagementPage() {
       await deleteUser(target.id);
       toast.success('Deleted', 'Lecturer account removed.');
       reload();
-    } catch {
-      toast.error('Error', 'Failed to delete lecturer.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to delete lecturer.');
     } finally {
       setActionId(null);
     }

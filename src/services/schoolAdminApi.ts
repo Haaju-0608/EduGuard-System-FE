@@ -3,7 +3,7 @@
  * Enrollment là optional (SchoolAdmin có thể bị 403 — không làm fail các API khác).
  */
 import { getInitialsFromName } from './authApi';
-import { ApiError, apiDelete, apiGet, apiGetAllPages, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
+import { apiDelete, apiGet, apiGetAllPages, apiGetPaginated, apiPost, apiPut, buildQueryParams } from './apiClient';
 import type {
   ApiBiometricRequest,
   ApiAttendanceRecord,
@@ -1087,9 +1087,15 @@ export async function deleteQuestionOption(optionId: string): Promise<void> {
 
 // ─── Reading Passages ───────────────────────────────────────────────────
 
-/** POST /api/reading-passages — tạo 1 đoạn văn Reading dùng chung cho nhiều câu hỏi */
-export async function createReadingPassage(examSlotId: string, passageText: string): Promise<ApiReadingPassage> {
-  return apiPost<ApiReadingPassage>('/api/reading-passages', { examSlotId, passageText });
+/** POST /api/reading-passages — tạo 1 đoạn văn Reading dùng chung cho nhiều câu hỏi. BE (commit
+ *  423ecda) đổi body từ examSlotId sang institutionId + examQuestionName (cùng cách ExamQuestion
+ *  định danh bộ đề) — đoạn văn giờ gắn với BỘ ĐỀ, không cần biết trước exam slot nào cả. */
+export async function createReadingPassage(
+  institutionId: string,
+  examQuestionName: string,
+  passageText: string,
+): Promise<ApiReadingPassage> {
+  return apiPost<ApiReadingPassage>('/api/reading-passages', { institutionId, examQuestionName, passageText });
 }
 
 /** PUT /api/reading-passages/{id} — sửa 1 lần, mọi câu hỏi trỏ tới passageId này tự đồng bộ */
