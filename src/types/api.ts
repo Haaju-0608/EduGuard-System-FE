@@ -321,9 +321,14 @@ export interface ApiImportExamQuestionsResult {
 }
 
 /** Đoạn văn Reading từ GET/POST/PUT /api/reading-passages */
+/** BE (commit 423ecda "fix bug reading") tách ReadingPassage khỏi ExamSlot, đổi sang gắn vào
+ *  Institution + tên bộ đề (examQuestionName) — cùng cách ExamQuestion đã tách trước đó — nên giờ
+ *  1 đoạn văn Reading dùng lại được cho bộ đề dù chưa gắn với exam slot nào (sửa đúng lỗ hổng đã
+ *  báo BE: trước đây không thêm được câu hỏi Reading từ Question Bank vì chưa có examSlotId thật). */
 export interface ApiReadingPassage {
   id: string;
-  examSlotId: string;
+  institutionId: string;
+  examQuestionName: string;
   passageText: string;
   createdAt: string;
   updatedAt: string;

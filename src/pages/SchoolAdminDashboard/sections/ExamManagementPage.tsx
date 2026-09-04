@@ -291,14 +291,39 @@ function ExamFormModal({
       if (isEdit) {
         await updateExamSlot(target!.id, { classId: form.classId, ...base });
         toast.success('Updated', 'Exam slot updated.');
+        onSaved(); onClose();
       } else {
-        await Promise.all(
+        // Promise.allSettled thay vì Promise.all — tạo nhiều lớp cùng lúc, 1 lớp bị BE chặn (vd
+        // trùng giờ thi với sinh viên) không được làm mất luôn kết quả của các lớp khác đã tạo
+        // thành công song song. Báo rõ lớp nào tạo được/lớp nào lỗi + lý do, thay vì 1 toast lỗi
+        // chung chung khiến admin không biết cái nào đã tạo, cái nào chưa.
+        const results = await Promise.allSettled(
           form.classIds.map((classId) => createExamSlot({ classId, ...base })),
         );
-        toast.success('Created', `${form.classIds.length} exam slot${form.classIds.length > 1 ? 's' : ''} created.`);
-        void notifyStudentsExamCreated(form.classIds, base.examQuestionName, base.startTime);
+        const succeededIds = form.classIds.filter((_, i) => results[i].status === 'fulfilled');
+        const failed = form.classIds
+          .map((classId, i) => ({ classId, result: results[i] }))
+          .filter((x): x is { classId: string; result: PromiseRejectedResult } => x.result.status === 'rejected');
+
+        if (succeededIds.length > 0) {
+          toast.success('Created', `${succeededIds.length} exam slot${succeededIds.length !== 1 ? 's' : ''} created.`);
+          void notifyStudentsExamCreated(succeededIds, base.examQuestionName, base.startTime);
+        }
+        if (failed.length > 0) {
+          const names = failed.map(({ classId }) => classes.find((c) => c.id === classId)?.code ?? classId.slice(0, 8));
+          const reason = failed[0].result.reason;
+          const reasonMsg = reason instanceof Error ? reason.message : 'Unknown error.';
+          toast.error(
+            `Failed for ${failed.length} class${failed.length !== 1 ? 'es' : ''}`,
+            `${names.join(', ')} — ${reasonMsg}`,
+          );
+          // Chỉ giữ lại các lớp bị lỗi trong ô chọn — bấm Create lại là thử lại đúng phần còn thiếu,
+          // không tạo trùng những lớp đã thành công.
+          setForm((f) => ({ ...f, classIds: failed.map((x) => x.classId) }));
+        }
+        if (failed.length === 0) { onSaved(); onClose(); }
+        else onSaved();
       }
-      onSaved(); onClose();
     } catch (err) {
       toast.error('Error', err instanceof Error ? err.message : 'Failed to save exam slot.');
     } finally { setSaving(false); }

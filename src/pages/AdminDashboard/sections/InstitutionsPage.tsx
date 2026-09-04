@@ -228,7 +228,7 @@ export default function InstitutionsPage() {
       await deleteInstitution(inst.id);
       toast.success('Deleted', `"${inst.name}" removed.`);
       reload();
-    } catch { toast.error('Error', 'Failed to delete institution.'); }
+    } catch (err) { toast.error('Error', err instanceof Error ? err.message : 'Failed to delete institution.'); }
     finally { setActionId(null); }
   };
 
@@ -243,7 +243,7 @@ export default function InstitutionsPage() {
         toast.warning('Suspended', `"${inst.name}" has been suspended.`);
       }
       reload();
-    } catch { toast.error('Error', 'Failed to update status.'); }
+    } catch (err) { toast.error('Error', err instanceof Error ? err.message : 'Failed to update status.'); }
     finally { setActionId(null); }
   };
 

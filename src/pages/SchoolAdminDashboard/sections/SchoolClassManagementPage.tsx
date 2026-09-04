@@ -48,6 +48,9 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// Sức chứa tối đa của 1 lớp — chỉ tính sinh viên đang "active" (dropped không chiếm chỗ).
+const MAX_CLASS_SIZE = 20;
+
 // ─── Enrollment Panel ────────────────────────────────────────────────────
 
 function EnrollmentPanel({
@@ -85,6 +88,13 @@ function EnrollmentPanel({
     (u) => u.role.trim().toLowerCase() === 'student' && (!institutionId || u.institutionId === institutionId),
   );
 
+  // Chỉ tính sinh viên "active" vào sĩ số — "dropped" không chiếm chỗ, vẫn cho thêm/kích hoạt lại
+  // người khác miễn còn dưới MAX_CLASS_SIZE.
+  // BE trả status PascalCase ("Active"/"Dropped") — chuẩn hoá lowercase trước khi so sánh.
+  const activeCount = enrollments.filter((e) => e.status.trim().toLowerCase() === 'active').length;
+  const remainingSlots = Math.max(0, MAX_CLASS_SIZE - activeCount - selected.length);
+  const isFull = remainingSlots === 0;
+
   // Lọc students chưa enrolled, chưa được chọn để thêm, và khớp search
   const enrolledIds = new Set(enrollments.map((e) => e.studentId));
   const selectedIds = new Set(selected.map((s) => s.id));
@@ -103,6 +113,10 @@ function EnrollmentPanel({
   // và xoá ô tìm kiếm ngay để tìm tiếp người kế tiếp, thay vì đóng luôn như trước (chỉ thêm được 1
   // người/lượt).
   const handleSelect = (s: ApiUser) => {
+    if (activeCount + selected.length >= MAX_CLASS_SIZE) {
+      toast.warning('Class full', `This class can only have ${MAX_CLASS_SIZE} active students.`);
+      return;
+    }
     setSelected((prev) => [...prev, s]);
     setSearch('');
     searchInputRef.current?.focus();
@@ -136,15 +150,22 @@ function EnrollmentPanel({
   };
 
   const handleToggleStatus = async (studentId: string, currentStatus: string) => {
-    const next = currentStatus === 'active' ? 'dropped' : 'active';
+    // BE trả enum PascalCase ("Active"/"Dropped", xem EnrollmentStatus) — so sánh phải chuẩn hoá
+    // lowercase, không thì so với literal 'active' luôn sai, bấm toggle 1 học sinh đang active lại
+    // gửi lên "active" (giữ nguyên, không dropped) thay vì đảo trạng thái như mong đợi.
+    const next = currentStatus.trim().toLowerCase() === 'active' ? 'dropped' : 'active';
+    if (next === 'active' && activeCount >= MAX_CLASS_SIZE) {
+      toast.warning('Class full', `This class can only have ${MAX_CLASS_SIZE} active students.`);
+      return;
+    }
     setTogglingId(studentId);
     try {
       await updateEnrollment(cls.id, studentId, next);
       toast.success('Updated', `Enrollment marked as ${next}.`);
       reload();
       onEnrollmentChange();
-    } catch {
-      toast.error('Error', 'Failed to update enrollment status.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to update enrollment status.');
     } finally {
       setTogglingId(null);
     }
@@ -159,8 +180,8 @@ function EnrollmentPanel({
       toast.success('Removed', 'Student removed from class.');
       reload();
       onEnrollmentChange();
-    } catch {
-      toast.error('Error', 'Failed to remove student.');
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to remove student.');
     } finally {
       setRemovingId(null);
     }
@@ -181,16 +202,25 @@ function EnrollmentPanel({
           </button>
         </div>
 
-        {/* Add student — search dropdown — khoá khi lớp đã Completed, không cho thêm học sinh nữa */}
+        {/* Add student — search dropdown — khoá khi lớp đã Completed hoặc đã đủ MAX_CLASS_SIZE. Chỉ
+            khoá hẳn (ẩn ô search) khi KHÔNG còn ai đang chờ trong hàng chờ — nếu đang có sinh viên
+            chờ Add mà vừa chạm mốc đầy thì vẫn phải giữ nút Add hiển thị để bấm nốt. */}
         {cls.status === 'completed' ? (
           <div className="px-6 py-4 border-b border-border shrink-0 flex items-center gap-3 bg-gold/5">
             <span className="text-lg">🔒</span>
             <p className="text-xs text-gold">This class has ended — students can no longer be added.</p>
           </div>
+        ) : isFull && selected.length === 0 ? (
+          <div className="px-6 py-4 border-b border-border shrink-0 flex items-center gap-3 bg-gold/5">
+            <span className="text-lg">🔒</span>
+            <p className="text-xs text-gold">This class is full ({activeCount}/{MAX_CLASS_SIZE} students) — mark a student as dropped to free up a seat.</p>
+          </div>
         ) : (
         <div className="px-6 py-4 border-b border-border shrink-0">
           <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">
-            Add Students <span className="normal-case font-normal">— pick as many as you need, then Add</span>
+            Add Students
+            <span className="normal-case font-normal"> — pick as many as you need, then Add</span>
+            <span className="normal-case font-normal text-muted/70"> ({activeCount + selected.length}/{MAX_CLASS_SIZE} seats)</span>
           </p>
 
           {/* Chip của những sinh viên đã chọn, chưa bấm Add — bấm x để bỏ chọn */}
@@ -219,12 +249,13 @@ function EnrollmentPanel({
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search by name, student code, or email..."
+                placeholder={isFull ? `Class full (${MAX_CLASS_SIZE}/${MAX_CLASS_SIZE}) — click Add below or remove a pending student` : 'Search by name, student code, or email...'}
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
                 onFocus={() => setShowDropdown(true)}
                 onBlur={() => setTimeout(() => setShowDropdown(false), 150)}
-                className="w-full bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
+                disabled={isFull}
+                className="w-full bg-navy border border-border rounded-xl px-4 py-2 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted disabled:opacity-50 disabled:cursor-not-allowed"
               />
               {showDropdown && suggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-navy-card border border-border rounded-xl overflow-y-auto max-h-64 z-50 shadow-xl custom-scrollbar">
@@ -299,9 +330,9 @@ function EnrollmentPanel({
                     <button
                       onClick={() => handleToggleStatus(e.studentId, e.status)}
                       disabled={togglingId === e.studentId}
-                      title={`Click to mark as ${e.status === 'active' ? 'dropped' : 'active'}`}
+                      title={`Click to mark as ${e.status.trim().toLowerCase() === 'active' ? 'dropped' : 'active'}`}
                       className={`text-[10px] font-bold px-2 py-1 rounded-full border shrink-0 cursor-pointer transition-colors disabled:opacity-40 ${
-                        e.status === 'active'
+                        e.status.trim().toLowerCase() === 'active'
                           ? 'text-green bg-green/10 border-green/25 hover:bg-green/20'
                           : 'text-muted bg-white/5 border-border hover:bg-white/10'
                       }`}
@@ -738,6 +769,9 @@ export default function SchoolClassManagementPage() {
 
   const activeCount = classes.filter((c) => c.status === 'active').length;
   const totalStudents = studentRes?.items.length ?? 0;
+  // Số giảng viên ĐANG được phân công dạy ít nhất 1 lớp ở trang này — không phải tổng số giảng
+  // viên có sẵn trong trường (lecturers.length, số đó không phản ánh ai đang thực sự dạy lớp nào).
+  const assignedLecturerCount = new Set(classes.filter((c) => c.lecturerId).map((c) => c.lecturerId)).size;
 
   return (
     <div className="space-y-6">
@@ -761,7 +795,7 @@ export default function SchoolClassManagementPage() {
           { label: 'Total Classes', value: classes.length, icon: FiBook, color: 'text-blue-bright' },
           { label: 'Active', value: activeCount, icon: FiCalendar, color: 'text-green' },
           { label: 'Total Students', value: totalStudents, icon: FiUsers, color: 'text-cyan' },
-          { label: 'Lecturers Available', value: lecturers.length, icon: FiUsers, color: 'text-gold' },
+          { label: 'Lecturers Assigned', value: assignedLecturerCount, icon: FiUsers, color: 'text-gold' },
         ].map((k) => (
           <div key={k.label} className="bg-navy-card border border-border rounded-2xl p-4 flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl bg-white/5 grid place-items-center ${k.color}`}>

@@ -1,13 +1,17 @@
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiArrowLeft, FiBookOpen, FiChevronRight, FiPlus, FiUpload, FiX } from 'react-icons/fi';
+import { FiArrowLeft, FiBookOpen, FiChevronRight, FiPlus, FiSearch, FiTrash2, FiUpload, FiX } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   ExamQuestionSetSummary,
+  deleteExamQuestion,
+  deleteReadingPassage,
   fetchExamQuestionSets,
+  fetchExamQuestionsBySetName,
+  fetchExamSlots,
   importExamQuestionsFromExcel,
 } from '../../../services/schoolAdminApi';
 
@@ -153,15 +157,117 @@ function NewSetModal({ existingNames, onClose, onCreate }: {
   );
 }
 
+function DeleteSetModal({ set, onClose, onDeleted }: {
+  set: ExamQuestionSetSummary;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const toast = useToast();
+  const [deleting, setDeleting] = useState(false);
+
+  // Cảnh báo nếu bộ đề đang được 1+ exam slot dùng — xoá hết câu hỏi sẽ để lại slot đó 0 câu hỏi.
+  // Không có endpoint lọc riêng, phải fetch hết slot rồi so tên client-side như fetchExamQuestionSets.
+  const { data: slotsData, loading: loadingSlots } = useAsyncData(
+    () => fetchExamSlots({ page: 1, pageSize: 200 }),
+    [],
+  );
+  const usedBySlots = (slotsData?.items ?? []).filter(
+    (s) => s.examQuestionName.trim().toLowerCase() === set.name.trim().toLowerCase() && s.status !== 'cancelled',
+  );
+  // BE (EnsureQuestionSetCanBeEditedAsync) chặn cứng sửa/xoá câu hỏi nếu BẤT KỲ slot nào dùng chung
+  // bộ đề đã "ongoing"/"completed" (qua giờ bắt đầu) — chỉ "scheduled" (chưa tới giờ) mới còn sửa
+  // được. Tự chặn trước ở đây để không phải bấm Delete xong mới thấy lỗi từ BE.
+  const lockedBySlots = usedBySlots.filter((s) => s.status !== 'scheduled');
+  const isLocked = lockedBySlots.length > 0;
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      const questions = await fetchExamQuestionsBySetName(set.name);
+      const passageIds = [...new Set(questions.map((q) => q.passageId).filter((id): id is string => !!id))];
+      await Promise.all(questions.map((q) => deleteExamQuestion(q.id)));
+      // Dọn reading passage sau khi mọi câu hỏi trỏ tới nó đã bị xoá — an toàn gọi kể cả đã hết
+      // tham chiếu, bỏ qua lỗi nếu BE vẫn còn thấy ai đó khác đang trỏ tới (race hiếm gặp).
+      await Promise.all(passageIds.map((id) => deleteReadingPassage(id).catch(() => undefined)));
+      toast.success('Deleted', `"${set.name}" and its ${questions.length} question${questions.length !== 1 ? 's' : ''} removed.`);
+      onDeleted();
+      onClose();
+    } catch (err) {
+      toast.error('Failed to delete', err instanceof Error ? err.message : 'Unknown error.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-sm p-6 space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-red/10 border border-red/20 grid place-items-center shrink-0">
+            <FiTrash2 className="text-red" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-syne font-bold text-white-soft text-base">Delete Question Set</h3>
+            <p className="text-muted text-sm mt-1">
+              Delete <span className="text-white-soft font-semibold break-all">"{set.name}"</span> and all{' '}
+              {set.questionCount} question{set.questionCount !== 1 ? 's' : ''} in it? This cannot be undone.
+            </p>
+          </div>
+        </div>
+
+        {!loadingSlots && isLocked && (
+          <p className="text-xs text-red bg-red/5 border border-red/20 rounded-xl px-3 py-2.5">
+            🔒 Can't delete — used by exam{lockedBySlots.length !== 1 ? 's' : ''}{' '}
+            "{lockedBySlots.map((s) => s.examName).join('", "')}" which{' '}
+            {lockedBySlots.length !== 1 ? 'have' : 'has'} already started or ended. Question sets can only be
+            changed while every linked exam is still scheduled.
+          </p>
+        )}
+        {!loadingSlots && !isLocked && usedBySlots.length > 0 && (
+          <p className="text-xs text-gold bg-gold/5 border border-gold/20 rounded-xl px-3 py-2.5">
+            ⚠️ Used by {usedBySlots.length} exam slot{usedBySlots.length !== 1 ? 's' : ''}
+            {' '}({usedBySlots.map((s) => s.examName).join(', ')}) — deleting will leave{' '}
+            {usedBySlots.length !== 1 ? 'them' : 'it'} with no questions.
+          </p>
+        )}
+
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={deleting}
+            className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent disabled:opacity-50"
+          >
+            {isLocked ? 'Close' : 'Cancel'}
+          </button>
+          <button
+            onClick={() => void handleDelete()}
+            disabled={deleting || isLocked || loadingSlots}
+            title={isLocked ? "Locked by an exam that already started or ended" : undefined}
+            className="flex-1 py-2.5 rounded-xl bg-red text-white text-sm font-semibold cursor-pointer hover:bg-red/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors border-none"
+          >
+            {deleting ? 'Deleting…' : 'Delete Set'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export default function QuestionBankPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [showImport, setShowImport] = useState(false);
   const [showNewSet, setShowNewSet] = useState(false);
+  const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<ExamQuestionSetSummary | null>(null);
 
   const { data, loading, error, reload } = useAsyncData(fetchExamQuestionSets, []);
   const sets: ExamQuestionSetSummary[] = data ?? [];
   const existingNames = new Set(sets.map((s) => s.name.toLowerCase()));
+  const filteredSets = search.trim()
+    ? sets.filter((s) => s.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : sets;
 
   const goToSet = (name: string) => navigate(`/school/exams/question-bank/${encodeURIComponent(name)}/questions`);
 
@@ -200,11 +306,23 @@ export default function QuestionBankPage() {
         </div>
       </div>
 
+      {/* Search */}
+      <div className="flex items-center gap-3 flex-1 min-w-50 bg-navy-card border border-border rounded-xl px-4 py-2.5 focus-within:border-blue-bright/40 transition-colors">
+        <FiSearch className="text-muted shrink-0" />
+        <input
+          type="text"
+          placeholder="Search question sets by name..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="flex-1 bg-transparent border-none outline-none text-sm text-white-soft placeholder:text-muted"
+        />
+      </div>
+
       {/* List */}
       <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
         <div className="px-5 py-4 border-b border-border flex items-center justify-between">
           <p className="text-sm font-bold text-white-soft">Question Sets</p>
-          <span className="text-xs text-muted">{sets.length}</span>
+          <span className="text-xs text-muted">{filteredSets.length} of {sets.length}</span>
         </div>
 
         {loading ? (
@@ -230,34 +348,55 @@ export default function QuestionBankPage() {
             <p className="text-3xl mb-3">📋</p>
             <p className="text-muted text-sm">No question sets yet. Import an Excel file or create one manually.</p>
           </div>
+        ) : filteredSets.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-3xl mb-3">🔍</p>
+            <p className="text-muted text-sm">No question sets match "{search.trim()}".</p>
+          </div>
         ) : (
           <div className="divide-y divide-border">
-            {sets.map((s) => (
-              <button
-                key={s.name}
-                onClick={() => goToSet(s.name)}
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-navy/40 transition-colors text-left cursor-pointer bg-transparent border-none"
-              >
-                <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center shrink-0">
-                  <FiBookOpen className="text-blue-bright" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white-soft truncate">{s.name}</p>
-                  <p className="text-xs text-muted mt-0.5">
-                    {s.questionCount} question{s.questionCount !== 1 ? 's' : ''}
-                  </p>
-                </div>
-                <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${
-                  s.totalPoints === TOTAL_POINTS_SCALE ? 'text-green bg-green/10 border-green/25' : 'text-gold bg-gold/10 border-gold/25'
-                }`}>
-                  {s.totalPoints} / {TOTAL_POINTS_SCALE} pts
-                </span>
-                <FiChevronRight className="text-muted shrink-0" />
-              </button>
+            {filteredSets.map((s) => (
+              <div key={s.name} className="flex items-center gap-2 px-5 py-2 hover:bg-navy/40 transition-colors">
+                <button
+                  onClick={() => goToSet(s.name)}
+                  className="flex-1 min-w-0 flex items-center gap-4 py-2 text-left cursor-pointer bg-transparent border-none"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-blue/10 border border-blue/20 grid place-items-center shrink-0">
+                    <FiBookOpen className="text-blue-bright" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white-soft truncate">{s.name}</p>
+                    <p className="text-xs text-muted mt-0.5">
+                      {s.questionCount} question{s.questionCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${
+                    s.totalPoints === TOTAL_POINTS_SCALE ? 'text-green bg-green/10 border-green/25' : 'text-gold bg-gold/10 border-gold/25'
+                  }`}>
+                    {s.totalPoints} / {TOTAL_POINTS_SCALE} pts
+                  </span>
+                  <FiChevronRight className="text-muted shrink-0" />
+                </button>
+                <button
+                  onClick={() => setDeleteTarget(s)}
+                  title="Delete question set"
+                  className="w-8 h-8 rounded-lg bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all shrink-0"
+                >
+                  <FiTrash2 className="text-sm" />
+                </button>
+              </div>
             ))}
           </div>
         )}
       </div>
+
+      {deleteTarget && (
+        <DeleteSetModal
+          set={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={() => void reload()}
+        />
+      )}
 
       {showImport && user?.institutionId && (
         <ImportModal

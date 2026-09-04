@@ -79,6 +79,11 @@ export default function StudentExamVerifyPage() {
   const startCamera = useCallback(async () => {
     setCameraError(null);
     setStep('starting');
+
+    // Bước 1: xin quyền camera — tách riêng khỏi bước tải MediaPipe bên dưới, trước đây gộp chung
+    // 1 catch{} nên bất kể lỗi thật là gì cũng chỉ hiện đúng 1 câu "allow camera permission" (vd
+    // ngày demo model AI tải lỗi vì mạng/thiếu file deploy cũng bị báo nhầm thành lỗi quyền camera),
+    // và không log gì ra console nên sau đó không tra lại được nguyên nhân thật.
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'user', width: 640, height: 480 },
@@ -89,19 +94,43 @@ export default function StudentExamVerifyPage() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
+    } catch (err) {
+      console.error('[ExamVerify] getUserMedia failed:', err);
+      const name = err instanceof DOMException ? err.name : '';
+      const message =
+        name === 'NotAllowedError' || name === 'PermissionDeniedError'
+          ? 'Camera permission was denied. Please allow camera access in your browser settings and retry.'
+          : name === 'NotFoundError' || name === 'DevicesNotFoundError'
+          ? 'No camera was found on this device.'
+          : name === 'NotReadableError' || name === 'TrackStartError'
+          ? 'Your camera is already in use by another application. Close it and retry.'
+          : `Could not access your camera (${err instanceof Error ? err.message : 'unknown error'}).`;
+      setCameraError(message);
+      setStep('failed');
+      return;
+    }
 
-      // Chỉ cần khởi tạo landmarker để phát hiện "có mặt trong khung hình" — không còn trích/so
-      // landmark với ảnh đăng ký nữa (việc so khớp danh tính chuyển hẳn cho BE + AI service thật).
+    // Bước 2: tải model AI MediaPipe (WASM + face_landmarker.task, từ /mediapipe/... trên chính FE)
+    // — chỉ để phát hiện "có mặt trong khung hình" cục bộ, không so khớp landmark với ảnh đăng ký
+    // (việc so khớp danh tính chuyển hẳn cho BE + AI service thật ở confirmWithBackend).
+    try {
       const svc = MediaPipeFaceLandmarkerService.getInstance();
       await svc.initialize();
-
-      goodFramesRef.current = 0;
-      setScanProgress(0);
-      setStep('scanning');
-    } catch {
-      setCameraError('Cannot access camera. Please allow camera permission and try again.');
+    } catch (err) {
+      console.error('[ExamVerify] MediaPipe initialize() failed:', err);
+      setCameraError(
+        `Could not load the face-scanning engine (${err instanceof Error ? err.message : 'unknown error'}). ` +
+        'Check your internet connection and retry — if this keeps happening, contact support.',
+      );
       setStep('failed');
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      return;
     }
+
+    goodFramesRef.current = 0;
+    setScanProgress(0);
+    setStep('scanning');
   }, []);
 
   // Lấy participationId để gọi /join — tạo mới nếu chưa có, hoặc tìm lại bản ghi cũ nếu tạo bị từ
@@ -114,7 +143,10 @@ export default function StudentExamVerifyPage() {
       const p = await createExamParticipation({ examSlotId: examId, studentId: user.id });
       participationIdRef.current = p.id;
       return p.id;
-    } catch {
+    } catch (err) {
+      // Tạo mới thất bại thường do đã có participation từ lần verify trước bị thoát giữa chừng
+      // (BE từ chối tạo trùng) — không phải lỗi thật, nên chỉ log info rồi thử tìm lại bản ghi cũ.
+      console.info('[ExamVerify] createExamParticipation failed, looking up existing participation:', err);
       try {
         const { items } = await fetchExamParticipations(examId, { pageSize: 100 });
         const existing = items.find((p) => p.examSlotId === examId && p.studentId === user.id);
@@ -122,7 +154,9 @@ export default function StudentExamVerifyPage() {
           participationIdRef.current = existing.id;
           return existing.id;
         }
-      } catch { /* bỏ qua */ }
+      } catch (lookupErr) {
+        console.error('[ExamVerify] fetchExamParticipations fallback also failed:', lookupErr);
+      }
     }
     return null;
   }, [examId, user?.id]);
@@ -149,6 +183,7 @@ export default function StudentExamVerifyPage() {
       await joinExamParticipation(participationId, frame);
       setStep('verified');
     } catch (err) {
+      console.error('[ExamVerify] joinExamParticipation failed:', err);
       const rawMessage = err instanceof Error ? err.message : '';
       // BE nhét thẳng số liệu kỹ thuật vào message ("...distance=0.4665.") — thay bằng câu người
       // dùng đọc hiểu được, không lộ chi tiết thuật toán so khớp khuôn mặt.
