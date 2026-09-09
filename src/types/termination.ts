@@ -29,6 +29,9 @@ export interface ExamParticipationStatusResponse {
   isTerminated: boolean;
   terminationReason: string | null;
   browserViolationCount: number;
+  /** Số vi phạm AI (không tính browser violation) đã ghi nhận — nguồn đếm chuẩn duy nhất, khớp
+   *  đúng số record thật trong DB (đã qua cooldown/max-count/consecutive-type của BE). */
+  aiViolationCount: number;
 }
 
 /** Payload event "ExamTerminated" bắn qua SignalR hub Exams */
@@ -108,7 +111,9 @@ export interface ExamSubmittedEventPayload {
 
 /** Payload event "ViolationDetected" bắn qua SignalR hub Exams — vi phạm AI thật (khác
  *  "BrowserViolationDetected" ở trên, vốn chỉ dành cho đổi tab/mất focus/thoát fullscreen).
- *  Xem Services/ViolationlogServices.cs. */
+ *  Xem Services/ViolationlogServices.cs. Bắn tới CẢ student (để cập nhật số đếm trên màn thi)
+ *  VÀ lecturer group cùng lúc, với cùng 1 currentAiViolationCount tính từ server — đây là nguồn
+ *  đếm chuẩn duy nhất, không tự cộng dồn ở FE (giống pattern browserViolationCount). */
 export interface ViolationDetectedEventPayload {
   violationId: string;
   participationId: string;
@@ -121,4 +126,59 @@ export interface ViolationDetectedEventPayload {
   confidence: number | null;
   evidencePath: string | null;
   recordedAt: string;
+  currentAiViolationCount: number;
+}
+
+/** Payload event "ViolationThresholdReached" bắn qua SignalR hub Exams tới Lecturer group — khi
+ *  số vi phạm (AI hoặc browser) của 1 student đạt đúng ngưỡng thông báo (AiNotifyThreshold /
+ *  BrowserNotifyThreshold trong ProctoringSettings). KHÔNG tự disqualify — chỉ nhắc Lecturer tự
+ *  quyết định. `kind` phân biệt 2 nguồn; field đếm riêng theo từng kind (currentAiViolationCount
+ *  vs currentBrowserViolationCount), còn participationId/examSlotId/studentId/fullName/threshold
+ *  giống nhau ở cả 2 — đã chuẩn hoá thống nhất field `participationId` cho cả 2 kind (trước đây
+ *  kind "ai" dùng field "id" do lỗi C# anonymous type, đã fix ở ViolationlogServices.cs). */
+export type ViolationThresholdReachedEventPayload =
+  | {
+      kind: 'ai';
+      participationId: string;
+      examSlotId: string;
+      studentId: string;
+      fullName: string;
+      currentAiViolationCount: number;
+      threshold: number;
+      maxAiViolationCount: number;
+    }
+  | {
+      kind: 'browser';
+      participationId: string;
+      examSlotId: string;
+      studentId: string;
+      fullName: string;
+      currentBrowserViolationCount: number;
+      threshold: number;
+    };
+
+/** 1 dòng trong `violationTypeThresholds` của GET /api/proctoring-settings/effective — ngưỡng
+ *  thời gian (giây) để tính là 1 vi phạm cho từng loại. Tên loại theo enum BE (khác tên nội bộ
+ *  FE trong ai/types/proctoring.ts — xem AI_VIOLATION_TYPE_TO_FE_MAP khi áp dụng). */
+export interface ProctoringViolationTypeThreshold {
+  violationType: 'GazeDiversion' | 'MultipleFaces' | 'Absence' | 'HeadTurn' | 'FaceObstructed' | 'Impersonation';
+  detectionThresholdSeconds: number;
+}
+
+/** `data` trong response GET /api/proctoring-settings/effective — cấu hình AI Proctoring đang áp
+ *  dụng cho 1 institution (hoặc mặc định toàn hệ thống nếu institutionId null). Field
+ *  maxAiViolationCount/cooldownSeconds/allowConsecutiveSameType/aiNotifyThreshold/
+ *  browserNotifyThreshold đã được BE tự enforce phía server — FE KHÔNG cần tự áp dụng lại, chỉ
+ *  cần đọc violationTypeThresholds để cấu hình ViolationEngine (thời gian giữ trạng thái trước
+ *  khi báo 1 vi phạm — xem ai/engines/ViolationEngine.ts). */
+export interface EffectiveProctoringSettings {
+  id: string;
+  institutionId: string | null;
+  maxAiViolationCount: number;
+  cooldownSeconds: number;
+  allowConsecutiveSameType: boolean;
+  aiNotifyThreshold: number;
+  browserNotifyThreshold: number;
+  isActive: boolean;
+  violationTypeThresholds: ProctoringViolationTypeThreshold[];
 }

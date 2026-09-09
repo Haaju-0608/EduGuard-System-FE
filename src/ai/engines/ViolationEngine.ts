@@ -39,6 +39,22 @@ export class ViolationEngine {
     this.thresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
   }
 
+  /**
+   * Cập nhật lại ngưỡng thời gian sau khi khởi tạo — dùng khi lấy được cấu hình thật từ
+   * GET /api/proctoring-settings/effective (xem useAiProctoring.ts), thay cho DEFAULT_THRESHOLDS
+   * hard-code. Chỉ override field nào BE có trả (partial merge), field còn thiếu giữ nguyên giá
+   * trị hiện tại. Gọi reset() kèm theo vì đổi ngưỡng giữa chừng một chuỗi tín hiệu đang đếm dở có
+   * thể tạo ra durationMs không nhất quán (đếm dở theo ngưỡng cũ nhưng so sánh với ngưỡng mới).
+   */
+  setThresholds(thresholds: Partial<ViolationEngineThresholds>) {
+    this.thresholds = { ...this.thresholds, ...thresholds };
+    this.reset();
+  }
+
+  getThresholds(): ViolationEngineThresholds {
+    return { ...this.thresholds };
+  }
+
   evaluate(params: {
     timestamp: number;
     faceCount: number;

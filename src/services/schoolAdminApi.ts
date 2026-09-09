@@ -44,6 +44,7 @@ import { getFacultyByCourseCode } from '../utils/facultyTheme';
 import type {
   BrowserViolationResponse,
   BrowserViolationType,
+  EffectiveProctoringSettings,
   ExamParticipationStatusResponse,
   ExamRealtimeStateResponse,
 } from '../types/termination';
@@ -901,6 +902,20 @@ export async function fetchExamParticipationStatus(
   participationId: string,
 ): Promise<ExamParticipationStatusResponse> {
   return apiGet<ExamParticipationStatusResponse>(`/api/exam-participations/${participationId}/status`);
+}
+
+/**
+ * GET /api/proctoring-settings/effective — cấu hình AI Proctoring đang áp dụng (ngưỡng thời gian
+ * bắt vi phạm theo từng loại, max count, cooldown...). Gọi 1 lần khi bắt đầu ca thi (dùng
+ * institutionId của Student đang đăng nhập — AuthContext), dùng để cấu hình lại ViolationEngine
+ * thay cho ngưỡng hard-code, TRƯỚC khi bắt đầu vòng lặp detect (xem useAiProctoring.ts).
+ * `institutionId` truyền `null`/omit để lấy cấu hình mặc định toàn hệ thống.
+ */
+export async function fetchEffectiveProctoringSettings(
+  institutionId?: string | null,
+): Promise<EffectiveProctoringSettings> {
+  const query = institutionId ? `?institutionId=${encodeURIComponent(institutionId)}` : '';
+  return apiGet<EffectiveProctoringSettings>(`/api/proctoring-settings/effective${query}`);
 }
 
 /**

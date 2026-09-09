@@ -6,13 +6,22 @@ import { useAuth } from './AuthContext';
 import { useHubConnection, useHubEvent } from '../hooks/useHubConnection';
 import { HubRoute } from '../services/realtimeClient';
 import { fetchExamParticipationStatus } from '../services/schoolAdminApi';
-import type { BrowserViolationDetectedEventPayload, DisqualifiedEventPayload, ExamTerminatedEventPayload } from '../types/termination';
+import type {
+  BrowserViolationDetectedEventPayload,
+  DisqualifiedEventPayload,
+  ExamTerminatedEventPayload,
+  ViolationDetectedEventPayload,
+} from '../types/termination';
 
 interface ExamTerminationContextType {
   isExamTerminated: boolean;
   reason: string | null;
   recordedAt: string | null;
   browserViolationCount: number;
+  /** Số vi phạm AI (gaze/head turn/absence/...) đã ghi nhận — lấy từ server (SignalR
+   *  ViolationDetected.currentAiViolationCount hoặc GET /status), KHÔNG tự đếm cục bộ ở
+   *  ViolationEngine, để màn học sinh và dashboard giáo viên luôn khớp số. */
+  aiViolationCount: number;
   /** 'disqualified' = bị lecturer disqualify thủ công (có thể restore); 'browser-violation' = auto-terminate do 3-strike */
   terminationType: 'browser-violation' | 'disqualified' | null;
   /** Gọi khi trang thi biết được participationId (và gọi lại với null khi rời trang) */
@@ -36,6 +45,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   const [reason, setReason] = useState<string | null>(null);
   const [recordedAt, setRecordedAt] = useState<string | null>(null);
   const [browserViolationCount, setBrowserViolationCount] = useState(0);
+  const [aiViolationCount, setAiViolationCount] = useState(0);
   const [terminationType, setTerminationType] = useState<'browser-violation' | 'disqualified' | null>(null);
 
   const participationIdRef = useRef<string | null>(null);
@@ -60,6 +70,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
       // participationId có thể đã đổi (sang bài thi khác) trong lúc request đang chạy — bỏ qua kết quả cũ.
       if (participationIdRef.current !== pid) return;
       setBrowserViolationCount(status.browserViolationCount);
+      setAiViolationCount(status.aiViolationCount);
       if (status.isTerminated) {
         applyTerminated({ reason: status.terminationReason, recordedAt: null });
       } else {
@@ -82,6 +93,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
       setReason(null);
       setRecordedAt(null);
       setBrowserViolationCount(0);
+      setAiViolationCount(0);
       setTerminationType(null);
     }
   }, []);
@@ -138,6 +150,15 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     }
   });
 
+  // Vi phạm AI (gaze/head turn/absence/...) — bắn tới CẢ student lẫn lecturer group với cùng 1
+  // currentAiViolationCount tính từ server (xem ViolationlogServices.CreateAsync). Đây là nguồn
+  // đếm chuẩn duy nhất cho màn hình thi của học sinh — không tự cộng dồn theo event nội bộ của
+  // ViolationEngine (vốn đếm TRƯỚC khi biết BE có tạo record thật hay bị cooldown/dedupe).
+  useHubEvent<ViolationDetectedEventPayload>(examHub, 'ViolationDetected', (payload) => {
+    if (!payload || payload.participationId !== participationIdRef.current) return;
+    setAiViolationCount(payload.currentAiViolationCount);
+  });
+
   // 3) Polling khi bị disqualify thủ công — giúp sinh viên tự động biết được lecturer đã restore
   //    mà không cần bấm gì hay F5. Dừng khi restored (isExamTerminated về false) hoặc rời trang.
   useEffect(() => {
@@ -167,7 +188,7 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   return (
     <ExamTerminationContext.Provider
       value={{
-        isExamTerminated, reason, recordedAt, browserViolationCount, terminationType,
+        isExamTerminated, reason, recordedAt, browserViolationCount, aiViolationCount, terminationType,
         registerParticipation, refreshStatus, notifyViolationReported,
       }}
     >

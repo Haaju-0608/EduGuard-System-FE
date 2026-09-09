@@ -121,9 +121,15 @@ export class EvidenceRecorder {
     const now = Date.now();
 
     if (this.activeWindow && now - this.activeWindow.startedAt < this.options.postViolationMs) {
-      // Vi phạm tới trong lúc cửa sổ thu hiện tại còn đang mở → gộp vào cùng 1 clip, không mở
-      // cửa sổ mới (tránh nhiều clip gần như trùng nhau).
+      // Vi phạm tới trong lúc cửa sổ thu hiện tại còn đang mở → gộp vào cùng 1 clip (không mở
+      // cửa sổ quay video mới, tránh nhiều clip gần như trùng nhau) NHƯNG vẫn phải tạo violation
+      // log riêng cho nó — nếu không, vi phạm này biến mất hoàn toàn khỏi phía Backend (không có
+      // record nào), trong khi ViolationEngine ở FE vẫn tính nó vào số hiển thị cục bộ. Đây là
+      // nguyên nhân chính khiến số vi phạm bên học sinh > số bên dashboard giáo viên. Log tạo
+      // riêng này không có evidence riêng (evidencePath vẫn null, giống browser violation) —
+      // clip video của cửa sổ đang mở coi như bằng chứng chung cho cả nhóm vi phạm gần nhau đó.
       this.appendActiveViolation(this.activeWindow, violationMetadata);
+      void this.createLogOnly(violation, new Date(now).toISOString());
       return null;
     }
 
@@ -433,6 +439,47 @@ export class EvidenceRecorder {
     }
   }
 
+  // POST /api/violation-logs — tách riêng khỏi upload() để dùng chung cho cả 2 trường hợp: vi
+  // phạm mở cửa sổ quay video mới (upload() gọi tiếp bước 2 upload video), VÀ vi phạm bị gộp vào
+  // cửa sổ đang mở (createLogOnly() dùng — không có video riêng, evidencePath giữ null). BE tự lo
+  // cooldown/max-count/consecutive-type (trả về log CŨ thay vì tạo mới nếu bị chặn) — FE không tự
+  // suy đoán, không throw khi bị "nuốt" theo cooldown vì đó là hành vi đúng theo thiết kế.
+  private async postViolationLog(violation: ViolationEvent, timestampIso: string): Promise<string | null> {
+    if (!this.options.uploadUrl) return null;
+
+    const token = getAccessToken();
+    const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+    const logResponse = await fetch(this.options.uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeader },
+      body: JSON.stringify({
+        participationId: this.options.participationId,
+        severity: violation.severity === 'critical' ? 'Severe' : 'Warning',
+        violationType: VIOLATION_TYPE_MAP[violation.type] ?? violation.type,
+        aiConfidence: violation.metadata.signalConfidence ?? 0,
+        recordedAt: timestampIso,
+      }),
+    });
+
+    if (!logResponse.ok) {
+      throw new Error(`Create violation log failed with status ${logResponse.status}.`);
+    }
+
+    const logData = (await logResponse.json()) as { id?: string; data?: { id?: string } };
+    return logData.id ?? logData.data?.id ?? null;
+  }
+
+  // Vi phạm bị gộp vào cửa sổ quay video đang mở (xem recordEvidence) — vẫn cần 1 record thật ở
+  // BE để dashboard giáo viên không thiếu số, nhưng không có video riêng để đính kèm.
+  private async createLogOnly(violation: ViolationEvent, timestampIso: string) {
+    try {
+      await this.postViolationLog(violation, timestampIso);
+    } catch (err) {
+      console.warn(`[EvidenceRecorder] Failed to log merged violation (${violation.type}):`, err);
+    }
+  }
+
   private async upload(
     videoBlob: Blob,
     violation: ViolationEvent,
@@ -445,29 +492,8 @@ export class EvidenceRecorder {
     const token = getAccessToken();
     const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-    // Step 1: Tạo violation log (evidencePath: null), lấy violationId
-    const logResponse = await fetch(this.options.uploadUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader },
-      body: JSON.stringify({
-        participationId: this.options.participationId,
-        severity: violation.severity === 'critical' ? 'Severe' : 'Warning',
-        violationType: VIOLATION_TYPE_MAP[violation.type] ?? violation.type,
-        evidencePath: null,
-        aiConfidence: violation.metadata.signalConfidence ?? 0,
-        reviewedBy: null,
-        recordedAt: timestampIso,
-      }),
-    });
-
-    if (!logResponse.ok) {
-      throw new Error(`Create violation log failed with status ${logResponse.status}.`);
-    }
-
-    const logData = (await logResponse.json()) as { id?: string; data?: { id?: string } };
-    const violationId = logData.id ?? logData.data?.id;
-
-    if (!violationId) return; // Log tạo thành công nhưng không có ID để upload video
+    const violationId = await this.postViolationLog(violation, timestampIso);
+    if (!violationId) return; // Log tạo thành công (hoặc bị cooldown/dedupe) nhưng không có ID để upload video
 
     // Step 2: Upload video lên Supabase qua BE
     const formData = new FormData();
