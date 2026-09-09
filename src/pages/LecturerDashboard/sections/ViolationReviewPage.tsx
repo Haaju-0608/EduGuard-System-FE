@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { patchWebmDuration } from '../../../ai/services/webmDurationFix';
 import {
   FiAlertTriangle, FiArrowLeft, FiEye, FiFileText, FiSlash, FiRefreshCw,
@@ -735,6 +736,15 @@ export default function ViolationReviewPage() {
   // rồi mới thấy danh sách sinh viên (thẻ participation) đã vi phạm trong đúng bài thi đó.
   const [selectedExamSlotId, setSelectedExamSlotId] = useState<string | null>(null);
 
+  // Deep-link từ banner "ViolationThresholdReached" ở LiveMonitoringPage (?participationId=...
+  // &examSlotId=...) — cho phép Lecturer bấm "Review evidence" đi thẳng vào đúng học sinh đó thay
+  // vì phải tự lọc lại từ đầu. Chỉ áp dụng 1 lần (deepLinkAppliedRef) — sau đó Lecturer điều hướng
+  // tự do không bị kéo ngược lại link cũ mỗi lần state đổi.
+  const [searchParams] = useSearchParams();
+  const deepLinkParticipationId = searchParams.get('participationId');
+  const deepLinkExamSlotId = searchParams.get('examSlotId');
+  const deepLinkAppliedRef = useRef(false);
+
   const { data, loading, error, reload } = useAsyncData(
     () => fetchViolationLogs({ page: 1, pageSize: LOG_FETCH_SIZE }),
     [],
@@ -857,6 +867,23 @@ export default function ViolationReviewPage() {
     const p = await fetchParticipationById(participationId).catch(() => null);
     setParticipationCache((prev) => ({ ...prev, [participationId]: p }));
   }, []);
+
+  // Áp dụng deep-link ngay khi đủ dữ liệu: participation đó phải đã có ít nhất 1 log (allGroups)
+  // VÀ đã biết examSlotId của nó (từ query string, hoặc từ participationCache nếu query thiếu).
+  // Chờ tới khi cả 2 điều kiện đúng — logs/participationCache tải dần theo useEffect ở trên, nên
+  // hiệu ứng này có thể chạy lại nhiều lần trước khi match được, đó là chủ đích (không phải bug).
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !deepLinkParticipationId) return;
+    const targetGroup = allGroups.find((g) => g.participationId === deepLinkParticipationId);
+    if (!targetGroup) return;
+    const targetExamSlotId = deepLinkExamSlotId ?? participationCache[deepLinkParticipationId]?.examSlotId;
+    if (!targetExamSlotId) return;
+
+    deepLinkAppliedRef.current = true;
+    setSelectedExamSlotId(targetExamSlotId);
+    setSelectedGroupId(deepLinkParticipationId);
+    void refreshParticipation(deepLinkParticipationId);
+  }, [allGroups, participationCache, deepLinkParticipationId, deepLinkExamSlotId, refreshParticipation]);
 
   const allTypes = [...new Set(logs.map((l) => l.violationType).filter(Boolean))];
 

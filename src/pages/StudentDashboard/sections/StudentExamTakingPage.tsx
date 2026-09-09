@@ -489,6 +489,11 @@ export default function StudentExamTakingPage() {
       // nên <video> cần có frame thật sẵn trước khi ta chụp. Chạy song song với việc tạo participation
       // để không làm chậm luồng vào thi.
       const proctoringStart = proctoringRef.current.start();
+      // Lấy ngưỡng thời gian bắt vi phạm thật từ BE (thay DEFAULT_THRESHOLDS hard-code trong
+      // ViolationEngine) — chạy song song, không chặn camera/participation. Không cần await:
+      // nếu về chậm hơn vài trăm ms đầu ca thi thì vài frame đầu dùng tạm ngưỡng mặc định, không
+      // đáng kể so với việc phải chặn cả luồng vào thi để chờ.
+      void proctoringRef.current.applyProctoringSettings(user.institutionId);
 
       let participationId: string | null = null;
 
@@ -897,7 +902,11 @@ export default function StudentExamTakingPage() {
             <div className="shrink-0 border-t border-border p-3">
               <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2 flex items-center gap-1.5">
                 <FiAlertTriangle className="text-xs text-red" /> Violations
-                <span className="ml-auto font-normal text-red">{violations.length}</span>
+                {/* Đếm theo server (SignalR ViolationDetected.currentAiViolationCount / GET status)
+                    — KHÔNG dùng violations.length (đó là số event ViolationEngine phát hiện cục
+                    bộ, tính TRƯỚC khi biết BE có tạo record thật hay bị cooldown/dedupe/max-count
+                    chặn, nên luôn >= số thật và gây lệch với dashboard giáo viên). */}
+                <span className="ml-auto font-normal text-red">{termination.aiViolationCount}</span>
               </p>
               <div className="space-y-1.5">
                 {violations.slice(0, 4).map((v) => (

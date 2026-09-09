@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  FiAlertTriangle, FiCheckCircle, FiClock, FiRadio, FiUser, FiUserCheck, FiUsers, FiWifi, FiWifiOff,
+  FiAlertTriangle, FiCheckCircle, FiClock, FiEye, FiRadio, FiShieldOff, FiUser, FiUserCheck, FiUsers, FiWifi, FiWifiOff, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import {
@@ -11,7 +12,9 @@ import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
-import { fetchExamRealtimeState, fetchExamSlots, fetchSchoolAdminClasses, manualApproveIdentity } from '../../../services/schoolAdminApi';
+import {
+  disqualifyParticipation, fetchExamRealtimeState, fetchExamSlots, fetchSchoolAdminClasses, manualApproveIdentity,
+} from '../../../services/schoolAdminApi';
 import { getViolationLabel } from '../../../utils/violationLabels';
 import type {
   BrowserViolationDetectedEventPayload,
@@ -22,6 +25,7 @@ import type {
   StudentOfflineEventPayload,
   StudentOnlineEventPayload,
   ViolationDetectedEventPayload,
+  ViolationThresholdReachedEventPayload,
 } from '../../../types/termination';
 
 // Trang xem giám sát AI real-time trong lúc thi đang diễn ra — khác ViolationReviewPage.tsx (chỉ
@@ -77,6 +81,7 @@ function FeedRow({ item }: { item: FeedItem }) {
 
 export default function LiveMonitoringPage() {
   const toast = useToast();
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [selectedExamId, setSelectedExamId] = useState('');
   const [students, setStudents] = useState<Record<string, ExamRealtimeStudent>>({});
@@ -84,6 +89,12 @@ export default function LiveMonitoringPage() {
   const [loadingState, setLoadingState] = useState(false);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  // Cảnh báo "đạt ngưỡng thông báo" (AiNotifyThreshold / BrowserNotifyThreshold) — KHÔNG tự
+  // disqualify, chỉ nhắc Lecturer tự quyết định (đúng yêu cầu: cả AI và browser giờ đều cần
+  // Lecturer xác nhận, không còn auto-terminate ở ngưỡng 3 như trước). Key theo
+  // `${participationId}-${kind}` để 1 student có thể có đồng thời cả cảnh báo AI và browser.
+  const [thresholdAlerts, setThresholdAlerts] = useState<Record<string, ViolationThresholdReachedEventPayload>>({});
+  const [disqualifyingId, setDisqualifyingId] = useState<string | null>(null);
 
   // Duyệt tay danh tính cho sinh viên bị AI từ chối liên tục (vd ánh sáng kém, camera xấu) — giám
   // thị xác nhận bằng mắt rồi bấm duyệt, sinh viên gọi lại /join sẽ được bỏ qua bước chụp ảnh AI.
@@ -96,6 +107,35 @@ export default function LiveMonitoringPage() {
       toast.error('Failed to approve', err instanceof Error ? err.message : 'Please try again.');
     } finally {
       setApprovingId(null);
+    }
+  };
+
+  const dismissThresholdAlert = (key: string) => {
+    setThresholdAlerts((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  // Lecturer tự quyết định disqualify sau khi thấy cảnh báo đạt ngưỡng — KHÔNG có auto-terminate
+  // nào chạy phía BE nữa (kể cả browser violation, xem BrowserViolationService.cs) nên nút này là
+  // đường DUY NHẤT để chấm dứt bài thi vì vi phạm.
+  const handleDisqualifyFromThreshold = async (key: string, alert: ViolationThresholdReachedEventPayload) => {
+    setDisqualifyingId(alert.participationId);
+    try {
+      const reason = alert.kind === 'ai'
+        ? `Reached AI violation notify threshold (${alert.currentAiViolationCount}/${alert.maxAiViolationCount})`
+        : `Reached browser violation notify threshold (${alert.currentBrowserViolationCount})`;
+      await disqualifyParticipation(alert.participationId, reason);
+      dismissThresholdAlert(key);
+      toast.success('Student disqualified', `${alert.fullName} has been disqualified.`);
+      // Event "Disqualified" (đã lắng nghe ở dưới) sẽ tự cập nhật status/feed cho student này —
+      // không cần tự setStudents ở đây để tránh trùng nguồn cập nhật.
+    } catch (err) {
+      toast.error('Failed to disqualify', err instanceof Error ? err.message : 'Please try again.');
+    } finally {
+      setDisqualifyingId(null);
     }
   };
 
@@ -216,6 +256,27 @@ export default function LiveMonitoringPage() {
     if (isSevere) toast.warning('Violation detected', `${p.fullName} — ${label}`);
   });
 
+  useHubEvent<ViolationThresholdReachedEventPayload>(examHub, 'ViolationThresholdReached', (p) => {
+    if (p.examSlotId !== selectedExamId) return;
+    const key = `${p.participationId}-${p.kind}`;
+    setThresholdAlerts((prev) => ({ ...prev, [key]: p }));
+    toast.warning(
+      'Violation threshold reached',
+      `${p.fullName} — ${p.kind === 'ai' ? 'AI' : 'Browser'} violations reached ${p.threshold}. Review and decide.`,
+    );
+  });
+
+  // Student đã bị disqualify (từ nút bên dưới, hoặc từ trang Review Violation) — cảnh báo tương
+  // ứng không còn ý nghĩa để hành động nữa, tự dọn khỏi danh sách.
+  useEffect(() => {
+    setThresholdAlerts((prev) => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([, alert]) => students[alert.participationId]?.status.toLowerCase() !== 'disqualified'),
+      );
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [students]);
+
   const studentList = Object.values(students).sort((a, b) => a.fullName.localeCompare(b.fullName));
   const onlineCount = studentList.filter((s) => s.isOnline).length;
   const submittedCount = studentList.filter((s) => s.status.toLowerCase() === 'submitted').length;
@@ -251,6 +312,61 @@ export default function LiveMonitoringPage() {
           />
         )}
       </UniCard>
+
+      {Object.keys(thresholdAlerts).length > 0 && (
+        <div className="space-y-2">
+          {Object.entries(thresholdAlerts).map(([key, alert]) => (
+            <div key={key} className="flex items-center gap-3 px-4 py-3 rounded-xl border border-red/30 bg-red/5">
+              <FiAlertTriangle className="text-red text-lg shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white-soft font-semibold">
+                  {alert.fullName}
+                  <span className="text-muted font-normal"> — reached {alert.threshold} {alert.kind === 'ai' ? 'AI' : 'browser'} violation{alert.threshold > 1 ? 's' : ''}</span>
+                </p>
+                <p className="text-[11px] text-muted mt-0.5">
+                  {alert.kind === 'ai'
+                    ? `Current: ${alert.currentAiViolationCount}/${alert.maxAiViolationCount} · AI cannot auto-disqualify — a Lecturer decision is required.`
+                    : `Current: ${alert.currentBrowserViolationCount} browser violations · Auto-terminate is disabled — a Lecturer decision is required.`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => dismissThresholdAlert(key)}
+                title="Dismiss (keep monitoring, don't disqualify now)"
+                className="p-2 rounded-lg text-muted hover:text-white-soft hover:bg-white/5 transition-colors cursor-pointer border-none bg-transparent shrink-0"
+              >
+                <FiX size={14} />
+              </button>
+              {alert.kind === 'ai' && (
+                // Vi phạm AI luôn có evidence (video clip) để xem lại — theo đúng BR-32 (AI không
+                // được dùng để disqualify một mình, Lecturer phải xem evidence trước khi quyết
+                // định), nên đây là đường được khuyến nghị hơn bấm Disqualify thẳng bên dưới. Vi
+                // phạm browser (đổi tab/thoát fullscreen) không có evidence video nên không có nút
+                // này — chỉ dựa vào số lần vi phạm hiển thị sẵn trên banner.
+                <button
+                  type="button"
+                  onClick={() => navigate(`/lecture/violations?examSlotId=${alert.examSlotId}&participationId=${alert.participationId}`)}
+                  title="Open Review Violation Evidence for this student before deciding"
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-white-soft text-xs font-semibold cursor-pointer hover:bg-white/5 transition-colors bg-transparent shrink-0"
+                >
+                  <FiEye size={12} />
+                  Review
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void handleDisqualifyFromThreshold(key, alert)}
+                disabled={disqualifyingId === alert.participationId}
+                title={alert.kind === 'ai' ? 'Disqualify without reviewing evidence first' : undefined}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-red text-white text-xs font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                <FiShieldOff size={12} />
+                {disqualifyingId === alert.participationId ? 'Disqualifying…' : 'Disqualify'}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {selectedExamId && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
