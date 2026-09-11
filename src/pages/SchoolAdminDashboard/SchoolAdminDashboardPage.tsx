@@ -11,6 +11,7 @@ import ExamManagementPage from './sections/ExamManagementPage';
 import ExamQuestionsPage from './sections/ExamQuestionsPage';
 import QuestionBankPage from './sections/QuestionBankPage';
 import MonitoringPage from './sections/MonitoringPage';
+import ProctoringSettingsPage from './sections/ProctoringSettingsPage';
 import ReportsPage from './sections/ReportsPage';
 import ProfileDetailPage from '../UserProfile/sections/ProfileDetailPage';
 
@@ -21,6 +22,7 @@ const menuItems: MenuItem[] = [
   { icon: '📚', label: 'Classes',      path: '/school/classes' },
   { icon: '📝', label: 'Exams',        path: '/school/exams' },
   { icon: '📡', label: 'Monitoring',   path: '/school/monitoring' },
+  { icon: '🛡️', label: 'Proctoring',   path: '/school/proctoring-settings' },
   { icon: '💳', label: 'Wallet',       path: '/school/wallet' },
   { icon: '🔐', label: 'Face Approval', path: '/school/biometric' },
   { icon: '📊', label: 'Reports',      path: '/school/reports' },
@@ -41,6 +43,7 @@ export default function SchoolAdminDashboardPage() {
           <Route path="exams/question-bank/:setName/questions" element={<ExamQuestionsPage />} />
           <Route path="exams/:examId/questions" element={<ExamQuestionsPage />} />
           <Route path="monitoring" element={<MonitoringPage />} />
+          <Route path="proctoring-settings" element={<ProctoringSettingsPage />} />
           <Route path="wallet" element={<WalletPage />} />
           <Route path="wallet-result" element={<WalletPaymentResultPage />} />
           <Route path="biometric" element={<BiometricApprovalPage />} />

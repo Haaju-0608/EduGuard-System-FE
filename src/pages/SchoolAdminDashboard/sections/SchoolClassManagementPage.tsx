@@ -21,6 +21,7 @@ import {
   fetchLecturers,
   fetchSchoolAdminClasses,
   fetchSchoolAdminStudents,
+  fetchStudentsByMajorYear,
   fetchUsers,
   updateClass,
   updateEnrollment,
@@ -73,6 +74,39 @@ function EnrollmentPanel({
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // Lọc theo Ngành + Khoá nhập học của sinh viên (đề xuất của Phú, BE commit ebf5cec: GET
+  // /api/users/students) — thu hẹp gợi ý khi trường có nhiều sinh viên trùng tên, dễ chọn nhầm.
+  // `null` = chưa áp filter (giữ nguyên hành vi search cũ).
+  const [majorFilter, setMajorFilter] = useState('');
+  const [yearFilter, setYearFilter] = useState('');
+  const [cohortStudentIds, setCohortStudentIds] = useState<Set<string> | null>(null);
+  const [cohortLoading, setCohortLoading] = useState(false);
+
+  useEffect(() => {
+    const major = majorFilter.trim();
+    const year = yearFilter.trim();
+    const majorValid = /^[A-Za-z]{2}$/.test(major);
+    const yearValid = /^\d{2}$/.test(year);
+    if (!majorValid && !yearValid) { setCohortStudentIds(null); return; }
+
+    const timer = setTimeout(async () => {
+      setCohortLoading(true);
+      try {
+        const students = await fetchStudentsByMajorYear({
+          majorCode: majorValid ? major : undefined,
+          academicYear: yearValid ? year : undefined,
+        });
+        setCohortStudentIds(new Set(students.map((s) => s.id)));
+      } catch (e) {
+        console.warn('[EnrollmentPanel] cohort filter failed', e instanceof Error ? e.message : e);
+        setCohortStudentIds(null);
+      } finally {
+        setCohortLoading(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [majorFilter, yearFilter]);
+
   const { data: enrollData, loading, reload } = useAsyncData(
     () => fetchClassEnrollments(cls.id),
     [cls.id],
@@ -100,6 +134,7 @@ function EnrollmentPanel({
   const selectedIds = new Set(selected.map((s) => s.id));
   const suggestions = allStudents.filter((s) => {
     if (enrolledIds.has(s.id) || selectedIds.has(s.id)) return false;
+    if (cohortStudentIds && !cohortStudentIds.has(s.id)) return false;
     if (!search.trim()) return true;
     const q = search.toLowerCase();
     return (
@@ -222,6 +257,42 @@ function EnrollmentPanel({
             <span className="normal-case font-normal"> — pick as many as you need, then Add</span>
             <span className="normal-case font-normal text-muted/70"> ({activeCount + selected.length}/{MAX_CLASS_SIZE} seats)</span>
           </p>
+
+          {/* Lọc nhanh gợi ý theo Ngành + Khoá nhập học (vd SE / 15) — hữu ích khi trường có nhiều
+              sinh viên trùng tên, giúp School Admin không chọn nhầm người. */}
+          <div className="flex items-center gap-2 mb-2.5">
+            <input
+              type="text"
+              placeholder="Major (e.g. SE)"
+              value={majorFilter}
+              maxLength={2}
+              onChange={(e) => setMajorFilter(e.target.value.replace(/[^A-Za-z]/g, ''))}
+              className="w-28 bg-navy border border-border rounded-lg px-2.5 py-1.5 text-xs text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
+            />
+            <input
+              type="text"
+              placeholder="Year (e.g. 15)"
+              value={yearFilter}
+              maxLength={2}
+              onChange={(e) => setYearFilter(e.target.value.replace(/[^0-9]/g, ''))}
+              className="w-28 bg-navy border border-border rounded-lg px-2.5 py-1.5 text-xs text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted"
+            />
+            {cohortLoading && <span className="text-[11px] text-muted">Filtering…</span>}
+            {!cohortLoading && cohortStudentIds && (
+              <span className="text-[11px] text-cyan">
+                {cohortStudentIds.size} student{cohortStudentIds.size !== 1 ? 's' : ''} in cohort
+              </span>
+            )}
+            {!cohortLoading && cohortStudentIds && (
+              <button
+                type="button"
+                onClick={() => { setMajorFilter(''); setYearFilter(''); }}
+                className="text-[11px] text-muted hover:text-white-soft bg-transparent border-none cursor-pointer underline"
+              >
+                Clear
+              </button>
+            )}
+          </div>
 
           {/* Chip của những sinh viên đã chọn, chưa bấm Add — bấm x để bỏ chọn */}
           {selected.length > 0 && (

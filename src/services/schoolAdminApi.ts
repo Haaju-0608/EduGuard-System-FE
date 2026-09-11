@@ -44,9 +44,11 @@ import { getFacultyByCourseCode } from '../utils/facultyTheme';
 import type {
   BrowserViolationResponse,
   BrowserViolationType,
+  CreateProctoringSettingsPayload,
   EffectiveProctoringSettings,
   ExamParticipationStatusResponse,
   ExamRealtimeStateResponse,
+  UpdateProctoringSettingsPayload,
 } from '../types/termination';
 
 const DEFAULT_PAGE_SIZE = 50;
@@ -598,6 +600,21 @@ export async function fetchStudentDetail(userId: string): Promise<ApiStudentDeta
   return apiGet<ApiStudentDetail>(`/api/users/${userId}/detail`);
 }
 
+/** DELETE /api/biometric-data/student/{studentId}/revoke-all — thu hồi TOÀN BỘ vector khuôn mặt
+ *  đang active của 1 sinh viên (đặt IsActive=false + xoá ảnh khỏi storage), buộc sinh viên phải
+ *  đăng ký khuôn mặt lại từ đầu. SchoolAdmin chỉ thu hồi được sinh viên cùng trường (BE tự chặn).
+ *  404 nếu sinh viên hiện không có biometric data nào đang active.
+ *
+ *  LƯU Ý (đã báo Hậu): ảnh Front bị xoá qua đây trùng file với BiometricRequest.FrontImagePath
+ *  (BiometricRequestService.ApproveAsync gán thẳng, không phải bản sao riêng) — nên request đã
+ *  Approved cũ vẫn hiện nguyên trên trang Face Approval nhưng ảnh Front bị vỡ link. Đã cân nhắc đổi
+ *  qua deleteBiometricRequest() (xoá sạch + đổi status) nhưng bị revert vì BE không có delete thật
+ *  — status chỉ đổi thành "Rejected" (SoftDeleteAsync chỉ set status, không có DeletedAt), gây hiểu
+ *  lầm với case reject do ảnh xấu. Giữ nguyên endpoint này cho tới khi BE bổ sung status riêng. */
+export async function revokeStudentBiometricData(studentId: string): Promise<void> {
+  await apiDelete(`/api/biometric-data/student/${studentId}/revoke-all`);
+}
+
 export interface CreateUserPayload {
   email: string;
   password: string;
@@ -779,6 +796,29 @@ export async function fetchClassEnrollments(classId: string): Promise<ApiEnrollm
   return apiGet<ApiEnrollment[]>(`/api/classes/${classId}/enrollments`);
 }
 
+/**
+ * GET /api/exam-participations/students — lọc sinh viên theo mã ngành (2 chữ, vd "SE") và/hoặc
+ * khoá nhập học (2 số, vd "15" — 2 ký tự vị trí 3-4 của StudentCode). Phải truyền ít nhất 1 trong 2
+ * (BE trả 400 nếu cả hai đều rỗng). SchoolAdmin/Lecturer tự động bị BE giới hạn đúng institution
+ * của mình. Dùng `apiGetAllPages` vì cần TOÀN BỘ sinh viên khớp để đối chiếu với enrollment của
+ * từng lớp, không chỉ 1 trang đầu.
+ *
+ * LƯU Ý: endpoint này ban đầu ở /api/users/students (commit ebf5cec) — Phú đã CHUYỂN HẲN sang đây
+ * (commit 1f89609, "chuyển qua nhánh của exampartipation"), không giữ song song route cũ (đã xoá
+ * khỏi UsersController). Nếu BE đổi lại lần nữa thì phải cập nhật path ở đây.
+ */
+export async function fetchStudentsByMajorYear(params: {
+  majorCode?: string;
+  academicYear?: string;
+}): Promise<ApiUser[]> {
+  const majorCode = params.majorCode?.trim();
+  const academicYear = params.academicYear?.trim();
+  if (!majorCode && !academicYear) return [];
+  return apiGetAllPages<ApiUser>((page, pageSize) =>
+    `/api/exam-participations/students${buildQueryParams({ majorCode, academicYear, page, pageSize })}`,
+  );
+}
+
 /** Giống fetchClassEnrollments nhưng đảm bảo mỗi enrollment có sẵn `.student` — BE không phải
  *  lúc nào cũng trả kèm, nên phải tự GET /api/users/{id} bù cho các enrollment còn thiếu. */
 export async function fetchClassEnrollmentsWithStudents(classId: string): Promise<ApiEnrollment[]> {
@@ -919,6 +959,31 @@ export async function fetchEffectiveProctoringSettings(
 }
 
 /**
+ * POST /api/proctoring-settings — tạo config AI Proctoring riêng cho 1 institution. BE tự
+ * deactivate config đang active trước đó của cùng institution (ProctoringSettingsService.
+ * CreateAsync) — chỉ gọi hàm này khi institution CHƯA có config riêng (effective.institutionId
+ * khác institution đang đăng nhập, tức đang inherit mặc định hệ thống); nếu đã có thì dùng
+ * updateProctoringSettings thay vì tạo thêm bản mới.
+ */
+export async function createProctoringSettings(
+  payload: CreateProctoringSettingsPayload,
+): Promise<EffectiveProctoringSettings> {
+  return apiPost<EffectiveProctoringSettings>('/api/proctoring-settings', payload);
+}
+
+/**
+ * PUT /api/proctoring-settings/{id} — sửa thẳng 1 config đã tồn tại (không tạo bản mới, không
+ * deactivate config khác). SchoolAdmin chỉ sửa được config của chính institution mình (BE tự
+ * chặn ở EnsureCanConfigure).
+ */
+export async function updateProctoringSettings(
+  id: string,
+  payload: UpdateProctoringSettingsPayload,
+): Promise<void> {
+  await apiPut(`/api/proctoring-settings/${id}`, payload);
+}
+
+/**
  * POST /api/browser-violations — báo cáo hành vi rời khỏi màn hình thi (đổi tab, mất focus cửa
  * sổ, thoát fullscreen). BE tự đếm dồn và quyết định khi nào terminate participation (>=3 lần).
  * Response trả về examTerminated ngay lập tức — không cần đợi SignalR mới biết vừa bị terminate.
@@ -955,6 +1020,41 @@ export async function voidExamParticipation(
 /** DELETE /api/exam-participations/{participationId} — xóa tham gia */
 export async function deleteExamParticipation(participationId: string): Promise<void> {
   await apiDelete(`/api/exam-participations/${participationId}`);
+}
+
+export interface ImportExamParticipantRowResult {
+  row: number;
+  studentCode: string | null;
+  fullName: string | null;
+  success: boolean;
+  error: string | null;
+}
+
+export interface ImportExamParticipantsResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: ImportExamParticipantRowResult[];
+}
+
+/**
+ * POST /api/exam-participations/exam-slots/{examSlotId}/import-excel (commit 1f89609, Phú) — thêm
+ * hàng loạt sinh viên vào 1 ca thi qua file .xlsx (≤5MB, ≤500 dòng), cột bắt buộc StudentCode +
+ * FullName (khớp đúng tên sinh viên trong hệ thống). BE tự validate: sinh viên phải đang active
+ * trong đúng institution, đã enroll (active) vào lớp của ca thi, chưa có participation cho ca thi
+ * này, và không trùng giờ với ca thi khác — mỗi dòng lỗi trả riêng trong `results`, không chặn cả
+ * file (giống pattern bulkImportUsers).
+ */
+export async function importExamParticipantsFromExcel(
+  examSlotId: string,
+  file: File,
+): Promise<ImportExamParticipantsResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiPost<ImportExamParticipantsResult>(
+    `/api/exam-participations/exam-slots/${examSlotId}/import-excel`,
+    formData,
+  );
 }
 
 // ─── Exam Questions ─────────────────────────────────────────────────────

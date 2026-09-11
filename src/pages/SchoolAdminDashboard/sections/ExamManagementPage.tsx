@@ -1,7 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
-import { FiBell, FiBookOpen, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus, FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX } from 'react-icons/fi';
+import {
+  FiBell, FiBookOpen, FiCalendar, FiCheck, FiCheckCircle, FiClock, FiEdit2, FiFileText, FiPlus,
+  FiRefreshCw, FiSearch, FiTrash2, FiUpload, FiUserPlus, FiUsers, FiX, FiXCircle,
+} from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -12,17 +15,22 @@ import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateExamSlotPayload,
   ExamQuestionSetSummary,
+  ImportExamParticipantsResult,
   createExamSlot,
+  deleteExamParticipation,
   deleteExamSlot,
   fetchClassEnrollmentsWithStudents,
+  fetchExamParticipations,
   fetchExamQuestionSets,
   fetchExamSlots,
   fetchLecturers,
   fetchSchoolAdminClasses,
+  importExamParticipantsFromExcel,
   sendExamCreatedEmail,
   sendExamReminderEmail,
   updateExamSlot,
 } from '../../../services/schoolAdminApi';
+import type { ApiExamParticipation } from '../../../types/api';
 import type { ExamSlot, ExamSlotStatus, LecturerClass, LecturerStudent } from '../../../types/lecturer';
 
 /** Báo mail "exam-created" cho toàn bộ sinh viên trong các lớp vừa tạo đề — chạy nền, không chặn
@@ -531,6 +539,172 @@ function ExamFormModal({
   );
 }
 
+// ─── Participants Modal ───────────────────────────────────────────────────
+
+function participationTone(status: string): string {
+  const s = status.toLowerCase();
+  if (s === 'submitted') return 'text-green bg-green/10 border-green/25';
+  if (s === 'disqualified') return 'text-red bg-red/10 border-red/25';
+  if (s === 'joined') return 'text-gold bg-gold/10 border-gold/25';
+  return 'text-muted bg-white/5 border-border';
+}
+
+function ExamParticipantsModal({ slot, onClose }: { slot: ExamSlot; onClose: () => void }) {
+  const toast = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportExamParticipantsResult | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const { data, loading, reload } = useAsyncData(async () => {
+    const result = await fetchExamParticipations(slot.id, { page: 1, pageSize: 500 });
+    return result.items;
+  }, [slot.id]);
+  const participants: ApiExamParticipation[] = data ?? [];
+
+  const handlePickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportResult(null);
+    setFile(e.target.files?.[0] ?? null);
+  };
+
+  const handleImport = async () => {
+    if (!file) { toast.warning('Required', 'Choose a .xlsx file first.'); return; }
+    setImporting(true);
+    try {
+      const res = await importExamParticipantsFromExcel(slot.id, file);
+      setImportResult(res);
+      reload();
+      if (res.failed === 0) toast.success('Import complete', `${res.succeeded} of ${res.total} students added.`);
+      else toast.warning('Import finished with errors', `${res.succeeded} succeeded, ${res.failed} failed.`);
+    } catch (err) {
+      toast.error('Import failed', err instanceof Error ? err.message : 'Could not import the file.');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleRemove = async (participationId: string) => {
+    setRemovingId(participationId);
+    try {
+      await deleteExamParticipation(participationId);
+      toast.success('Removed', 'Student removed from this exam.');
+      reload();
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to remove participant.');
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4">
+      <div className="bg-navy-card border border-border rounded-[20px] w-full max-w-2xl max-h-[88vh] flex flex-col">
+        <div className="flex items-start justify-between p-6 border-b border-border shrink-0">
+          <div>
+            <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-1">{slot.classCode}</p>
+            <h2 className="font-syne font-bold text-white-soft text-lg">{slot.examName}</h2>
+            <p className="text-xs text-muted mt-1">{participants.length} participant{participants.length !== 1 ? 's' : ''}</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-xl bg-transparent border border-border text-muted grid place-items-center cursor-pointer hover:text-white-soft transition-colors shrink-0">
+            <FiX />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4 overflow-y-auto custom-scrollbar flex-1 min-h-0">
+          {/* Import Excel — commit 1f89609 (Phú): cột bắt buộc StudentCode + FullName, sinh viên
+              phải đã enroll active vào đúng lớp của ca thi này. */}
+          <div>
+            <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Import Students</p>
+            <div className="bg-blue/5 border border-blue/20 rounded-xl p-3 text-xs text-muted leading-relaxed mb-3">
+              ℹ️ File .xlsx, max 5MB / 500 rows. Columns: <code className="text-white-soft">StudentCode, FullName</code>.
+              Student must already be actively enrolled in <span className="text-white-soft">{slot.classCode}</span> and have no conflicting exam at this time.
+            </div>
+            <div className="flex gap-2">
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="flex-1 flex items-center gap-2.5 border-2 border-dashed border-border rounded-xl px-4 py-2.5 cursor-pointer hover:border-blue-bright/40 transition-colors"
+              >
+                <FiUpload className="text-muted shrink-0" />
+                <span className="text-sm text-white-soft truncate">{file ? file.name : 'Click to choose a .xlsx file'}</span>
+                <input ref={fileInputRef} type="file" accept=".xlsx" onChange={handlePickFile} className="hidden" />
+              </div>
+              <button
+                onClick={() => void handleImport()}
+                disabled={importing || !file}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none shrink-0"
+              >
+                {importing ? 'Importing…' : 'Import'}
+              </button>
+            </div>
+
+            {importResult && (
+              <div className="mt-3">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-xs font-bold text-white-soft">{importResult.total} rows</span>
+                  <span className="text-xs font-bold text-green">{importResult.succeeded} succeeded</span>
+                  {importResult.failed > 0 && <span className="text-xs font-bold text-red">{importResult.failed} failed</span>}
+                </div>
+                <div className="max-h-40 overflow-y-auto custom-scrollbar border border-border rounded-xl divide-y divide-border">
+                  {importResult.results.map((r) => (
+                    <div key={r.row} className="flex items-center gap-2.5 px-3 py-2 text-xs">
+                      {r.success ? <FiCheckCircle className="text-green shrink-0" /> : <FiXCircle className="text-red shrink-0" />}
+                      <span className="text-muted shrink-0">Row {r.row}</span>
+                      <span className="text-white-soft truncate flex-1">{r.fullName ?? r.studentCode ?? '—'}</span>
+                      {!r.success && <span className="text-red text-[11px] truncate max-w-[45%]">{r.error}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Current roster */}
+          <div>
+            <p className="text-xs text-muted font-semibold uppercase tracking-wider mb-2">Current Roster</p>
+            {loading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-12 bg-white/5 rounded-xl animate-pulse" />)}
+              </div>
+            ) : participants.length === 0 ? (
+              <p className="text-muted text-sm text-center py-8">No participants yet — import an Excel file above.</p>
+            ) : (
+              <div className="divide-y divide-border border border-border rounded-xl overflow-hidden">
+                {participants.map((p) => (
+                  <div key={p.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white-soft truncate">{p.student?.fullName ?? p.studentId.slice(0, 8) + '…'}</p>
+                      <p className="text-[11px] text-muted truncate">{p.student?.studentCode ?? '—'}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border whitespace-nowrap ${participationTone(p.status)}`}>
+                      {p.status}
+                    </span>
+                    <button
+                      onClick={() => void handleRemove(p.id)}
+                      disabled={removingId === p.id}
+                      className="w-7 h-7 rounded-lg border border-border text-muted grid place-items-center cursor-pointer hover:text-red hover:border-red/40 transition-all disabled:opacity-40 bg-transparent shrink-0"
+                      title="Remove from exam"
+                    >
+                      <FiTrash2 className="text-xs" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex gap-3 p-6 border-t border-border shrink-0">
+          <button type="button" onClick={onClose} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-muted/50 transition-colors bg-transparent">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS: { value: ExamSlotStatus | 'all'; label: string }[] = [
@@ -554,6 +728,7 @@ export default function ExamManagementPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ExamSlot | null>(null);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
+  const [participantsTarget, setParticipantsTarget] = useState<ExamSlot | null>(null);
 
   const { data: slotsData, loading, error, reload } = useAsyncData(async () => {
     const result = await fetchExamSlots({ page: 1, pageSize: 200 });
@@ -785,6 +960,15 @@ export default function ExamManagementPage() {
                   >
                     <FiFileText className="text-xs" /> Questions
                   </button>
+                  {slot.status !== 'cancelled' && (
+                    <button
+                      onClick={() => setParticipantsTarget(slot)}
+                      className="flex items-center gap-1.5 px-2.5 h-7 rounded-lg border border-blue/30 text-blue-bright text-xs font-semibold cursor-pointer hover:bg-blue/10 transition-all bg-transparent"
+                      title="Manage Participants"
+                    >
+                      <FiUserPlus className="text-xs" /> Participants
+                    </button>
+                  )}
                   {(slot.status === 'scheduled' || slot.status === 'ongoing') && (
                     <button
                       onClick={() => void handleSendReminder(slot)}
@@ -830,6 +1014,13 @@ export default function ExamManagementPage() {
           questionSets={questionSets}
           onClose={() => setShowForm(false)}
           onSaved={reload}
+        />
+      )}
+
+      {participantsTarget && (
+        <ExamParticipantsModal
+          slot={participantsTarget}
+          onClose={() => setParticipantsTarget(null)}
         />
       )}
 

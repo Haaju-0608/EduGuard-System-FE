@@ -182,3 +182,26 @@ export interface EffectiveProctoringSettings {
   isActive: boolean;
   violationTypeThresholds: ProctoringViolationTypeThreshold[];
 }
+
+/** Field chung cho cả Create/Update — khớp CreateProctoringSettingsDto/UpdateProctoringSettingsDto (BE). */
+export interface ProctoringSettingsFormFields {
+  maxAiViolationCount: number;
+  cooldownSeconds: number;
+  allowConsecutiveSameType: boolean;
+  aiNotifyThreshold: number;
+  browserNotifyThreshold: number;
+  violationTypeThresholds: ProctoringViolationTypeThreshold[];
+}
+
+/** Payload POST /api/proctoring-settings — `institutionId: null` chỉ SuperAdmin dùng được
+ *  (cấu hình mặc định toàn hệ thống); SchoolAdmin luôn truyền đúng institution của mình. */
+export interface CreateProctoringSettingsPayload extends ProctoringSettingsFormFields {
+  institutionId: string | null;
+}
+
+/** Payload PUT /api/proctoring-settings/{id} — sửa thẳng 1 config đã tồn tại, không tạo bản mới.
+ *  `isActive: false` dùng để "reset về mặc định trường" mà không xoá config (Effective sẽ tự
+ *  fallback lại config hệ thống ở lần GET tiếp theo, cache đã bị Update invalidate). */
+export interface UpdateProctoringSettingsPayload extends ProctoringSettingsFormFields {
+  isActive: boolean;
+}

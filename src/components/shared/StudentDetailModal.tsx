@@ -1,10 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiMail, FiPhone, FiShield, FiX, FiXCircle,
+  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiMail, FiPhone, FiShield, FiTrash2, FiX, FiXCircle,
 } from 'react-icons/fi';
 import { useAsyncData } from '../../hooks/useAsyncData';
-import { fetchStudentDetail } from '../../services/schoolAdminApi';
+import { useToast } from '../../contexts/ToastContext';
+import { fetchStudentDetail, revokeStudentBiometricData } from '../../services/schoolAdminApi';
 
 // GET /api/users/{id}/detail — hồ sơ tổng hợp 1 sinh viên (SuperAdmin/SchoolAdmin cùng trường).
 // Dùng chung cho cả UserManagementPage.tsx (SuperAdmin) và SchoolStudentManagementPage.tsx
@@ -69,7 +70,24 @@ export default function StudentDetailModal({
   studentId: string;
   onClose: () => void;
 }) {
-  const { data, loading, error } = useAsyncData(() => fetchStudentDetail(studentId), [studentId]);
+  const toast = useToast();
+  const { data, loading, error, reload } = useAsyncData(() => fetchStudentDetail(studentId), [studentId]);
+  const [revoking, setRevoking] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+
+  const handleRevoke = async () => {
+    setRevoking(true);
+    try {
+      await revokeStudentBiometricData(studentId);
+      toast.success('Revoked', 'All face data for this student has been revoked. They must register again.');
+      setConfirmRevoke(false);
+      reload();
+    } catch (err) {
+      toast.error('Error', err instanceof Error ? err.message : 'Failed to revoke biometric data.');
+    } finally {
+      setRevoking(false);
+    }
+  };
 
   return createPortal(
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-200 flex items-center justify-center p-4" onClick={onClose}>
@@ -139,6 +157,41 @@ export default function StudentDetailModal({
                 )}
                 {data.biometric.latestRequestReason && (
                   <p className="text-[11px] text-muted mt-1 italic">"{data.biometric.latestRequestReason}"</p>
+                )}
+                {data.biometric.hasActiveBiometric && (
+                  <div className="mt-3 pt-3 border-t border-border">
+                    {!confirmRevoke ? (
+                      <button
+                        onClick={() => setConfirmRevoke(true)}
+                        className="flex items-center gap-1.5 text-[11px] font-semibold text-red bg-transparent border-none cursor-pointer hover:underline"
+                      >
+                        <FiTrash2 size={11} /> Revoke face data
+                      </button>
+                    ) : (
+                      <div className="bg-red/5 border border-red/20 rounded-xl p-3 space-y-2">
+                        <p className="text-[11px] text-muted">
+                          This permanently deletes all registered face vectors for this student. They will need
+                          to register their face again before attending or taking exams. Are you sure?
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setConfirmRevoke(false)}
+                            disabled={revoking}
+                            className="px-3 py-1.5 rounded-lg border border-border text-muted text-[11px] cursor-pointer hover:border-muted/50 transition-colors bg-transparent disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleRevoke}
+                            disabled={revoking}
+                            className="px-3 py-1.5 rounded-lg bg-red text-white text-[11px] font-semibold cursor-pointer hover:bg-red/80 transition-colors border-none disabled:opacity-50"
+                          >
+                            {revoking ? 'Revoking…' : 'Yes, revoke it'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </SectionCard>
 
