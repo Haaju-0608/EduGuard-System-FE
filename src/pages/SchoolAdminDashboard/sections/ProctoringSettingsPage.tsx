@@ -14,11 +14,16 @@ import type {
 } from '../../../types/termination';
 import { getViolationLabel } from '../../../utils/violationLabels';
 
-// Đúng 6 loại vi phạm AI có ngưỡng thời gian riêng — khớp mảng AiViolationTypes (BE,
-// ProctoringSettingsService.cs). Impersonation chưa có detector FE nào bắn nó, nhưng BE vẫn nhận
-// và validate field này nên vẫn cho SchoolAdmin cấu hình trước.
+// 5 loại vi phạm AI thực sự có detector — khớp đúng ViolationEngine.ts (FE) hiện chỉ phát hiện
+// được 5 loại này. BE cho phép cấu hình cả "Impersonation" (còn nằm trong AiViolationTypes,
+// ProctoringSettingsService.cs) nhưng KHÔNG có nơi nào tạo ra vi phạm loại đó — chưa có tính năng
+// tái xác thực khuôn mặt giữa giờ thi — nên cố tình ẩn khỏi UI để SchoolAdmin không hiểu nhầm là
+// tính năng đã hoạt động. Bỏ nó khỏi mảng này là đủ: form không còn render/gửi threshold cho
+// Impersonation nữa (BE không yêu cầu đủ mọi loại khi Save — ValidateThresholds chỉ kiểm tra
+// loại nào GỬI LÊN có hợp lệ không, không bắt buộc phải gửi đủ cả 6). Bật lại bằng cách thêm
+// 'Impersonation' vào mảng này khi tính năng thật được implement.
 const AI_VIOLATION_TYPES: ProctoringViolationTypeThreshold['violationType'][] = [
-  'HeadTurn', 'GazeDiversion', 'FaceObstructed', 'MultipleFaces', 'Absence', 'Impersonation',
+  'HeadTurn', 'GazeDiversion', 'FaceObstructed', 'MultipleFaces', 'Absence',
 ];
 
 const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
