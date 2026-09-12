@@ -75,14 +75,22 @@ export default function ProctoringSettingsPage() {
     if (data) setForm(fieldsFromEffective(data));
   }, [data]);
 
-  // Mọi field số ở trang này (kể cả từng loại threshold) đều là `int` bên BE (xem
-  // ProctoringSettingsRequestDto.cs) — gõ "1.5" từng gây lỗi 400 "The JSON value could not be
-  // converted to System.Int32" mà UI không hề ngăn hay báo trước. Làm tròn ngay lúc nhập (không
-  // chỉ validate lúc Save) để state không bao giờ giữ số thập phân, và input NaN (ô trống/gõ chữ)
-  // giữ nguyên giá trị cũ thay vì crash hoặc gửi NaN lên BE.
+  // "Số lần" (Max AI Violation Count, Notify Threshold...) vẫn phải là số nguyên — BE giữ nguyên
+  // kiểu `int` cho các field này. Gõ "1.5" từng gây lỗi 400 "The JSON value could not be converted
+  // to System.Int32" mà UI không hề ngăn hay báo trước. Làm tròn ngay lúc nhập (không chỉ validate
+  // lúc Save) để state không bao giờ giữ số thập phân, và input NaN (ô trống/gõ chữ) giữ nguyên
+  // giá trị cũ thay vì crash hoặc gửi NaN lên BE.
   const roundOrKeep = (raw: string, previous: number) => {
     const parsed = Number(raw);
     return Number.isFinite(parsed) ? Math.round(parsed) : previous;
+  };
+
+  // Detection Thresholds (giây) đã đổi sang cho phép thập phân (1.2s / 1.5s / 1.8s...) — BE đổi
+  // ViolationTypeThresholdDto.DetectionThresholdSeconds từ int sang double (đã nhờ BE làm, xem
+  // prompt trong session). Chỉ cần parse float bình thường, KHÔNG làm tròn về số nguyên nữa.
+  const parseOrKeep = (raw: string, previous: number) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : previous;
   };
 
   const setField = <K extends keyof ProctoringSettingsFormFields>(key: K, value: ProctoringSettingsFormFields[K]) => {
@@ -98,7 +106,7 @@ export default function ProctoringSettingsPage() {
       ...f,
       violationTypeThresholds: f.violationTypeThresholds.map((t) =>
         t.violationType === violationType
-          ? { ...t, detectionThresholdSeconds: roundOrKeep(raw, t.detectionThresholdSeconds) }
+          ? { ...t, detectionThresholdSeconds: parseOrKeep(raw, t.detectionThresholdSeconds) }
           : t,
       ),
     });
@@ -110,8 +118,8 @@ export default function ProctoringSettingsPage() {
     if (f.aiNotifyThreshold < 1 || f.aiNotifyThreshold > 1000) return 'AI Notify Threshold must be between 1 and 1000.';
     if (f.browserNotifyThreshold < 1 || f.browserNotifyThreshold > 1000) return 'Browser Notify Threshold must be between 1 and 1000.';
     for (const t of f.violationTypeThresholds) {
-      if (t.detectionThresholdSeconds < 1 || t.detectionThresholdSeconds > 3600) {
-        return `${getViolationLabel(t.violationType).label} threshold must be between 1 and 3600 seconds.`;
+      if (t.detectionThresholdSeconds < 0.1 || t.detectionThresholdSeconds > 3600) {
+        return `${getViolationLabel(t.violationType).label} threshold must be between 0.1 and 3600 seconds.`;
       }
     }
     return null;
@@ -264,7 +272,7 @@ export default function ProctoringSettingsPage() {
                     <span className="text-lg shrink-0">{meta.icon}</span>
                     <p className="text-sm font-semibold text-white-soft flex-1 min-w-0">{meta.label}</p>
                     <input
-                      type="number" min={1} max={3600} step={1}
+                      type="number" min={0.1} max={3600} step={0.1}
                       className={inpSm}
                       value={t.detectionThresholdSeconds}
                       onChange={(e) => setThreshold(t.violationType, e.target.value)}
