@@ -70,15 +70,31 @@ export default function ProctoringSettingsPage() {
     if (data) setForm(fieldsFromEffective(data));
   }, [data]);
 
+  // Mọi field số ở trang này (kể cả từng loại threshold) đều là `int` bên BE (xem
+  // ProctoringSettingsRequestDto.cs) — gõ "1.5" từng gây lỗi 400 "The JSON value could not be
+  // converted to System.Int32" mà UI không hề ngăn hay báo trước. Làm tròn ngay lúc nhập (không
+  // chỉ validate lúc Save) để state không bao giờ giữ số thập phân, và input NaN (ô trống/gõ chữ)
+  // giữ nguyên giá trị cũ thay vì crash hoặc gửi NaN lên BE.
+  const roundOrKeep = (raw: string, previous: number) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? Math.round(parsed) : previous;
+  };
+
   const setField = <K extends keyof ProctoringSettingsFormFields>(key: K, value: ProctoringSettingsFormFields[K]) => {
     setForm((f) => (f ? { ...f, [key]: value } : f));
   };
 
-  const setThreshold = (violationType: ProctoringViolationTypeThreshold['violationType'], seconds: number) => {
+  const setIntField = (key: 'maxAiViolationCount' | 'cooldownSeconds' | 'aiNotifyThreshold' | 'browserNotifyThreshold', raw: string) => {
+    setForm((f) => f && { ...f, [key]: roundOrKeep(raw, f[key]) });
+  };
+
+  const setThreshold = (violationType: ProctoringViolationTypeThreshold['violationType'], raw: string) => {
     setForm((f) => f && {
       ...f,
       violationTypeThresholds: f.violationTypeThresholds.map((t) =>
-        t.violationType === violationType ? { ...t, detectionThresholdSeconds: seconds } : t,
+        t.violationType === violationType
+          ? { ...t, detectionThresholdSeconds: roundOrKeep(raw, t.detectionThresholdSeconds) }
+          : t,
       ),
     });
   };
@@ -184,36 +200,36 @@ export default function ProctoringSettingsPage() {
               <div>
                 <label className={lbl}>Max AI Violation Count</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.maxAiViolationCount}
-                  onChange={(e) => setField('maxAiViolationCount', Number(e.target.value))}
+                  onChange={(e) => setIntField('maxAiViolationCount', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Stop recording new AI violations once a student hits this count.</p>
               </div>
               <div>
                 <label className={lbl}>Cooldown (seconds)</label>
                 <input
-                  type="number" min={0} max={3600} className={inp}
+                  type="number" min={0} max={3600} step={1} className={inp}
                   value={form.cooldownSeconds}
-                  onChange={(e) => setField('cooldownSeconds', Number(e.target.value))}
+                  onChange={(e) => setIntField('cooldownSeconds', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Minimum gap between two recorded AI violations.</p>
               </div>
               <div>
                 <label className={lbl}>AI Notify Threshold</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.aiNotifyThreshold}
-                  onChange={(e) => setField('aiNotifyThreshold', Number(e.target.value))}
+                  onChange={(e) => setIntField('aiNotifyThreshold', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">AI violation count that triggers a lecturer notification.</p>
               </div>
               <div>
                 <label className={lbl}>Browser Notify Threshold</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.browserNotifyThreshold}
-                  onChange={(e) => setField('browserNotifyThreshold', Number(e.target.value))}
+                  onChange={(e) => setIntField('browserNotifyThreshold', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Browser violation count (tab switch, etc.) that triggers a lecturer notification.</p>
               </div>
@@ -243,10 +259,10 @@ export default function ProctoringSettingsPage() {
                     <span className="text-lg shrink-0">{meta.icon}</span>
                     <p className="text-sm font-semibold text-white-soft flex-1 min-w-0">{meta.label}</p>
                     <input
-                      type="number" min={1} max={3600}
+                      type="number" min={1} max={3600} step={1}
                       className={inpSm}
                       value={t.detectionThresholdSeconds}
-                      onChange={(e) => setThreshold(t.violationType, Number(e.target.value))}
+                      onChange={(e) => setThreshold(t.violationType, e.target.value)}
                     />
                     <span className="text-[11px] text-muted w-10 shrink-0">sec</span>
                   </div>
