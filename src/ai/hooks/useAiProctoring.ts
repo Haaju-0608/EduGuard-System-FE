@@ -25,7 +25,7 @@ import { getMatrixData } from '../utils/landmarkGeometry';
 // Giảm từ 30fps xuống 20fps để giảm tải CPU chính (MediaPipe chạy đồng bộ trên main thread, xem
 // ghi chú ở processFrame) — an toàn vì ViolationEngine tính ngưỡng theo THỜI GIAN (ms) chứ không
 // theo số frame, 20fps vẫn đủ dày để bắt đúng vi phạm kéo dài >= 1 giây.
-const FRAME_INTERVAL_MS = 1000 / 20;
+const FRAME_INTERVAL_MS = 1000 / 30;
 const UI_UPDATE_INTERVAL_MS = 120;
 
 // BE (ProctoringSettings.violationTypeThresholds) đặt tên loại vi phạm khác FE nội bộ (khớp enum
