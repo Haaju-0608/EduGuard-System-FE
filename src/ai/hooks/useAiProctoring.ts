@@ -11,7 +11,7 @@ import { HeadPoseEngine } from '../engines/HeadPoseEngine';
 import { TemporalFilterEngine } from '../engines/TemporalFilterEngine';
 import { ViolationEngine } from '../engines/ViolationEngine';
 import { EvidenceRecorder } from '../services/EvidenceRecorder';
-import { mediaPipeFaceLandmarkerWorkerClient } from '../services/MediaPipeFaceLandmarkerWorkerClient';
+import { mediaPipeFaceLandmarkerService } from '../services/MediaPipeFaceLandmarkerService';
 import type {
   CameraStatus,
   EvidenceItem,
@@ -22,7 +22,10 @@ import type {
 } from '../types/proctoring';
 import { getMatrixData } from '../utils/landmarkGeometry';
 
-const FRAME_INTERVAL_MS = 1000 / 30;
+// Giảm từ 30fps xuống 20fps để giảm tải CPU chính (MediaPipe chạy đồng bộ trên main thread, xem
+// ghi chú ở processFrame) — an toàn vì ViolationEngine tính ngưỡng theo THỜI GIAN (ms) chứ không
+// theo số frame, 20fps vẫn đủ dày để bắt đúng vi phạm kéo dài >= 1 giây.
+const FRAME_INTERVAL_MS = 1000 / 20;
 const UI_UPDATE_INTERVAL_MS = 120;
 
 // BE (ProctoringSettings.violationTypeThresholds) đặt tên loại vi phạm khác FE nội bộ (khớp enum
@@ -45,6 +48,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   const [analysis, setAnalysis] = useState<ProctoringFrameAnalysis | null>(null);
   const [violations, setViolations] = useState<ViolationEvent[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[]>([]);
+  // Lộ ra ngưỡng ĐANG THỰC SỰ chạy trong ViolationEngine + nguồn của nó — trước đây không cách
+  // nào biết từ ngoài liệu applyProctoringSettings() có fetch thành công hay đang âm thầm rơi về
+  // DEFAULT_THRESHOLDS (chỉ console.warn, không có state nào phản ánh) — dùng để debug khi báo
+  // "không còn bắt được violation" sau khi đổi settings (xem ProctoringTestPage.tsx).
+  const [thresholdsSource, setThresholdsSource] = useState<'default' | 'server' | 'error'>('default');
+  const [activeThresholds, setActiveThresholds] = useState<ViolationEngineThresholds | null>(null);
 
   const engines = useMemo(
     () => ({
@@ -75,10 +84,6 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   const lastFrameAtRef = useRef(0);
   const lastUiUpdateAtRef = useRef(0);
   const evidenceRef = useRef<EvidenceItem[]>([]);
-  // Chặn gửi frame mới vào worker khi frame trước còn đang detect — thay vì xếp hàng (queue) làm
-  // hàng đợi phình to nếu worker chậm hơn tốc độ frame gửi lên, ta CHỦ ĐỘNG BỎ frame mới, chỉ xử
-  // lý frame mới nhất mỗi lần rảnh (cùng nguyên tắc "drop stale frame" cho pipeline real-time).
-  const detectionBusyRef = useRef(false);
 
   const stopLoop = useCallback(() => {
     runningRef.current = false;
@@ -90,92 +95,15 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     }
   }, []);
 
-  // Phần "nặng" (MediaPipe inference) giờ chạy trong Worker riêng (faceLandmarker.worker.ts),
-  // KHÔNG còn block main thread mỗi tick rAF như trước (nguyên nhân chính gây giật hình khi máy
-  // yếu) — hàm này chạy độc lập, không await trong processFrame, để rAF loop luôn được lên lịch
-  // đúng nhịp bất kể worker phản hồi nhanh/chậm. `timestamp` truyền vào được CHỤP TẠI THỜI ĐIỂM
-  // GỬI FRAME (không phải lúc worker trả lời), để ViolationEngine tính duration đúng theo thời
-  // gian thực, không bị lệch bởi độ trễ round-trip qua worker.
-  const detectAndEvaluate = useCallback(
-    async (video: HTMLVideoElement, timestamp: number) => {
-      try {
-        const result = await mediaPipeFaceLandmarkerWorkerClient.detectForVideo(video, timestamp);
-        if (!runningRef.current || !result) return;
-
-        const faceCount = result.faceLandmarks.length;
-        if (faceCount !== 1) {
-          engines.filter.reset();
-        }
-
-        const landmarks = result.faceLandmarks[0] ?? [];
-        const matrixData = getMatrixData(result.facialTransformationMatrixes[0]);
-        const rawHeadPose = faceCount === 1 ? engines.headPose.estimate(landmarks, matrixData) : null;
-        const headPose = engines.filter.smoothHeadPose(rawHeadPose);
-        const rawEyeGaze = faceCount === 1 ? engines.eyeGaze.estimate(landmarks) : null;
-        const eyeGaze = engines.filter.smoothEyeGaze(rawEyeGaze);
-        const faceQuality = faceCount === 1
-          ? engines.faceQuality.estimate({
-              video,
-              landmarks,
-              headPose,
-              blendshapes: result.faceBlendshapes[0],
-            })
-          : null;
-        const calibration = faceCount === 1
-          ? engines.calibration.update({ timestamp, headPose, eyeGaze, faceQuality })
-          : engines.calibration.getState();
-        const headTurn = engines.diversion.detectHeadTurn({
-          headPose,
-          faceQuality,
-          calibration: calibration.profile,
-        });
-        const eyeDiversion = engines.diversion.detectEyeDiversion({
-          headTurn,
-          eyeGaze,
-          faceQuality,
-          calibration: calibration.profile,
-        });
-
-        const evaluation = engines.violation.evaluate({
-          timestamp,
-          faceCount,
-          eyeGaze,
-          headTurn,
-          eyeDiversion,
-          headPose,
-          faceQuality,
-          calibration,
-        });
-
-        if (evaluation.events.length > 0) {
-          setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
-          evaluation.events.forEach((event) => {
-            engines.evidence.recordEvidence(event).then((captured) => {
-              if (!captured) return;
-
-              setEvidence((current) => {
-                const next = [captured, ...current].slice(0, 20);
-                engines.evidence.releaseEvidence(current.filter((item) => !next.includes(item)));
-
-                return next;
-              });
-            });
-          });
-        }
-
-        if (timestamp - lastUiUpdateAtRef.current >= UI_UPDATE_INTERVAL_MS) {
-          lastUiUpdateAtRef.current = timestamp;
-          setAnalysis(evaluation.analysis);
-        }
-      } catch (err) {
-        console.warn('[useAiProctoring] Detection failed for this frame, skipping:', err);
-      } finally {
-        detectionBusyRef.current = false;
-      }
-    },
-    [engines],
-  );
-
+  // ĐÃ THỬ chuyển MediaPipe sang Web Worker riêng (faceLandmarker.worker.ts) để hết giật hình do
+  // chạy đồng bộ trên main thread — nhưng @mediapipe/tasks-vision không chạy được trong module
+  // worker: loader nội bộ của nó chỉ biết dùng `importScripts()` (worker cổ điển) hoặc
+  // `document.createElement('script')` (main thread), cả 2 đều không tồn tại trong module worker
+  // (bắt buộc phải "type: module" vì cần cú pháp `import`) → lỗi "ModuleFactory not set." Package
+  // cũng không có bản UMD/global để importScripts() trong worker cổ điển thay thế. Đây là giới
+  // hạn thật của thư viện, không phải lỗi cấu hình — đã revert về chạy đồng bộ main thread như
+  // trước (đã chứng minh chạy được ở production), xem ProctoringTestPage.tsx §Known limitations
+  // nếu cần tìm hướng khác cho việc giật hình.
   const processFrame = useCallback(
     (timestamp: number) => {
       if (!runningRef.current) return;
@@ -186,19 +114,86 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         return;
       }
 
-      // Chụp frame evidence ngay đầu tick, TRƯỚC khi gửi frame đi detect — để việc chụp không bị
-      // trễ thêm bởi độ trễ của worker (giờ đã tách thread, nhưng vẫn giữ đúng thứ tự cũ).
+      // Chụp frame evidence ngay đầu tick, TRƯỚC khi chạy MediaPipe (việc nặng, đồng bộ) — để
+      // việc chụp không bị trễ thêm bởi thời gian detect của chính tick đang xử lý violation.
       engines.evidence.tick(timestamp);
 
-      if (!detectionBusyRef.current && timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
+      if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;
-        detectionBusyRef.current = true;
-        void detectAndEvaluate(video, timestamp);
+
+        const result = mediaPipeFaceLandmarkerService.detectForVideo(video, timestamp);
+        if (result) {
+          const faceCount = result.faceLandmarks.length;
+          if (faceCount !== 1) {
+            engines.filter.reset();
+          }
+
+          const landmarks = result.faceLandmarks[0] ?? [];
+          const matrixData = getMatrixData(result.facialTransformationMatrixes[0]);
+          const rawHeadPose = faceCount === 1 ? engines.headPose.estimate(landmarks, matrixData) : null;
+          const headPose = engines.filter.smoothHeadPose(rawHeadPose);
+          const rawEyeGaze = faceCount === 1 ? engines.eyeGaze.estimate(landmarks) : null;
+          const eyeGaze = engines.filter.smoothEyeGaze(rawEyeGaze);
+          const faceQuality = faceCount === 1
+            ? engines.faceQuality.estimate({
+                video,
+                landmarks,
+                headPose,
+                blendshapes: result.faceBlendshapes[0],
+              })
+            : null;
+          const calibration = faceCount === 1
+            ? engines.calibration.update({ timestamp, headPose, eyeGaze, faceQuality })
+            : engines.calibration.getState();
+          const headTurn = engines.diversion.detectHeadTurn({
+            headPose,
+            faceQuality,
+            calibration: calibration.profile,
+          });
+          const eyeDiversion = engines.diversion.detectEyeDiversion({
+            headTurn,
+            eyeGaze,
+            faceQuality,
+            calibration: calibration.profile,
+          });
+
+          const evaluation = engines.violation.evaluate({
+            timestamp,
+            faceCount,
+            eyeGaze,
+            headTurn,
+            eyeDiversion,
+            headPose,
+            faceQuality,
+            calibration,
+          });
+
+          if (evaluation.events.length > 0) {
+            setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
+            evaluation.events.forEach((event) => {
+              engines.evidence.recordEvidence(event).then((captured) => {
+                if (!captured) return;
+
+                setEvidence((current) => {
+                  const next = [captured, ...current].slice(0, 20);
+                  engines.evidence.releaseEvidence(current.filter((item) => !next.includes(item)));
+
+                  return next;
+                });
+              });
+            });
+          }
+
+          if (timestamp - lastUiUpdateAtRef.current >= UI_UPDATE_INTERVAL_MS) {
+            lastUiUpdateAtRef.current = timestamp;
+            setAnalysis(evaluation.analysis);
+          }
+        }
       }
 
       rafIdRef.current = window.requestAnimationFrame(processFrame);
     },
-    [detectAndEvaluate, engines.evidence, stopLoop, videoRef],
+    [engines, stopLoop, videoRef],
   );
 
   const start = useCallback(async () => {
@@ -230,7 +225,7 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     // ── MediaPipe ──
     try {
       setMediaPipeStatus('loading');
-      await mediaPipeFaceLandmarkerWorkerClient.initialize();
+      await mediaPipeFaceLandmarkerService.initialize();
       setMediaPipeStatus('ready');
 
       engines.calibration.reset();
@@ -279,8 +274,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         if (key) mapped[key] = entry.detectionThresholdSeconds * 1000;
       });
       engines.violation.setThresholds(mapped);
+      setThresholdsSource('server');
+      setActiveThresholds(engines.violation.getThresholds());
     } catch (err) {
       console.warn('[useAiProctoring] Failed to load proctoring settings, keeping default thresholds:', err);
+      setThresholdsSource('error');
+      setActiveThresholds(engines.violation.getThresholds());
     }
   }, [engines.violation]);
 
@@ -292,6 +291,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       return [];
     });
   }, [engines.evidence]);
+
+  // Hiện ngay ngưỡng mặc định trước khi applyProctoringSettings() được gọi (hoặc nếu không bao
+  // giờ được gọi) — không để activeThresholds là null ngay từ đầu.
+  useEffect(() => {
+    setActiveThresholds(engines.violation.getThresholds());
+  }, [engines.violation]);
 
   useEffect(() => {
     evidenceRef.current = evidence;
@@ -310,6 +315,8 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     evidence,
     violations,
     isRunning,
+    thresholdsSource,
+    activeThresholds,
     start,
     stop,
     clearLocalEvidence,
