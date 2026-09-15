@@ -1,7 +1,17 @@
 import type { EvidenceItem, EvidenceViolationMetadata, ViolationType, ViolationEvent } from '../types/proctoring';
 import { API_BASE_URL } from '../../services/apiClient';
 import { getAccessToken } from '../../services/authStorage';
-import { patchWebmDuration } from './webmDurationFix';
+
+// Ghi evidence TRỰC TIẾP từ MediaStream camera bằng MediaRecorder — mỗi violation là 1 phiên ghi
+// hình MỚI, độc lập, có header WebM đầy đủ ngay từ đầu, browser tự lo toàn bộ việc mã hoá đúng
+// nhịp thật. KHÔNG còn tự chụp ảnh JPEG rời rạc rồi ghép lại bằng tay (canvas.captureStream() +
+// tự bơm frame + tự tính lại duration) như bản cũ (xem EvidenceRecorderSnapshotLegacy.ts) — cách
+// đó qua nhiều lần sửa vẫn còn lỗi (dài gấp đôi thời gian thật, đứng hình giữa clip, ảnh ma/xé
+// hình) vì tự dựng lại video từ ảnh tĩnh vốn rất dễ vỡ. Cách này đơn giản và chắc chắn hơn nhiều,
+// đổi lại: KHÔNG còn quay được đoạn "trước khi vi phạm xảy ra" nữa (ghi hình chỉ có thể bắt đầu
+// từ lúc gọi start(), không thể lùi lại quá khứ) — chỉ quay từ lúc phát hiện vi phạm trở đi. Vì
+// vi phạm chỉ được tính sau khi hành vi bất thường đã kéo dài đủ ngưỡng (1.2-1.8s+), video vẫn
+// cho thấy học sinh tiếp diễn hành vi đó ngay sau khi bị bắt, chỉ là không có đoạn "trước đó".
 
 // Map FE violation types → BE enum values (AcademicRequestDtos.cs ViolationType)
 // BE có đủ: Impersonation | GazeDiversion | MultipleFaces | Absence | HeadTurn | FaceObstructed
@@ -13,15 +23,14 @@ const VIOLATION_TYPE_MAP: Record<ViolationType, string> = {
   FACE_OBSTRUCTED: 'FaceObstructed',
 };
 
-const DEFAULT_PRE_EVENT_MS = 5000;
-const DEFAULT_FRAME_INTERVAL_MS = 67;
-const DEFAULT_POST_VIOLATION_MS = 5000;
+// Tổng thời lượng 1 clip evidence — trước đây chia 4s "trước" + 4s "sau" vi phạm, giờ không còn
+// "trước" nữa nên dồn hết vào "sau" để clip vẫn đủ dài làm bằng chứng.
+const DEFAULT_CLIP_MS = 8000;
+// Khoảng nghỉ SAU KHI ghi xong 1 clip (đã upload), trước khi cho phép bắt violation tiếp theo —
+// tính từ lúc xử lý xong, không phải từ lúc violation bắt đầu. Cùng với `busy`, đảm bảo LUÔN chỉ
+// xử lý đúng 1 violation tại 1 thời điểm — không log/không video nào bị "rỗng" nữa.
+const DEFAULT_COOLDOWN_AFTER_CLIP_MS = 5000;
 const DEFAULT_VIDEO_BITS_PER_SECOND = 2_600_000;
-// Vi phạm CÙNG loại xảy ra trong khoảng này kể từ lần ghi hình gần nhất sẽ bị bỏ qua hoàn toàn
-// (không compose video, không tạo violation log) — clip vừa ghi đã đủ làm bằng chứng, tránh CPU
-// phải xử lý nhiều evidence gần như giống hệt nhau liên tiếp gây giật hình.
-const DEFAULT_CAPTURE_WIDTH = 960;
-const DEFAULT_JPEG_QUALITY = 0.84;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
 const DEFAULT_SESSION_ID = 'local-session';
 const DEFAULT_STUDENT_ID = 'local-student';
@@ -31,43 +40,19 @@ interface EvidenceRecorderOptions {
   participationId?: string;
   sessionId?: string;
   studentId?: string;
-  maxChunks?: number;
-  chunkMs?: number;
-  postViolationMs?: number;
+  clipMs?: number;
+  cooldownAfterClipMs?: number;
   videoBitsPerSecond?: number;
 }
 
-interface EvidenceFrame {
-  blob: Blob;
-  capturedAt: number;
-}
-
-// Một "cửa sổ" thu bằng chứng: bắt đầu ngay khi vi phạm xảy ra (startedAt = thời điểm THẬT),
-// độc lập với việc clip trước đó có đang compose/upload hay chưa. Nhờ vậy postFrames luôn chứa
-// đúng các frame thật sự được chụp trong khoảng [startedAt, startedAt+postViolationMs], không bị
-// lệch/rỗng khi phải xếp hàng chờ việc nặng (dựng video, upload mạng) của vi phạm trước.
-interface CollectionWindow {
-  startedAt: number;
-  preViolationFrames: EvidenceFrame[];
-  postFrames: EvidenceFrame[];
-  violations: EvidenceViolationMetadata[];
-  primaryViolation: ViolationEvent;
-  timestampIso: string;
-}
-
 export class EvidenceRecorder {
-  private video: HTMLVideoElement | null = null;
-  private captureCanvas: HTMLCanvasElement | null = null;
-  private captureContext: CanvasRenderingContext2D | null = null;
-  private rollingFrames: EvidenceFrame[] = [];
-  private activeWindow: CollectionWindow | null = null;
-  // Hàng đợi TUẦN TỰ chỉ dành cho phần việc nặng (dựng canvas → video + upload mạng), để 2 clip
-  // không tranh nhau 1 luồng JS. KHÔNG dùng để trì hoãn việc thu frame — đó là lý do "đứng hình".
-  private composeChain: Promise<void> = Promise.resolve();
-  private lastCaptureAt = 0;
+  private stream: MediaStream | null = null;
   private mimeType = '';
   private isRunning = false;
-  private isCapturingFrame = false;
+  // true suốt từ lúc bắt đầu ghi 1 violation tới hết cooldown sau khi ghi+upload xong — trong lúc
+  // này MỌI violation mới đều bị BỎ QUA hoàn toàn (không log, không video), đúng yêu cầu "xử lý
+  // xong 1 cái mới bắt cái mới".
+  private busy = false;
   private options: Required<Omit<EvidenceRecorderOptions, 'uploadUrl'>> & Pick<EvidenceRecorderOptions, 'uploadUrl'>;
 
   constructor(options: EvidenceRecorderOptions = {}) {
@@ -76,11 +61,16 @@ export class EvidenceRecorder {
       participationId: options.participationId ?? DEFAULT_PARTICIPATION_ID,
       sessionId: options.sessionId ?? DEFAULT_SESSION_ID,
       studentId: options.studentId ?? DEFAULT_STUDENT_ID,
-      maxChunks: options.maxChunks ?? Math.ceil(DEFAULT_PRE_EVENT_MS / DEFAULT_FRAME_INTERVAL_MS),
-      chunkMs: options.chunkMs ?? DEFAULT_FRAME_INTERVAL_MS,
-      postViolationMs: options.postViolationMs ?? DEFAULT_POST_VIOLATION_MS,
+      clipMs: options.clipMs ?? DEFAULT_CLIP_MS,
+      cooldownAfterClipMs: options.cooldownAfterClipMs ?? DEFAULT_COOLDOWN_AFTER_CLIP_MS,
       videoBitsPerSecond: options.videoBitsPerSecond ?? DEFAULT_VIDEO_BITS_PER_SECOND,
     };
+  }
+
+  /** true suốt từ lúc bắt đầu ghi 1 violation tới hết cooldown — dùng để useAiProctoring.ts tạm
+   *  dừng chạy MediaPipe (không có lý do detect thêm trong lúc mọi violation mới đều bị bỏ qua). */
+  get isBusy() {
+    return this.busy;
   }
 
   start(video: HTMLVideoElement) {
@@ -90,112 +80,137 @@ export class EvidenceRecorder {
       throw new Error('MediaRecorder is not supported in this browser.');
     }
 
-    // Dùng chung <video> đang chạy detection (videoRef) thay vì tạo video ẩn riêng để decode lại
-    // cùng 1 stream lần nữa — decode kép + setInterval độc lập với vòng lặp rAF của detection là
-    // nguyên nhân chính gây đứng hình/giật: dưới tải nặng (MediaPipe chạy đồng bộ mỗi rAF tick),
-    // browser có thể trì hoãn/gộp các lần gọi setInterval một cách không đều, đúng lúc violation
-    // vừa bắt được lại càng dễ bị vì có thêm việc đồng bộ (setState, ghi log) chen vào cùng tick.
-    this.video = video;
+    const stream = video.srcObject instanceof MediaStream ? video.srcObject : null;
+    if (!stream) {
+      throw new Error('Video element has no live camera MediaStream to record from.');
+    }
+
+    this.stream = stream;
     this.mimeType = this.resolveMimeType();
-    this.captureCanvas = document.createElement('canvas');
-    this.captureContext = this.captureCanvas.getContext('2d', { alpha: false });
     this.isRunning = true;
-    this.lastCaptureAt = 0;
   }
 
-  // Gọi từ vòng lặp requestAnimationFrame của detection (cùng "đồng hồ" với việc phân tích
-  // vi phạm) thay vì setInterval riêng, để việc chụp frame không bị timer khác cạnh tranh/trễ.
-  tick(now: number) {
-    if (!this.isRunning) return;
-    if (now - this.lastCaptureAt < this.options.chunkMs) return;
-    this.lastCaptureAt = now;
-    void this.captureFrame();
+  /** Không còn cần chụp frame rời rạc (MediaRecorder tự ghi trực tiếp từ camera) — giữ lại hàm
+   *  này dạng no-op để useAiProctoring.ts không cần đổi gì (vẫn gọi tick() mỗi rAF như trước). */
+  tick(_now: number) {
+    // no-op
   }
 
-  async recordEvidence(violation: ViolationEvent): Promise<EvidenceItem | null> {
-    if (!this.isRunning) {
-      return null;
+  /**
+   * Tách rời 2 việc để cả học sinh lẫn giáo viên thấy thông báo NGAY, không phải đợi 8s quay +
+   * upload video xong mới biết có vi phạm: (1) POST /api/violation-logs NGAY LẬP TỨC — BE tạo
+   * record + bắn SignalR ViolationDetected cho cả 2 bên liền; (2) quay clip + upload video CHẠY
+   * SAU, độc lập, không chặn bước (1). `onUpdate` được gọi NHIỀU LẦN cho cùng 1 violation (cùng
+   * `item.id`) theo tiến trình: 'pending' (log đã tạo, video đang quay) → 'uploaded'/'failed' khi
+   * video xử lý xong — nơi gọi (useAiProctoring.ts) tự match theo `id` để cập nhật đúng item thay
+   * vì thêm mới.
+   */
+  async recordEvidence(violation: ViolationEvent, onUpdate: (item: EvidenceItem) => void): Promise<void> {
+    if (!this.isRunning || this.busy) {
+      console.debug(`[EvidenceRecorder] Busy processing a previous violation — ignoring ${violation.type}.`);
+      return;
     }
 
-    const violationMetadata = this.toViolationMetadata(violation);
-    const now = Date.now();
+    this.busy = true;
+    try {
+      const capturedAt = Date.now();
+      const timestampIso = new Date(capturedAt).toISOString();
+      const violations = [this.toViolationMetadata(violation)];
 
-    if (this.activeWindow && now - this.activeWindow.startedAt < this.options.postViolationMs) {
-      // Vi phạm tới trong lúc cửa sổ thu hiện tại còn đang mở → gộp vào cùng 1 clip (không mở
-      // cửa sổ quay video mới, tránh nhiều clip gần như trùng nhau) NHƯNG vẫn phải tạo violation
-      // log riêng cho nó — nếu không, vi phạm này biến mất hoàn toàn khỏi phía Backend (không có
-      // record nào), trong khi ViolationEngine ở FE vẫn tính nó vào số hiển thị cục bộ. Đây là
-      // nguyên nhân chính khiến số vi phạm bên học sinh > số bên dashboard giáo viên. Log tạo
-      // riêng này không có evidence riêng (evidencePath vẫn null, giống browser violation) —
-      // clip video của cửa sổ đang mở coi như bằng chứng chung cho cả nhóm vi phạm gần nhau đó.
-      this.appendActiveViolation(this.activeWindow, violationMetadata);
-      void this.createLogOnly(violation, new Date(now).toISOString());
-      return null;
+      let violationId: string | null = null;
+      try {
+        violationId = await this.postViolationLog(violation, timestampIso);
+      } catch (error) {
+        console.warn('[EvidenceRecorder] Failed to create violation log:', error);
+      }
+
+      const baseItem: EvidenceItem = {
+        filename: `${violation.type}-${capturedAt}.webm`,
+        id: `evidence-${violation.id}`,
+        violationId: violation.id,
+        violationType: violation.type,
+        violations,
+        capturedAt,
+        videoSizeBytes: 0,
+        durationMs: this.options.clipMs,
+        uploadStatus: violationId ? 'pending' : this.options.uploadUrl ? 'failed' : 'local',
+        ...(violationId || !this.options.uploadUrl ? {} : { uploadError: 'Failed to create violation log.' }),
+      };
+      onUpdate(baseItem);
+      if (!this.isRunning) return;
+
+      const videoBlob = await this.recordClip(this.options.clipMs);
+      if (!this.isRunning) return;
+      if (!videoBlob || videoBlob.size === 0) {
+        onUpdate({ ...baseItem, uploadStatus: 'failed', uploadError: 'Recording produced an empty clip.' });
+        return;
+      }
+
+      const withVideo: EvidenceItem = {
+        ...baseItem,
+        videoObjectUrl: URL.createObjectURL(videoBlob),
+        videoSizeBytes: videoBlob.size,
+      };
+
+      if (!violationId || !this.options.uploadUrl) {
+        onUpdate({ ...withVideo, uploadStatus: this.options.uploadUrl ? 'failed' : 'local' });
+        return;
+      }
+
+      try {
+        await this.uploadEvidenceFile(videoBlob, violationId);
+        onUpdate({ ...withVideo, uploadStatus: 'uploaded' });
+      } catch (error) {
+        onUpdate({
+          ...withVideo,
+          uploadStatus: 'failed',
+          uploadError: error instanceof Error ? error.message : 'Video upload failed.',
+        });
+      }
+    } finally {
+      // Cooldown tính từ NGAY SAU KHI ghi+upload xong (không phải từ lúc violation bắt đầu).
+      await this.wait(this.options.cooldownAfterClipMs);
+      this.busy = false;
     }
-
-    const collectionWindow: CollectionWindow = {
-      startedAt: now,
-      preViolationFrames: this.rollingFrames.slice(),
-      postFrames: [],
-      violations: [violationMetadata],
-      primaryViolation: violation,
-      timestampIso: new Date(now).toISOString(),
-    };
-    this.activeWindow = collectionWindow;
-
-    // Đợi đúng thời gian thực postViolationMs kể từ THỜI ĐIỂM VI PHẠM THẬT — không phụ thuộc
-    // recorder có đang bận compose/upload clip trước hay không, nên postFrames luôn đúng thời gian.
-    await this.wait(this.options.postViolationMs);
-
-    if (!this.isRunning) return null;
-    if (this.activeWindow === collectionWindow) {
-      this.activeWindow = null;
-    }
-
-    const clipFrames = this.buildFixedClipFrames(
-      collectionWindow.preViolationFrames,
-      collectionWindow.postFrames,
-      collectionWindow.startedAt,
-    );
-    if (clipFrames.length === 0) return null;
-
-    const durationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
-
-    // Phần nặng (vẽ canvas → video + upload mạng) chạy TUẦN TỰ qua composeChain để 2 clip không
-    // tranh nhau 1 luồng JS, nhưng dữ liệu frame đã chốt xong đúng thời gian thực ở trên rồi nên
-    // việc xếp hàng ở bước này không còn làm lệch/mất frame như trước nữa.
-    return this.enqueueCompose(() => this.composeAndUpload(
-      clipFrames,
-      collectionWindow.primaryViolation,
-      collectionWindow.violations,
-      collectionWindow.startedAt,
-      collectionWindow.timestampIso,
-      durationMs,
-    ));
   }
 
-  private enqueueCompose<T>(task: () => Promise<T>): Promise<T> {
-    const run = this.composeChain.then(task, task);
-    this.composeChain = run.then(
-      () => undefined,
-      () => undefined,
-    );
-    return run;
-  }
+  /** Ghi 1 phiên MediaRecorder MỚI, độc lập, đúng durationMs từ MediaStream hiện có — mỗi clip có
+   *  header WebM riêng, không phụ thuộc/ghép với bất kỳ đoạn ghi nào khác. */
+  private recordClip(durationMs: number): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      if (!this.stream) {
+        resolve(null);
+        return;
+      }
 
-  private async composeAndUpload(
-    clipFrames: EvidenceFrame[],
-    violation: ViolationEvent,
-    violations: EvidenceViolationMetadata[],
-    capturedAt: number,
-    timestampIso: string,
-    durationMs: number,
-  ): Promise<EvidenceItem | null> {
-    if (!this.isRunning) return null;
+      const recorder = new MediaRecorder(this.stream, {
+        ...(this.mimeType ? { mimeType: this.mimeType } : {}),
+        videoBitsPerSecond: this.options.videoBitsPerSecond,
+      });
+      const chunks: Blob[] = [];
 
-    const videoBlob = await this.composeVideoBlob(clipFrames);
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        // BE whitelist content-type theo chuỗi tuyệt đối ("video/webm"/"video/mp4"),
+        // không chấp nhận tham số codec (vd "video/webm;codecs=vp9") → phải bỏ phần sau dấu ";"
+        const rawType = recorder.mimeType || this.mimeType || 'video/webm';
+        const baseType = rawType.split(';')[0].trim();
+        resolve(new Blob(chunks, { type: baseType }));
+      };
+      recorder.onerror = () => resolve(null);
 
-    return this.createEvidenceItem(videoBlob, violation, violations, capturedAt, timestampIso, durationMs);
+      recorder.start();
+      window.setTimeout(() => {
+        if (recorder.state !== 'inactive') {
+          recorder.requestData();
+          recorder.stop();
+        }
+      }, durationMs);
+    });
   }
 
   updateConfig(opts: { participationId?: string; studentId?: string; sessionId?: string }) {
@@ -206,18 +221,9 @@ export class EvidenceRecorder {
 
   stop() {
     this.isRunning = false;
-    this.lastCaptureAt = 0;
-
-    // Video giờ là <video> dùng chung với detection (không còn sở hữu riêng) — không được
-    // pause/clear srcObject của nó ở đây vì sẽ làm gãy preview camera + vòng lặp detection.
-    this.video = null;
-    this.captureCanvas = null;
-    this.captureContext = null;
+    this.stream = null;
     this.mimeType = '';
-    this.rollingFrames = [];
-    this.activeWindow = null;
-    this.composeChain = Promise.resolve();
-    this.isCapturingFrame = false;
+    this.busy = false;
   }
 
   releaseEvidence(items: EvidenceItem[]) {
@@ -228,220 +234,9 @@ export class EvidenceRecorder {
     });
   }
 
-  private async captureFrame() {
-    if (this.isCapturingFrame) return;
-    if (!this.isRunning || !this.video || !this.captureCanvas || !this.captureContext) return;
-    if (this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !this.video.videoWidth || !this.video.videoHeight) return;
-
-    this.isCapturingFrame = true;
-    try {
-      const width = Math.min(DEFAULT_CAPTURE_WIDTH, this.video.videoWidth);
-      const scale = width / this.video.videoWidth;
-      const height = Math.round(this.video.videoHeight * scale);
-      this.captureCanvas.width = width;
-      this.captureCanvas.height = height;
-      this.captureContext.drawImage(this.video, 0, 0, width, height);
-
-      const blob = await this.canvasToBlob(this.captureCanvas);
-      if (!blob.size) return;
-
-      const frame = {
-        blob,
-        capturedAt: Date.now(),
-      };
-
-      this.rollingFrames.push(frame);
-      while (this.rollingFrames.length > this.options.maxChunks) {
-        this.rollingFrames.shift();
-      }
-
-      if (this.activeWindow) {
-        this.activeWindow.postFrames.push(frame);
-      }
-    } finally {
-      this.isCapturingFrame = false;
-    }
-  }
-
-  private canvasToBlob(canvas: HTMLCanvasElement) {
-    return new Promise<Blob>((resolve) => {
-      canvas.toBlob((blob) => resolve(blob ?? new Blob()), 'image/jpeg', DEFAULT_JPEG_QUALITY);
-    });
-  }
-
-  private async composeVideoBlob(frames: EvidenceFrame[]) {
-    // Decode từng bitmap RẢI RA theo tiến độ vẽ, luôn decode TRƯỚC 1 frame (prefetch) rồi mới chờ
-    // đủ nhịp chunkMs — KHÔNG được gộp chờ-decode và chờ-nhịp lại với nhau (Promise.all cả hai),
-    // vì nếu decode chẳng may chậm hơn nhịp thì thời gian đó sẽ CỘNG DỒN vào tổng thời lượng clip
-    // (150 frame cộng dồn vài chục ms/frame là ra dư vài giây, đây là lý do clip từng bị dài 13s).
-    // Prefetch cho decode chạy song song với thời gian chờ nhịp, không cộng dồn vào lịch phát.
-    let currentBitmap = await createImageBitmap(frames[0].blob);
-    let nextBitmapPromise = frames[1] ? createImageBitmap(frames[1].blob) : null;
-    const canvas = document.createElement('canvas');
-    canvas.width = currentBitmap.width;
-    canvas.height = currentBitmap.height;
-    const context = canvas.getContext('2d', { alpha: false });
-
-    if (!context) {
-      currentBitmap.close();
-      throw new Error('Unable to create canvas context for evidence video.');
-    }
-
-    const stream = canvas.captureStream(0);
-    const [track] = stream.getVideoTracks();
-    const manualTrack = track as CanvasCaptureMediaStreamTrack | undefined;
-    const recorder = new MediaRecorder(stream, {
-      ...(this.mimeType ? { mimeType: this.mimeType } : {}),
-      videoBitsPerSecond: this.options.videoBitsPerSecond,
-    });
-    const videoChunks: Blob[] = [];
-    const stopped = new Promise<Blob>((resolve) => {
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          videoChunks.push(event.data);
-        }
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((track) => track.stop());
-        // BE whitelist content-type theo chuỗi tuyệt đối ("video/webm"/"video/mp4"),
-        // không chấp nhận tham số codec (vd "video/webm;codecs=vp9") → phải bỏ phần sau dấu ";"
-        const rawType = recorder.mimeType || this.mimeType || 'video/webm';
-        const baseType = rawType.split(';')[0].trim();
-        resolve(new Blob(videoChunks, { type: baseType }));
-      };
-    });
-
-    recorder.start();
-    const startedAt = performance.now();
-
-    for (let index = 0; index < frames.length; index += 1) {
-      context.drawImage(currentBitmap, 0, 0, canvas.width, canvas.height);
-      manualTrack?.requestFrame();
-      currentBitmap.close();
-
-      const nextFrameAt = startedAt + (index + 1) * this.options.chunkMs;
-      const delayMs = Math.max(0, nextFrameAt - performance.now());
-      if (delayMs > 0) {
-        await this.wait(delayMs);
-      }
-
-      if (nextBitmapPromise) {
-        currentBitmap = await nextBitmapPromise;
-        const afterNext = frames[index + 2];
-        nextBitmapPromise = afterNext ? createImageBitmap(afterNext.blob) : null;
-      }
-    }
-
-    const recordedMs = performance.now() - startedAt;
-
-    if (recorder.state !== 'inactive') {
-      recorder.requestData();
-      recorder.stop();
-    }
-
-    const rawBlob = await stopped;
-
-    // Chrome's MediaRecorder CÓ ghi Duration vào header webm khi assemble Blob từ các chunk
-    // ondataavailable, nhưng ghi giá trị SAI (đã verify bằng ffprobe trên file thật: header báo
-    // "Duration: 00:00:00.00" — giá trị thật lưu bên trong chỉ là "1" đơn vị TimecodeScale, tức
-    // 1ms — dù decode được đủ 100% frame, ~10s data thật). Vì vậy <video> (kể cả phát từ blob:
-    // URL nội bộ) đọc duration ra 0:00 và không chịu phát, trong khi data KHÔNG hề bị mất/hỏng.
-    // Vá lại header bằng patchWebmDuration (ghi đè byte tại chỗ, không re-encode) trước khi trả
-    // về — nếu vá lỗi (vd cấu trúc file khác thường) thì vẫn trả blob gốc thay vì chặn evidence.
-    try {
-      return await patchWebmDuration(rawBlob, recordedMs);
-    } catch {
-      return rawBlob;
-    }
-  }
-
-  private buildFixedClipFrames(
-    preViolationFrames: EvidenceFrame[],
-    postViolationFrames: EvidenceFrame[],
-    violationAt: number,
-  ) {
-    const preFrameCount = Math.ceil(DEFAULT_PRE_EVENT_MS / this.options.chunkMs);
-    const postFrameCount = Math.ceil(this.options.postViolationMs / this.options.chunkMs);
-    const targetCount = preFrameCount + postFrameCount;
-    const frames = [...preViolationFrames, ...postViolationFrames]
-      .filter((frame) => frame.blob.size > 0)
-      .sort((a, b) => a.capturedAt - b.capturedAt);
-
-    if (frames.length === 0) return [];
-
-    // Chọn frame theo mốc thời gian THỰC (không theo tỉ lệ index) và neo đúng vào thời điểm
-    // xảy ra vi phạm (violationAt). Tốc độ chụp frame thực tế không đều tuyệt đối 67ms/frame
-    // (JPEG encode + isCapturingFrame guard có thể làm rớt frame), nên nếu resample theo tỉ lệ
-    // index như trước sẽ làm ranh giới pre/post trôi khỏi thời điểm vi phạm thật, gây giật/nhảy
-    // hình đúng ngay chỗ nối 5s.
-    const totalDurationMs = DEFAULT_PRE_EVENT_MS + this.options.postViolationMs;
-    const startAt = violationAt - DEFAULT_PRE_EVENT_MS;
-    const stepMs = totalDurationMs / Math.max(1, targetCount - 1);
-
-    let cursor = 0;
-    return Array.from({ length: targetCount }, (_, index) => {
-      const idealAt = startAt + index * stepMs;
-      while (
-        cursor < frames.length - 1
-        && Math.abs(frames[cursor + 1].capturedAt - idealAt) <= Math.abs(frames[cursor].capturedAt - idealAt)
-      ) {
-        cursor += 1;
-      }
-      return frames[cursor];
-    });
-  }
-
-  private async createEvidenceItem(
-    videoBlob: Blob,
-    violation: ViolationEvent,
-    violations: EvidenceViolationMetadata[],
-    capturedAt: number,
-    timestampIso: string,
-    durationMs: number,
-  ): Promise<EvidenceItem> {
-    const baseItem: EvidenceItem = {
-      filename: `${violation.type}-${capturedAt}.webm`,
-      id: `evidence-${violation.id}`,
-      violationId: violation.id,
-      violationType: violation.type,
-      violations,
-      capturedAt,
-      videoSizeBytes: videoBlob.size,
-      durationMs,
-      uploadStatus: this.options.uploadUrl ? 'pending' : 'local',
-    };
-
-    // DEBUG: Preview original frontend Blob before upload
-    // Used to compare Blob output vs uploaded Supabase video.
-    const objectUrl = URL.createObjectURL(videoBlob);
-
-    if (!this.options.uploadUrl) {
-      return {
-        ...baseItem,
-        videoObjectUrl: objectUrl,
-      };
-    }
-
-    try {
-      await this.upload(videoBlob, violation, violations, timestampIso, baseItem.durationMs);
-      return {
-        ...baseItem,
-        videoObjectUrl: objectUrl,
-        uploadStatus: 'uploaded',
-      };
-    } catch (error) {
-      return {
-        ...baseItem,
-        videoObjectUrl: objectUrl,
-        uploadStatus: 'failed',
-        uploadError: error instanceof Error ? error.message : 'Video upload failed.',
-      };
-    }
-  }
-
-  // POST /api/violation-logs — tách riêng khỏi upload() để dùng chung cho cả 2 trường hợp: vi
-  // phạm mở cửa sổ quay video mới (upload() gọi tiếp bước 2 upload video), VÀ vi phạm bị gộp vào
-  // cửa sổ đang mở (createLogOnly() dùng — không có video riêng, evidencePath giữ null). BE tự lo
+  // POST /api/violation-logs — gọi NGAY LẬP TỨC khi phát hiện vi phạm (xem recordEvidence()),
+  // TRƯỚC khi quay video, để BE tạo record + bắn SignalR ViolationDetected cho cả học sinh lẫn
+  // giáo viên ngay, không phải đợi 8s quay + upload video xong mới biết có vi phạm. BE tự lo
   // cooldown/max-count/consecutive-type (trả về log CŨ thay vì tạo mới nếu bị chặn) — FE không tự
   // suy đoán, không throw khi bị "nuốt" theo cooldown vì đó là hành vi đúng theo thiết kế.
   private async postViolationLog(violation: ViolationEvent, timestampIso: string): Promise<string | null> {
@@ -470,32 +265,12 @@ export class EvidenceRecorder {
     return logData.id ?? logData.data?.id ?? null;
   }
 
-  // Vi phạm bị gộp vào cửa sổ quay video đang mở (xem recordEvidence) — vẫn cần 1 record thật ở
-  // BE để dashboard giáo viên không thiếu số, nhưng không có video riêng để đính kèm.
-  private async createLogOnly(violation: ViolationEvent, timestampIso: string) {
-    try {
-      await this.postViolationLog(violation, timestampIso);
-    } catch (err) {
-      console.warn(`[EvidenceRecorder] Failed to log merged violation (${violation.type}):`, err);
-    }
-  }
-
-  private async upload(
-    videoBlob: Blob,
-    violation: ViolationEvent,
-    _violations: EvidenceViolationMetadata[],
-    timestampIso: string,
-    _durationMs: number,
-  ) {
-    if (!this.options.uploadUrl) return;
-
+  // Gắn video vào 1 violation log ĐÃ TỒN TẠI (đã tạo xong ở postViolationLog, trước cả khi video
+  // này bắt đầu quay) — khác bản cũ (tạo log + upload gộp trong 1 bước), giờ đây 2 việc độc lập.
+  private async uploadEvidenceFile(videoBlob: Blob, violationId: string) {
     const token = getAccessToken();
     const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
 
-    const violationId = await this.postViolationLog(violation, timestampIso);
-    if (!violationId) return; // Log tạo thành công (hoặc bị cooldown/dedupe) nhưng không có ID để upload video
-
-    // Step 2: Upload video lên Supabase qua BE
     const formData = new FormData();
     formData.append('file', videoBlob, `evidence-${violationId}.webm`);
     formData.append('violationId', violationId);
@@ -509,8 +284,7 @@ export class EvidenceRecorder {
     });
 
     if (!storageResponse.ok) {
-      // Upload video thất bại nhưng violation log đã được tạo → không throw để tránh mất log
-      console.warn(`[EvidenceRecorder] Video upload failed (${storageResponse.status}). Violation log ${violationId} was created without evidence.`);
+      throw new Error(`Video upload failed with status ${storageResponse.status}.`);
     }
   }
 
@@ -518,19 +292,6 @@ export class EvidenceRecorder {
     return new Promise<void>((resolve) => {
       window.setTimeout(resolve, ms);
     });
-  }
-
-  private appendActiveViolation(window: CollectionWindow, violation: EvidenceViolationMetadata) {
-    const hasSameType = window.violations.some((active) => active.violationType === violation.violationType);
-    if (hasSameType) return;
-
-    const isHeadEyePair = (
-      (violation.violationType === 'HEAD_TURN' && window.violations.some((active) => active.violationType === 'EYE_DIVERSION'))
-      || (violation.violationType === 'EYE_DIVERSION' && window.violations.some((active) => active.violationType === 'HEAD_TURN'))
-    );
-    if (isHeadEyePair) return;
-
-    window.violations.push(violation);
   }
 
   private resolveMimeType() {

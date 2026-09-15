@@ -7,6 +7,7 @@ import SchoolAdminDashboardPage from './pages/SchoolAdminDashboard';
 import LecturerDashboardPage from './pages/LecturerDashboard';
 import StudentDashboardPage, { StudentExamVerifyPage, StudentExamTakingPage } from './pages/StudentDashboard';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import ProctoringTestPage from './pages/DevTools/ProctoringTestPage';
 
 export default function App() {
   return (
@@ -14,6 +15,17 @@ export default function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+
+        {/* Trang debug tạm — soi pipeline AI proctoring độc lập, không đụng exam/participation
+            nào. Chưa gắn vào sidebar nào cả, cứ vào thẳng URL này khi cần test. */}
+        <Route
+          path="/proctoring-test"
+          element={
+            <ProtectedRoute>
+              <ProctoringTestPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Full-screen exam flow — placed BEFORE /student/* so they match first */}
         <Route
