@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { FiInfo, FiRefreshCw, FiSave, FiShield } from 'react-icons/fi';
+import { FiInfo, FiLock, FiRefreshCw, FiSave, FiShield } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   createProctoringSettings,
   fetchEffectiveProctoringSettings,
+  fetchExamSlots,
   updateProctoringSettings,
 } from '../../../services/schoolAdminApi';
 import type {
@@ -56,6 +57,16 @@ export default function ProctoringSettingsPage() {
     () => fetchEffectiveProctoringSettings(),
     [institutionId],
   );
+
+  // Khoá form khi trường đang có bài thi diễn ra — đổi ngưỡng phát hiện giữa chừng 1 ca thi sẽ làm
+  // ViolationEngine phía student đổi hành vi bất nhất ngay trong lúc thi (yêu cầu Giang). Chỉ là
+  // khoá UI phía FE — chưa có validate tương ứng ở BE, nên vẫn có thể vô tình sửa được nếu gọi
+  // thẳng API (đã cân nhắc báo BE thêm chặn thật ở ProctoringSettingsService nếu cần chắc chắn).
+  const { data: examSlotsData } = useAsyncData(
+    () => fetchExamSlots({ page: 1, pageSize: 200 }).then((r) => r.items),
+    [],
+  );
+  const hasOngoingExam = (examSlotsData ?? []).some((e) => e.status === 'ongoing');
 
   // effective.institutionId chỉ trùng institution của mình khi đây thực sự là config riêng đã
   // lưu — nếu BE đang fallback về mặc định hệ thống thì field này là null (config gốc không
@@ -166,6 +177,17 @@ export default function ProctoringSettingsPage() {
         </div>
       ) : !form ? null : (
         <>
+          {hasOngoingExam && (
+            <div className="bg-gold/5 border border-gold/20 rounded-xl p-4 flex items-start gap-3 text-sm text-muted">
+              <FiLock className="text-gold mt-0.5 shrink-0" />
+              <span>
+                <strong className="text-white-soft">Locked while an exam is in progress.</strong> Changing detection
+                thresholds mid-exam could make live monitoring behave inconsistently for students already testing —
+                come back once every ongoing exam at your school has ended.
+              </span>
+            </div>
+          )}
+
           {!hasOwnConfig && (
             <div className="bg-blue/5 border border-blue/20 rounded-xl p-4 flex items-start gap-3 text-sm text-muted">
               <FiInfo className="text-blue-bright mt-0.5 shrink-0" />
@@ -177,6 +199,10 @@ export default function ProctoringSettingsPage() {
             </div>
           )}
 
+          {/* fieldset disabled tự khoá hết input/checkbox bên trong khi có exam ongoing — không
+              phải tự thêm disabled={hasOngoingExam} lặp lại ở từng input. className="contents" để
+              fieldset không sinh box riêng, không phá layout/spacing giữa 2 card. */}
+          <fieldset disabled={hasOngoingExam} className="contents">
           {/* General thresholds */}
           <div className="bg-navy-card border border-border rounded-[20px] p-6">
             <p className="text-sm font-bold text-white-soft mb-4">General Thresholds</p>
@@ -254,13 +280,14 @@ export default function ProctoringSettingsPage() {
               })}
             </div>
           </div>
+          </fieldset>
 
           {/* Actions */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             {hasOwnConfig ? (
               <button
                 onClick={handleReset}
-                disabled={resetting || saving}
+                disabled={resetting || saving || hasOngoingExam}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-muted text-sm cursor-pointer hover:border-red/40 hover:text-red disabled:opacity-50 transition-colors bg-transparent"
               >
                 <FiRefreshCw /> {resetting ? 'Resetting…' : 'Reset to System Default'}
@@ -268,7 +295,7 @@ export default function ProctoringSettingsPage() {
             ) : <span />}
             <button
               onClick={handleSave}
-              disabled={saving || resetting}
+              disabled={saving || resetting || hasOngoingExam}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none"
             >
               <FiSave /> {saving ? 'Saving…' : 'Save Changes'}

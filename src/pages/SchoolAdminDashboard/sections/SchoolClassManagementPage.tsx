@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  FiBook, FiCalendar, FiEdit2, FiPlus,
-  FiSearch, FiTrash2, FiUser, FiUsers, FiX,
+  FiBook, FiCalendar, FiCheckCircle, FiEdit2, FiPlus,
+  FiSearch, FiTrash2, FiUpload, FiUser, FiUsers, FiX, FiXCircle,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
@@ -13,6 +13,7 @@ import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHu
 import { HubRoute } from '../../../services/realtimeClient';
 import {
   CreateClassPayload,
+  ImportClassEnrollmentsResult,
   createClass,
   createEnrollment,
   deleteClass,
@@ -23,6 +24,7 @@ import {
   fetchSchoolAdminStudents,
   fetchStudentsByMajorYear,
   fetchUsers,
+  importClassEnrollmentsFromExcel,
   updateClass,
   updateEnrollment,
 } from '../../../services/schoolAdminApi';
@@ -73,6 +75,13 @@ function EnrollmentPanel({
   const [removeTarget, setRemoveTarget] = useState<{ studentId: string; name: string } | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Import Excel — commit 0ab93cb (Phú): thêm hàng loạt sinh viên vào lớp qua file .xlsx, thay thế
+  // hẳn cho import-excel-theo-examSlotId cũ (đã bị xoá khỏi BE, chuyển hẳn xuống cấp lớp).
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportClassEnrollmentsResult | null>(null);
 
   // Lọc theo Ngành + Khoá nhập học của sinh viên (đề xuất của Phú, BE commit ebf5cec: GET
   // /api/users/students) — thu hẹp gợi ý khi trường có nhiều sinh viên trùng tên, dễ chọn nhầm.
@@ -181,6 +190,28 @@ function EnrollmentPanel({
       onEnrollmentChange();
     } finally {
       setAdding(false);
+    }
+  };
+
+  const handlePickImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setImportResult(null);
+    setImportFile(e.target.files?.[0] ?? null);
+  };
+
+  const handleImportExcel = async () => {
+    if (!importFile) { toast.warning('Required', 'Choose a .xlsx file first.'); return; }
+    setImporting(true);
+    try {
+      const res = await importClassEnrollmentsFromExcel(cls.id, importFile);
+      setImportResult(res);
+      reload();
+      onEnrollmentChange();
+      if (res.failed === 0) toast.success('Import complete', `${res.succeeded} of ${res.total} students enrolled.`);
+      else toast.warning('Import finished with errors', `${res.succeeded} succeeded, ${res.failed} failed.`);
+    } catch (err) {
+      toast.error('Import failed', err instanceof Error ? err.message : 'Could not import the file.');
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -293,6 +324,46 @@ function EnrollmentPanel({
               </button>
             )}
           </div>
+
+          {/* Import Excel — commit 0ab93cb (Phú): cột bắt buộc StudentCode + FullName, thay thế
+              endpoint import-excel cũ theo examSlotId (đã bị BE xoá hẳn). */}
+          <div className="flex items-center gap-2 mb-2.5">
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              className="flex-1 flex items-center gap-2 border border-dashed border-border rounded-lg px-3 py-1.5 cursor-pointer hover:border-blue-bright/40 transition-colors"
+              title="File .xlsx, max 5MB / 500 rows. Columns: StudentCode, FullName."
+            >
+              <FiUpload className="text-muted text-xs shrink-0" />
+              <span className="text-xs text-white-soft truncate">{importFile ? importFile.name : 'Import from .xlsx (StudentCode, FullName)'}</span>
+              <input ref={fileInputRef} type="file" accept=".xlsx" onChange={handlePickImportFile} className="hidden" />
+            </div>
+            <button
+              onClick={() => void handleImportExcel()}
+              disabled={importing || !importFile}
+              className="px-3 py-1.5 rounded-lg bg-blue text-white text-xs font-semibold cursor-pointer hover:bg-blue/80 disabled:opacity-50 transition-colors border-none shrink-0"
+            >
+              {importing ? 'Importing…' : 'Import'}
+            </button>
+          </div>
+          {importResult && (
+            <div className="mb-2.5">
+              <div className="flex items-center gap-3 mb-1.5">
+                <span className="text-[11px] font-bold text-white-soft">{importResult.total} rows</span>
+                <span className="text-[11px] font-bold text-green">{importResult.succeeded} succeeded</span>
+                {importResult.failed > 0 && <span className="text-[11px] font-bold text-red">{importResult.failed} failed</span>}
+              </div>
+              <div className="max-h-32 overflow-y-auto custom-scrollbar border border-border rounded-lg divide-y divide-border">
+                {importResult.results.map((r) => (
+                  <div key={r.row} className="flex items-center gap-2 px-2.5 py-1.5 text-xs">
+                    {r.success ? <FiCheckCircle className="text-green shrink-0" size={12} /> : <FiXCircle className="text-red shrink-0" size={12} />}
+                    <span className="text-muted shrink-0">Row {r.row}</span>
+                    <span className="text-white-soft truncate flex-1">{r.fullName ?? r.studentCode ?? '—'}</span>
+                    {!r.success && <span className="text-red text-[10px] truncate max-w-[45%]">{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Chip của những sinh viên đã chọn, chưa bấm Add — bấm x để bỏ chọn */}
           {selected.length > 0 && (

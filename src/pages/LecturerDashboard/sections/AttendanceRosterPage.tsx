@@ -226,6 +226,10 @@ export default function AttendanceRosterPage() {
 
   // Bắt kịp trường hợp bài thi hết giờ NGAY khi lecturer đang xem trang, không cần đợi Refresh —
   // giống cơ chế cũ nhưng chỉ cần theo dõi đúng 1 session của bài thi đang xem thay vì quét toàn bộ.
+  // Cũng tự refetch `exam` mỗi vòng — `exam.status` chỉ được tính 1 lần lúc loadAll(), nếu lecturer
+  // ngồi yên trên trang qua khỏi giờ kết thúc exam thì `canStart` vẫn tưởng "ongoing" (stale), bấm
+  // Start lại sau khi End sẽ bị BE từ chối ("start time must be within the exam slot's time range")
+  // thay vì thấy đúng lý do "This exam has already ended." — tự làm mới để canStart luôn khớp thật.
   useEffect(() => {
     const interval = setInterval(() => {
       const s = sessionRef.current;
@@ -238,6 +242,7 @@ export default function AttendanceRosterPage() {
           })
           .catch(() => undefined);
       }
+      if (examId) fetchExamSlotFallback(examId).then(setExam).catch(() => undefined);
     }, 30000);
     return () => clearInterval(interval);
   }, [classId, examId]);
@@ -269,6 +274,9 @@ export default function AttendanceRosterPage() {
       setSession(null);
       toast.info('Session ended', 'Attendance data has been saved.');
       void reloadExamRecords();
+      // Làm mới exam.status ngay — tránh nút "Start Attendance Session" hiện enable sai nếu giờ
+      // thi thật ra đã hết trong lúc session vừa mở (xem comment ở interval refetch phía trên).
+      if (examId) fetchExamSlotFallback(examId).then(setExam).catch(() => undefined);
     } catch (err) {
       toast.error('Failed to close session', err instanceof Error ? err.message : 'Please try again in a few seconds.');
     } finally {

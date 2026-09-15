@@ -16,6 +16,7 @@ import {
   reviewViolationLog,
   resolveEvidenceUrl,
 } from '../../../services/lecturerApi';
+import { fetchEffectiveProctoringSettings, fetchExamSlots } from '../../../services/schoolAdminApi';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
@@ -600,11 +601,12 @@ interface ParticipationCardProps {
   participation: ApiExamParticipation | null | undefined;
   examName: string | null;
   isDisqualified: boolean;
+  reachedThreshold: boolean;
   reviewedLogIds: Set<string>;
   onClick: () => void;
 }
 
-function ParticipationCard({ group, participation, examName, isDisqualified, reviewedLogIds, onClick }: ParticipationCardProps) {
+function ParticipationCard({ group, participation, examName, isDisqualified, reachedThreshold, reviewedLogIds, onClick }: ParticipationCardProps) {
   const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
   const severeCount = group.logs.filter((l) => l.severity === 'Severe').length;
   const warningCount = group.logs.filter((l) => l.severity === 'Warning').length;
@@ -615,12 +617,14 @@ function ParticipationCard({ group, participation, examName, isDisqualified, rev
   return (
     <button
       onClick={onClick}
-      className="text-left w-full bg-navy-card border border-border rounded-2xl p-4 hover:border-blue/40 hover:bg-white/2 transition-all cursor-pointer"
+      className={`text-left w-full border rounded-2xl p-4 hover:bg-white/2 transition-all cursor-pointer ${
+        reachedThreshold ? 'bg-red/5 border-red/40 hover:border-red/60' : 'bg-navy-card border-border hover:border-blue/40'
+      }`}
     >
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-full bg-blue/20 border border-blue/30 flex items-center justify-center shrink-0">
-            <FiUser size={14} className="text-blue-bright" />
+          <div className={`w-9 h-9 rounded-full border flex items-center justify-center shrink-0 ${reachedThreshold ? 'bg-red/20 border-red/40' : 'bg-blue/20 border-blue/30'}`}>
+            <FiUser size={14} className={reachedThreshold ? 'text-red' : 'text-blue-bright'} />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-white-soft truncate">
@@ -629,11 +633,18 @@ function ParticipationCard({ group, participation, examName, isDisqualified, rev
             {examName && <p className="text-[11px] text-blue-bright truncate mt-0.5">📝 {examName}</p>}
           </div>
         </div>
-        {isDisqualified && (
-          <span className="shrink-0 text-[9px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full">
-            Disqualified
-          </span>
-        )}
+        <div className="flex flex-col items-end gap-1 shrink-0">
+          {isDisqualified && (
+            <span className="text-[9px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full">
+              Disqualified
+            </span>
+          )}
+          {reachedThreshold && !isDisqualified && (
+            <span className="flex items-center gap-1 text-[9px] font-bold text-red bg-red/10 border border-red/30 px-2 py-0.5 rounded-full whitespace-nowrap">
+              <FiAlertTriangle size={9} /> Threshold Reached
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5 flex-wrap mb-3">
@@ -750,6 +761,37 @@ export default function ViolationReviewPage() {
     [],
   );
 
+  // Class code của từng exam slot (vd "CSI202") — ExamParticipationResponseDto (BE) chỉ có
+  // ExamName, không có class code, nên phải tự tra thêm qua fetchExamSlots (đã có sẵn classCode
+  // resolve từ trước, dùng lại đúng convention của LiveMonitoringPage.tsx). Theo yêu cầu Giang: tên
+  // bài thi phải hiện dạng "CSI202 - Midterm" chứ không phải chỉ "Midterm" (dễ nhầm khi 1 giảng viên
+  // dạy nhiều lớp cùng tên đề thi).
+  const { data: examSlotsData } = useAsyncData(
+    () => fetchExamSlots({ page: 1, pageSize: 200 }).then((r) => r.items),
+    [],
+  );
+  const classCodeBySlot = useMemo(
+    () => new Map((examSlotsData ?? []).map((e) => [e.id, e.classCode])),
+    [examSlotsData],
+  );
+  const withClassCode = useCallback((examSlotId: string | undefined, examName: string | null | undefined) => {
+    if (!examName) return null;
+    const code = examSlotId ? classCodeBySlot.get(examSlotId) : undefined;
+    return code && code !== '—' ? `${code} - ${examName}` : examName;
+  }, [classCodeBySlot]);
+
+  // Đánh dấu đỏ học sinh đã đạt ngưỡng cảnh báo vi phạm (yêu cầu Giang) — không có field "đã đạt
+  // ngưỡng" trả sẵn từ BE cho từng participation, nhưng có thể suy ra khá sát: số dòng ViolationLog
+  // đã lưu cho 1 participation CHÍNH LÀ số vi phạm AI thật sau khi BE đã tự lọc cooldown/max-count/
+  // consecutive-type lúc ghi (xem ViolationlogServices.cs CreateAsync) — so trực tiếp với
+  // aiNotifyThreshold hiện hành của trường là đủ chính xác, không cần BE trả thêm field riêng.
+  const { data: proctoringSettings } = useAsyncData(() => fetchEffectiveProctoringSettings(), []);
+  const aiNotifyThreshold = proctoringSettings?.aiNotifyThreshold ?? Infinity;
+  const reachedThreshold = useCallback(
+    (group: ParticipationGroup) => group.logs.length >= aiNotifyThreshold,
+    [aiNotifyThreshold],
+  );
+
   // Đổi filter/đổi bài thi đang xem thì quay lại trang 1 — tránh đứng ở 1 trang giờ đã vượt quá số
   // trang thật sau khi lọc/đổi phạm vi.
   useEffect(() => {
@@ -815,7 +857,7 @@ export default function ViolationReviewPage() {
       if (!map.has(p.examSlotId)) {
         map.set(p.examSlotId, {
           examSlotId: p.examSlotId,
-          examName: p.examName ?? 'Unknown Exam',
+          examName: withClassCode(p.examSlotId, p.examName) ?? 'Unknown Exam',
           groups: [],
           severeCount: 0,
           warningCount: 0,
@@ -827,7 +869,7 @@ export default function ViolationReviewPage() {
       entry.warningCount += g.logs.filter((l) => l.severity === 'Warning').length;
     });
     return [...map.values()].sort((a, b) => b.groups.length - a.groups.length);
-  }, [allGroups, participationCache]);
+  }, [allGroups, participationCache, withClassCode]);
 
   const selectedExamGroup = examGroups.find((e) => e.examSlotId === selectedExamSlotId) ?? null;
   const scopedGroups = selectedExamGroup?.groups ?? [];
@@ -873,16 +915,25 @@ export default function ViolationReviewPage() {
   // Chờ tới khi cả 2 điều kiện đúng — logs/participationCache tải dần theo useEffect ở trên, nên
   // hiệu ứng này có thể chạy lại nhiều lần trước khi match được, đó là chủ đích (không phải bug).
   useEffect(() => {
-    if (deepLinkAppliedRef.current || !deepLinkParticipationId) return;
-    const targetGroup = allGroups.find((g) => g.participationId === deepLinkParticipationId);
-    if (!targetGroup) return;
-    const targetExamSlotId = deepLinkExamSlotId ?? participationCache[deepLinkParticipationId]?.examSlotId;
-    if (!targetExamSlotId) return;
+    if (deepLinkAppliedRef.current) return;
 
-    deepLinkAppliedRef.current = true;
-    setSelectedExamSlotId(targetExamSlotId);
-    setSelectedGroupId(deepLinkParticipationId);
-    void refreshParticipation(deepLinkParticipationId);
+    if (deepLinkParticipationId) {
+      const targetGroup = allGroups.find((g) => g.participationId === deepLinkParticipationId);
+      if (!targetGroup) return;
+      const targetExamSlotId = deepLinkExamSlotId ?? participationCache[deepLinkParticipationId]?.examSlotId;
+      if (!targetExamSlotId) return;
+
+      deepLinkAppliedRef.current = true;
+      setSelectedExamSlotId(targetExamSlotId);
+      setSelectedGroupId(deepLinkParticipationId);
+      void refreshParticipation(deepLinkParticipationId);
+    } else if (deepLinkExamSlotId) {
+      // Từ thông báo chuông (NotificationContext.tsx buildActionPath) — chỉ có examSlotId, không có
+      // participationId (NotificationResponseDto không mang được field đó) — chỉ tự chọn đúng bài
+      // thi, không tự mở sẵn 1 học sinh cụ thể như trường hợp deep-link từ banner LiveMonitoringPage.
+      deepLinkAppliedRef.current = true;
+      setSelectedExamSlotId(deepLinkExamSlotId);
+    }
   }, [allGroups, participationCache, deepLinkParticipationId, deepLinkExamSlotId, refreshParticipation]);
 
   const allTypes = [...new Set(logs.map((l) => l.violationType).filter(Boolean))];
@@ -1135,8 +1186,9 @@ export default function ViolationReviewPage() {
                   key={group.participationId}
                   group={group}
                   participation={p}
-                  examName={p?.examName ?? null}
+                  examName={withClassCode(p?.examSlotId, p?.examName)}
                   isDisqualified={isDisqualified}
+                  reachedThreshold={reachedThreshold(group)}
                   reviewedLogIds={reviewedLogIds}
                   onClick={() => { setSelectedGroupId(group.participationId); void refreshParticipation(group.participationId); }}
                 />
@@ -1176,7 +1228,10 @@ export default function ViolationReviewPage() {
         <ParticipationDetailModal
           group={selectedGroup}
           participation={participationCache[selectedGroup.participationId]}
-          examName={participationCache[selectedGroup.participationId]?.examName ?? null}
+          examName={withClassCode(
+            participationCache[selectedGroup.participationId]?.examSlotId,
+            participationCache[selectedGroup.participationId]?.examName,
+          )}
           reviewedLogIds={reviewedLogIds}
           onClose={() => setSelectedGroupId(null)}
           onViewLog={(log) => void handleOpenEvidence(log)}
@@ -1198,7 +1253,10 @@ export default function ViolationReviewPage() {
         <EvidenceModal
           log={selectedLog}
           participation={participationCache[selectedLog.participationId]}
-          examName={participationCache[selectedLog.participationId]?.examName ?? null}
+          examName={withClassCode(
+            participationCache[selectedLog.participationId]?.examSlotId,
+            participationCache[selectedLog.participationId]?.examName,
+          )}
           onClose={() => setSelectedLog(null)}
           onDisqualify={handleDisqualify}
           onVoid={handleVoid}

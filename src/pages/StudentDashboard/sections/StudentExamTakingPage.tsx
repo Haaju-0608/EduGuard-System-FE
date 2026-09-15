@@ -248,7 +248,7 @@ function SubmitModal({ total, answered, onConfirm, onCancel }: {
 // nên màn hình này không thể tự đếm Correct/Wrong như trước nữa.
 
 function ResultScreen({
-  examName, answeredCount, totalQuestions, totalSeconds, maxScore, finalScore, submitting, submitError, onExit,
+  examName, answeredCount, totalQuestions, totalSeconds, maxScore, finalScore, submitting, submitError, onExit, onRetry,
   terminated, terminationReason,
 }: {
   examName: string;
@@ -260,6 +260,7 @@ function ResultScreen({
   submitting: boolean;
   submitError: string | null;
   onExit: () => void;
+  onRetry: () => void;
   terminated?: boolean;
   terminationReason?: string | null;
 }) {
@@ -285,7 +286,16 @@ function ResultScreen({
           <p className="text-4xl">⚠️</p>
           <h2 className="font-syne font-bold text-white-soft text-xl">Submission Failed</h2>
           <p className="text-muted text-sm">{submitError}</p>
-          <button onClick={onExit} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none">
+          {/* Submit thất bại ở BE nghĩa là participation CHƯA thật sự chuyển sang Submitted (BE
+              throw TRƯỚC khi set status) — bài thi vẫn còn nguyên, không mất câu trả lời đã chọn.
+              "Try Again" quay lại đúng màn thi (không phải "Back to My Exams" bắt thoát hẳn ra rồi
+              phải tự tìm lại đường vào thi lại), khớp đúng thực tế phía BE. */}
+          {!terminated && (
+            <button onClick={onRetry} className="px-6 py-2.5 rounded-xl bg-blue text-white text-sm font-semibold cursor-pointer hover:bg-blue/80 transition-colors border-none w-full">
+              Try Again
+            </button>
+          )}
+          <button onClick={onExit} className="px-6 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold cursor-pointer hover:border-blue/40 hover:text-white-soft transition-colors bg-transparent w-full">
             Back to My Exams
           </button>
         </div>
@@ -692,6 +702,7 @@ export default function StudentExamTakingPage() {
         submitting={submitting}
         submitError={submitError}
         onExit={() => navigate(examsListPath)}
+        onRetry={() => { setSubmitted(false); setSubmitError(null); }}
         terminated={termination.isExamTerminated}
         terminationReason={termination.reason}
       />

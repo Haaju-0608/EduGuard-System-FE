@@ -223,14 +223,19 @@ export interface ApiViolationLog {
 }
 
 /** Notification từ GET /api/notifications/user/{userId} */
+/** GET /api/notifications/user/{userId} — field khớp NotificationResponseDto (BE): chú ý BE trả
+ *  "body" chứ không phải "message", và có kèm referenceType/referenceId (vd ExamSlot + examSlotId)
+ *  để FE dựng link điều hướng thẳng tới đúng chỗ liên quan khi bấm vào thông báo. */
 export interface ApiNotification {
   id: string;
   userId: string;
   title: string;
-  message: string;
+  body: string;
   isRead: boolean;
   createdAt: string;
   type: string | null;
+  referenceType: string | null;
+  referenceId: string | null;
 }
 
 /** Institution từ GET /api/institutions */

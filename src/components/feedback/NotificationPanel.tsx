@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   FiAlertTriangle,
@@ -28,6 +28,12 @@ interface NotificationPanelProps {
 export default function NotificationPanel({ open, onClose }: NotificationPanelProps) {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications();
   const panelRef = useRef<HTMLDivElement>(null);
+  // Bộ lọc "chỉ xem thông báo vi phạm" (đạt ngưỡng cảnh báo vi phạm) — theo yêu cầu Giang: cần 1
+  // chỗ riêng để xem loại thông báo này, tách khỏi các loại khác (attendance/biometric/system) đang
+  // trộn chung trong panel.
+  const [filter, setFilter] = useState<'all' | NotificationType>('all');
+  const visibleNotifications = filter === 'all' ? notifications : notifications.filter((n) => n.type === filter);
+  const violationCount = notifications.filter((n) => n.type === 'violation').length;
 
   /** Đóng khi click ra ngoài */
   useEffect(() => {
@@ -59,18 +65,41 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
         )}
       </div>
 
+      {violationCount > 0 && (
+        <div className="flex gap-2 px-4 pb-2">
+          <button
+            type="button"
+            onClick={() => setFilter('all')}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer transition-colors ${
+              filter === 'all' ? 'bg-blue text-white border-blue' : 'bg-transparent text-muted border-border hover:border-blue/40'
+            }`}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('violation')}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer transition-colors ${
+              filter === 'violation' ? 'bg-red text-white border-red' : 'bg-transparent text-muted border-border hover:border-red/40'
+            }`}
+          >
+            Violations ({violationCount})
+          </button>
+        </div>
+      )}
+
       <div className="notif-panel-list custom-scrollbar">
         {loading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="notif-skeleton" />
           ))
-        ) : notifications.length === 0 ? (
+        ) : visibleNotifications.length === 0 ? (
           <div className="notif-empty">
             <span className="text-3xl">🔔</span>
-            <p>No notifications</p>
+            <p>{filter === 'all' ? 'No notifications' : 'No violation threshold alerts'}</p>
           </div>
         ) : (
-          notifications.map((notif) => {
+          visibleNotifications.map((notif) => {
             const Icon = TYPE_ICONS[notif.type];
             const content = (
               <div

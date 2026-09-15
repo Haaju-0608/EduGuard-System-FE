@@ -1022,7 +1022,7 @@ export async function deleteExamParticipation(participationId: string): Promise<
   await apiDelete(`/api/exam-participations/${participationId}`);
 }
 
-export interface ImportExamParticipantRowResult {
+export interface ImportClassEnrollmentRowResult {
   row: number;
   studentCode: string | null;
   fullName: string | null;
@@ -1030,29 +1030,32 @@ export interface ImportExamParticipantRowResult {
   error: string | null;
 }
 
-export interface ImportExamParticipantsResult {
+export interface ImportClassEnrollmentsResult {
   total: number;
   succeeded: number;
   failed: number;
-  results: ImportExamParticipantRowResult[];
+  results: ImportClassEnrollmentRowResult[];
 }
 
 /**
- * POST /api/exam-participations/exam-slots/{examSlotId}/import-excel (commit 1f89609, Phú) — thêm
- * hàng loạt sinh viên vào 1 ca thi qua file .xlsx (≤5MB, ≤500 dòng), cột bắt buộc StudentCode +
- * FullName (khớp đúng tên sinh viên trong hệ thống). BE tự validate: sinh viên phải đang active
- * trong đúng institution, đã enroll (active) vào lớp của ca thi, chưa có participation cho ca thi
- * này, và không trùng giờ với ca thi khác — mỗi dòng lỗi trả riêng trong `results`, không chặn cả
- * file (giống pattern bulkImportUsers).
+ * POST /api/enrollments/classes/{classId}/import-excel (commit 0ab93cb, Phú) — thêm hàng loạt sinh
+ * viên vào 1 LỚP qua file .xlsx (≤5MB, ≤500 dòng), cột bắt buộc StudentCode + FullName (khớp đúng
+ * tên sinh viên trong hệ thống). Mỗi dòng lỗi trả riêng trong `results`, không chặn cả file (giống
+ * pattern bulkImportUsers).
+ *
+ * LƯU Ý: Phú đã XOÁ HẲN endpoint cũ import-excel theo examSlotId
+ * (`/api/exam-participations/exam-slots/{id}/import-excel`, commit 1f89609) và thay bằng endpoint
+ * này — import giờ diễn ra ở CẤP LỚP (enrollment), không phải cấp ca thi (participation) nữa. Nếu
+ * BE đổi lại lần nữa thì phải cập nhật path ở đây.
  */
-export async function importExamParticipantsFromExcel(
-  examSlotId: string,
+export async function importClassEnrollmentsFromExcel(
+  classId: string,
   file: File,
-): Promise<ImportExamParticipantsResult> {
+): Promise<ImportClassEnrollmentsResult> {
   const formData = new FormData();
   formData.append('file', file);
-  return apiPost<ImportExamParticipantsResult>(
-    `/api/exam-participations/exam-slots/${examSlotId}/import-excel`,
+  return apiPost<ImportClassEnrollmentsResult>(
+    `/api/enrollments/classes/${classId}/import-excel`,
     formData,
   );
 }
