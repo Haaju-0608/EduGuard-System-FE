@@ -66,7 +66,7 @@ async function parseJsonSafe(res: Response): Promise<unknown> {
 // {"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}) — BE
 // (AuthController.cs) bọc nguyên văn vào "Fail to login: {ex.Message}" rồi trả cho FE. Nhận diện
 // thêm pattern JSON kiểu {"key": để bắt được cả trường hợp này.
-const TECHNICAL_MESSAGE_PATTERN = /system error|exception|stack ?trace|status ?code does not indicate|\bat\s+[\w.]+\(|nullreference|npgsql|dbupdate|unhandled|\(\d{3}\):|\{\s*"[\w_]+"\s*:/i;
+const TECHNICAL_MESSAGE_PATTERN = /system error|exception|stack ?trace|status ?code does not indicate|\bat\s+[\w.]+\(|nullreference|npgsql|dbupdate|unhandled|\(\d{3}\):|\{\s*"[\w_]+"\s*:|could not be converted|bytepositioninline|linenumber|\bsystem\.\w+/i;
 
 function friendlyFallback(status: number): string {
   if (status === 401) return 'Session expired. Please log in again.';
@@ -85,6 +85,31 @@ function extractErrorMessage(body: unknown, status: number): string {
 
   if (body && typeof body === 'object') {
     const record = body as Record<string, unknown>;
+
+    // ASP.NET Core [ApiController] validation response (ValidationProblemDetails): `errors` là
+    // object dạng { fieldPath: string[] }, không phải string/array như 2 nhánh bên dưới xử lý —
+    // trước đây nhánh này rơi thẳng xuống `title` chung chung ("One or more validation errors
+    // occurred."), khiến người dùng không biết field nào sai. Ưu tiên key dạng JSON path ("$.foo.
+    // bar[0].baz") vì đó là lỗi kỹ thuật GỐC (vd sai kiểu dữ liệu khi deserialize) — ASP.NET còn
+    // báo kèm 1 lỗi "required" ở tên tham số body (vd "dto") như hệ quả của CÙNG lỗi đó, kém hữu
+    // ích hơn hẳn. Message trích ra vẫn phải qua TECHNICAL_MESSAGE_PATTERN như các nhánh khác —
+    // lỗi convert kiểu dữ liệu thường kèm theo thuật ngữ .NET (System.Int32, BytePositionInLine)
+    // không nên hiện thẳng cho người dùng.
+    if (record.errors && typeof record.errors === 'object' && !Array.isArray(record.errors)) {
+      const entries = Object.entries(record.errors as Record<string, unknown>);
+      const pathEntry = entries.find(([key]) => key.startsWith('$.'));
+      const [key, messages] = pathEntry ?? entries[0] ?? [];
+      const value = Array.isArray(messages) ? messages[0] : messages;
+      if (key && typeof value === 'string' && value) {
+        if (TECHNICAL_MESSAGE_PATTERN.test(value)) {
+          console.error('[API] Technical validation message hidden from user:', key, value);
+          return friendlyFallback(status);
+        }
+        const readableField = key.replace(/^\$\.?/, '').replace(/\[\d+\]/g, '');
+        return readableField && readableField !== 'dto' ? `${readableField}: ${value}` : value;
+      }
+    }
+
     // Try common field names
     for (const key of ['message', 'error', 'title', 'detail', 'errorMessage', 'Error']) {
       const value = record[key];

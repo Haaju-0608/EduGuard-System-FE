@@ -15,11 +15,16 @@ import type {
 } from '../../../types/termination';
 import { getViolationLabel } from '../../../utils/violationLabels';
 
-// Đúng 6 loại vi phạm AI có ngưỡng thời gian riêng — khớp mảng AiViolationTypes (BE,
-// ProctoringSettingsService.cs). Impersonation chưa có detector FE nào bắn nó, nhưng BE vẫn nhận
-// và validate field này nên vẫn cho SchoolAdmin cấu hình trước.
+// 5 loại vi phạm AI thực sự có detector — khớp đúng ViolationEngine.ts (FE) hiện chỉ phát hiện
+// được 5 loại này. BE cho phép cấu hình cả "Impersonation" (còn nằm trong AiViolationTypes,
+// ProctoringSettingsService.cs) nhưng KHÔNG có nơi nào tạo ra vi phạm loại đó — chưa có tính năng
+// tái xác thực khuôn mặt giữa giờ thi — nên cố tình ẩn khỏi UI để SchoolAdmin không hiểu nhầm là
+// tính năng đã hoạt động. Bỏ nó khỏi mảng này là đủ: form không còn render/gửi threshold cho
+// Impersonation nữa (BE không yêu cầu đủ mọi loại khi Save — ValidateThresholds chỉ kiểm tra
+// loại nào GỬI LÊN có hợp lệ không, không bắt buộc phải gửi đủ cả 6). Bật lại bằng cách thêm
+// 'Impersonation' vào mảng này khi tính năng thật được implement.
 const AI_VIOLATION_TYPES: ProctoringViolationTypeThreshold['violationType'][] = [
-  'HeadTurn', 'GazeDiversion', 'FaceObstructed', 'MultipleFaces', 'Absence', 'Impersonation',
+  'HeadTurn', 'GazeDiversion', 'FaceObstructed', 'MultipleFaces', 'Absence',
 ];
 
 const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
@@ -81,15 +86,39 @@ export default function ProctoringSettingsPage() {
     if (data) setForm(fieldsFromEffective(data));
   }, [data]);
 
+  // "Số lần" (Max AI Violation Count, Notify Threshold...) vẫn phải là số nguyên — BE giữ nguyên
+  // kiểu `int` cho các field này. Gõ "1.5" từng gây lỗi 400 "The JSON value could not be converted
+  // to System.Int32" mà UI không hề ngăn hay báo trước. Làm tròn ngay lúc nhập (không chỉ validate
+  // lúc Save) để state không bao giờ giữ số thập phân, và input NaN (ô trống/gõ chữ) giữ nguyên
+  // giá trị cũ thay vì crash hoặc gửi NaN lên BE.
+  const roundOrKeep = (raw: string, previous: number) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? Math.round(parsed) : previous;
+  };
+
+  // Detection Thresholds (giây) đã đổi sang cho phép thập phân (1.2s / 1.5s / 1.8s...) — BE đổi
+  // ViolationTypeThresholdDto.DetectionThresholdSeconds từ int sang double (đã nhờ BE làm, xem
+  // prompt trong session). Chỉ cần parse float bình thường, KHÔNG làm tròn về số nguyên nữa.
+  const parseOrKeep = (raw: string, previous: number) => {
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : previous;
+  };
+
   const setField = <K extends keyof ProctoringSettingsFormFields>(key: K, value: ProctoringSettingsFormFields[K]) => {
     setForm((f) => (f ? { ...f, [key]: value } : f));
   };
 
-  const setThreshold = (violationType: ProctoringViolationTypeThreshold['violationType'], seconds: number) => {
+  const setIntField = (key: 'maxAiViolationCount' | 'cooldownSeconds' | 'aiNotifyThreshold' | 'browserNotifyThreshold', raw: string) => {
+    setForm((f) => f && { ...f, [key]: roundOrKeep(raw, f[key]) });
+  };
+
+  const setThreshold = (violationType: ProctoringViolationTypeThreshold['violationType'], raw: string) => {
     setForm((f) => f && {
       ...f,
       violationTypeThresholds: f.violationTypeThresholds.map((t) =>
-        t.violationType === violationType ? { ...t, detectionThresholdSeconds: seconds } : t,
+        t.violationType === violationType
+          ? { ...t, detectionThresholdSeconds: parseOrKeep(raw, t.detectionThresholdSeconds) }
+          : t,
       ),
     });
   };
@@ -100,8 +129,8 @@ export default function ProctoringSettingsPage() {
     if (f.aiNotifyThreshold < 1 || f.aiNotifyThreshold > 1000) return 'AI Notify Threshold must be between 1 and 1000.';
     if (f.browserNotifyThreshold < 1 || f.browserNotifyThreshold > 1000) return 'Browser Notify Threshold must be between 1 and 1000.';
     for (const t of f.violationTypeThresholds) {
-      if (t.detectionThresholdSeconds < 1 || t.detectionThresholdSeconds > 3600) {
-        return `${getViolationLabel(t.violationType).label} threshold must be between 1 and 3600 seconds.`;
+      if (t.detectionThresholdSeconds < 0.1 || t.detectionThresholdSeconds > 3600) {
+        return `${getViolationLabel(t.violationType).label} threshold must be between 0.1 and 3600 seconds.`;
       }
     }
     return null;
@@ -210,36 +239,36 @@ export default function ProctoringSettingsPage() {
               <div>
                 <label className={lbl}>Max AI Violation Count</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.maxAiViolationCount}
-                  onChange={(e) => setField('maxAiViolationCount', Number(e.target.value))}
+                  onChange={(e) => setIntField('maxAiViolationCount', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Stop recording new AI violations once a student hits this count.</p>
               </div>
               <div>
                 <label className={lbl}>Cooldown (seconds)</label>
                 <input
-                  type="number" min={0} max={3600} className={inp}
+                  type="number" min={0} max={3600} step={1} className={inp}
                   value={form.cooldownSeconds}
-                  onChange={(e) => setField('cooldownSeconds', Number(e.target.value))}
+                  onChange={(e) => setIntField('cooldownSeconds', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Minimum gap between two recorded AI violations.</p>
               </div>
               <div>
                 <label className={lbl}>AI Notify Threshold</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.aiNotifyThreshold}
-                  onChange={(e) => setField('aiNotifyThreshold', Number(e.target.value))}
+                  onChange={(e) => setIntField('aiNotifyThreshold', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">AI violation count that triggers a lecturer notification.</p>
               </div>
               <div>
                 <label className={lbl}>Browser Notify Threshold</label>
                 <input
-                  type="number" min={1} max={1000} className={inp}
+                  type="number" min={1} max={1000} step={1} className={inp}
                   value={form.browserNotifyThreshold}
-                  onChange={(e) => setField('browserNotifyThreshold', Number(e.target.value))}
+                  onChange={(e) => setIntField('browserNotifyThreshold', e.target.value)}
                 />
                 <p className="text-[11px] text-muted mt-1">Browser violation count (tab switch, etc.) that triggers a lecturer notification.</p>
               </div>
@@ -269,10 +298,10 @@ export default function ProctoringSettingsPage() {
                     <span className="text-lg shrink-0">{meta.icon}</span>
                     <p className="text-sm font-semibold text-white-soft flex-1 min-w-0">{meta.label}</p>
                     <input
-                      type="number" min={1} max={3600}
+                      type="number" min={0.1} max={3600} step={0.1}
                       className={inpSm}
                       value={t.detectionThresholdSeconds}
-                      onChange={(e) => setThreshold(t.violationType, Number(e.target.value))}
+                      onChange={(e) => setThreshold(t.violationType, e.target.value)}
                     />
                     <span className="text-[11px] text-muted w-10 shrink-0">sec</span>
                   </div>
