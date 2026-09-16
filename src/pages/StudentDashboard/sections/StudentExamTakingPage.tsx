@@ -526,8 +526,10 @@ export default function StudentExamTakingPage() {
         // chậm oan lúc hiện đề bài dù không liên quan tới việc fetch câu hỏi.
         setParticipationReady(true);
         // Đăng ký participationId với ExamTerminationContext (global) để nó check status ngay
-        // (không đợi SignalR) và lắng nghe event ExamTerminated đúng cho participation này.
-        termination.registerParticipation(participationId);
+        // (không đợi SignalR) và lắng nghe event ExamTerminated đúng cho participation này. Kèm
+        // examId để context tự JoinExam(examSlotId) — thiếu bước này thì ViolationDetected/
+        // ExamTerminated không bao giờ tới được (xem ghi chú trong ExamTerminationContext.tsx).
+        termination.registerParticipation(participationId, examId);
         // Gọi /join để BE ghi actualStart (chỉ set lần đầu, các lần join lại sau giữ nguyên), verify
         // khuôn mặt qua liveCapture, và chuyển status → Joined. Đợi camera (proctoringStart) sẵn sàng
         // trước khi chụp — nếu camera chưa sẵn sàng (bị chặn quyền, lỗi thiết bị...) thì captureLiveFrame

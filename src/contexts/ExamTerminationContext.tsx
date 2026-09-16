@@ -3,7 +3,7 @@ import {
 } from 'react';
 import type { HubConnection } from '@microsoft/signalr';
 import { useAuth } from './AuthContext';
-import { useHubConnection, useHubEvent } from '../hooks/useHubConnection';
+import { useHubConnection, useHubEvent, useHubGroup } from '../hooks/useHubConnection';
 import { HubRoute } from '../services/realtimeClient';
 import { fetchExamParticipationStatus } from '../services/schoolAdminApi';
 import type {
@@ -24,8 +24,9 @@ interface ExamTerminationContextType {
   aiViolationCount: number;
   /** 'disqualified' = bị lecturer disqualify thủ công (có thể restore); 'browser-violation' = auto-terminate do 3-strike */
   terminationType: 'browser-violation' | 'disqualified' | null;
-  /** Gọi khi trang thi biết được participationId (và gọi lại với null khi rời trang) */
-  registerParticipation: (participationId: string | null) => void;
+  /** Gọi khi trang thi biết được participationId (và gọi lại với null khi rời trang). Cần kèm
+   *  examSlotId để tự JOIN group SignalR đúng của học sinh (xem ghi chú ở registerParticipation). */
+  registerParticipation: (participationId: string | null, examSlotId?: string | null) => void;
   /** Check lại status thủ công — dùng cho recovery (F5, mất mạng rồi có lại, hoặc sau khi lecturer restore) */
   refreshStatus: () => Promise<void>;
   /**
@@ -41,6 +42,7 @@ const ExamTerminationContext = createContext<ExamTerminationContextType | undefi
 export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   const [participationId, setParticipationId] = useState<string | null>(null);
+  const [examSlotId, setExamSlotId] = useState<string | null>(null);
   const [isExamTerminated, setIsExamTerminated] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [recordedAt, setRecordedAt] = useState<string | null>(null);
@@ -86,8 +88,12 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     }
   }, [applyTerminated]);
 
-  const registerParticipation = useCallback((id: string | null) => {
+  const registerParticipation = useCallback((id: string | null, slotId?: string | null) => {
     setParticipationId((prev) => (prev === id ? prev : id));
+    setExamSlotId((prev) => {
+      const next = id ? (slotId ?? null) : null;
+      return prev === next ? prev : next;
+    });
     if (!id) {
       setIsExamTerminated(false);
       setReason(null);
@@ -118,6 +124,15 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
   // 2) SignalR — dùng chung hub connection sẵn có (HubRoute.Exams), chỉ connect khi có
   //    participation đang active để tránh giữ socket vô ích ngoài lúc thi.
   const examHub = useHubConnection(HubRoute.Exams, isAuthenticated && !!participationId);
+
+  // BẮT BUỘC gọi JoinExam(examSlotId) để BE add connection vào đúng group
+  // HubGroups.ExamStudent(examSlotId, studentId) — thiếu bước này thì MỌI event bắn qua
+  // PushExamStudentAsync (ViolationDetected, ExamTerminated...) không bao giờ tới được trình
+  // duyệt học sinh, dù BE đã bắn đúng và Notification (kênh riêng, qua PushUserAsync/NotificationHub)
+  // vẫn báo bình thường — đây là lý do "đã có thông báo nhưng count trên màn thi vẫn là 0". Browser
+  // violation không bị ảnh hưởng vì count của nó lấy trực tiếp từ response của chính POST request
+  // (notifyViolationReported), không phụ thuộc SignalR.
+  useHubGroup(HubRoute.Exams, 'JoinExam', examSlotId ? [examSlotId] : null);
 
   useHubEvent<ExamTerminatedEventPayload>(examHub, 'ExamTerminated', (payload) => {
     if (!payload || payload.participationId !== participationIdRef.current) return;

@@ -10,6 +10,7 @@ import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   fetchViolationLogs,
   fetchBrowserViolations,
+  fetchViolationById,
   fetchParticipationById,
   disqualifyParticipation,
   voidExamParticipation,
@@ -115,6 +116,13 @@ function useResolvedEvidenceUrl(path: string | null) {
 // DEFAULT_POST_VIOLATION_MS trong EvidenceRecorder.ts).
 const EVIDENCE_CLIP_DURATION_MS = 10_000;
 
+// EvidenceRecorder.ts giờ báo violation log NGAY (không đợi video) rồi mới quay 8s + cooldown 5s +
+// upload — nên `evidencePath` có thể trống trong khoảng đầu dù violation đã có thật. Cửa sổ này
+// (rộng hơn 8s+5s khá nhiều để chừa buffer mạng/upload chậm) dùng để phân biệt "video đang xử lý"
+// (log còn mới) với "video thật sự không có" (log đã cũ mà vẫn trống, hoặc lỗi upload).
+const EVIDENCE_PROCESSING_WINDOW_MS = 40_000;
+const EVIDENCE_POLL_INTERVAL_MS = 3_000;
+
 function EvidenceVideo({ path }: { path: string }) {
   const { url: signedUrl, error: resolveError } = useResolvedEvidenceUrl(path);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -200,11 +208,45 @@ function EvidenceImage({ path }: { path: string }) {
 
 // ─── Evidence Modal ───────────────────────────────────────────────────────────
 
+// Poll GET /api/violation-logs/{id} trong lúc video còn đang xử lý (evidencePath trống + log còn
+// mới) để tự cập nhật ngay khi upload xong, không bắt Lecturer phải tự đóng/mở lại modal — dừng
+// poll ngay khi có evidencePath hoặc hết cửa sổ xử lý (video coi như đã lỗi/không có).
+function useEvidencePolling(log: ApiViolationLog, onUpdated: (log: ApiViolationLog) => void) {
+  useEffect(() => {
+    if (log.evidencePath) return;
+    const recordedAtMs = new Date(log.recordedAt).getTime();
+    if (Number.isNaN(recordedAtMs) || Date.now() - recordedAtMs >= EVIDENCE_PROCESSING_WINDOW_MS) return;
+
+    let cancelled = false;
+    const intervalId = window.setInterval(() => {
+      if (Date.now() - recordedAtMs >= EVIDENCE_PROCESSING_WINDOW_MS) {
+        window.clearInterval(intervalId);
+        return;
+      }
+      fetchViolationById(log.id)
+        .then((fresh) => {
+          if (cancelled || !fresh.evidencePath) return;
+          window.clearInterval(intervalId);
+          onUpdated(fresh);
+        })
+        .catch(() => {
+          // Lỗi mạng tạm thời — cứ để lần poll kế tiếp thử lại, không cần báo lỗi cho Lecturer.
+        });
+    }, EVIDENCE_POLL_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [log.id, log.evidencePath, log.recordedAt, onUpdated]);
+}
+
 interface EvidenceModalProps {
   log: ApiViolationLog;
   participation: ApiExamParticipation | null | undefined;
   examName: string | null;
   onClose: () => void;
+  onEvidenceUpdated: (log: ApiViolationLog) => void;
   onDisqualify: (log: ApiViolationLog) => void;
   onVoid: (log: ApiViolationLog) => void;
   disqualifying: boolean;
@@ -215,15 +257,21 @@ interface EvidenceModalProps {
 }
 
 function EvidenceModal({
-  log, participation, examName, onClose, onDisqualify, onVoid,
+  log, participation, examName, onClose, onEvidenceUpdated, onDisqualify, onVoid,
   disqualifying, voiding, alreadyDisqualified, isReviewed, reviewedByName,
 }: EvidenceModalProps) {
+  useEvidencePolling(log, onEvidenceUpdated);
+
   const viol = getViolationLabel(log.violationType);
   const sev = severityConfig(log.severity);
   const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
   const isVideo = log.evidencePath?.match(/\.(webm|mp4|mov|avi)(\?|$)/i) != null
     || (log.evidencePath?.startsWith('http') && !log.evidencePath?.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i));
   const isImage = log.evidencePath?.match(/\.(png|jpg|jpeg|gif|webp)(\?|$)/i) != null;
+  const recordedAtMs = new Date(log.recordedAt).getTime();
+  const isProcessing = !log.evidencePath
+    && !Number.isNaN(recordedAtMs)
+    && Date.now() - recordedAtMs < EVIDENCE_PROCESSING_WINDOW_MS;
 
   return createPortal(
     <div className="fixed inset-0 z-160 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
@@ -268,6 +316,12 @@ function EvidenceModal({
                   <p className="text-xs text-muted break-all px-4 text-center">{log.evidencePath}</p>
                 </div>
               )
+            ) : isProcessing ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <span className="w-6 h-6 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
+                <p className="text-sm text-muted">Đang xử lý video…</p>
+                <p className="text-xs text-muted/70 text-center px-4">Vi phạm vừa được ghi nhận — video bằng chứng đang được quay/tải lên, trang sẽ tự cập nhật.</p>
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 gap-2">
                 <FiVideo size={32} className="text-muted" />
@@ -959,6 +1013,15 @@ export default function ViolationReviewPage() {
   const warningCount = logs.filter((l) => l.severity === 'Warning').length;
   const reviewedCount = logs.filter((l) => l.reviewedBy != null || reviewedLogIds.has(l.id)).length;
 
+  // Video evidence giờ upload SAU khi violation log đã tạo (xem EvidenceRecorder.ts — báo log
+  // ngay, quay+upload video độc lập sau) — nếu đang mở đúng log đó lúc video vừa xử lý xong
+  // (EvidenceModal tự poll, xem useEvidencePolling), cập nhật lại cả selectedLog (để modal đang mở
+  // hiện video ngay) lẫn reload() toàn bộ list (để card ngoài lưới cũng hết hiện "no evidence").
+  const handleEvidenceUpdated = useCallback((updated: ApiViolationLog) => {
+    setSelectedLog((prev) => (prev?.id === updated.id ? updated : prev));
+    reload();
+  }, [reload]);
+
   // Open evidence modal and auto-mark as reviewed
   const handleOpenEvidence = useCallback(async (log: ApiViolationLog) => {
     setSelectedLog(log);
@@ -1261,6 +1324,7 @@ export default function ViolationReviewPage() {
             participationCache[selectedLog.participationId]?.examName,
           )}
           onClose={() => setSelectedLog(null)}
+          onEvidenceUpdated={handleEvidenceUpdated}
           onDisqualify={handleDisqualify}
           onVoid={handleVoid}
           disqualifying={disqualifyingId === selectedLog.participationId}

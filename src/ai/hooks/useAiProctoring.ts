@@ -102,8 +102,14 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   // (bắt buộc phải "type: module" vì cần cú pháp `import`) → lỗi "ModuleFactory not set." Package
   // cũng không có bản UMD/global để importScripts() trong worker cổ điển thay thế. Đây là giới
   // hạn thật của thư viện, không phải lỗi cấu hình — đã revert về chạy đồng bộ main thread như
-  // trước (đã chứng minh chạy được ở production), xem ProctoringTestPage.tsx §Known limitations
-  // nếu cần tìm hướng khác cho việc giật hình.
+  // trước (đã chứng minh chạy được ở production).
+  //
+  // Bù lại: khi EvidenceRecorder đang bận xử lý 1 violation (ghi hình + cắt video + upload +
+  // cooldown, xem EvidenceRecorder.isBusy), TẠM DỪNG HẲN việc chạy MediaPipe (và cả việc chụp
+  // frame rolling buffer) — không có lý do chạy detect trong lúc mọi violation mới đều bị bỏ qua,
+  // và main thread rảnh hoàn toàn giúp vòng lặp cắt video của EvidenceRecorder chạy đúng nhịp thời
+  // gian thật, không còn bị kéo dài ra (video từng bị dài gấp đôi ~20s thay vì 8s) hay giật do
+  // tranh CPU với detect. rAF loop vẫn chạy (chỉ bỏ qua việc nặng) để sẵn sàng resume ngay khi hết bận.
   const processFrame = useCallback(
     (timestamp: number) => {
       if (!runningRef.current) return;
@@ -115,8 +121,18 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       }
 
       // Chụp frame evidence ngay đầu tick, TRƯỚC khi chạy MediaPipe (việc nặng, đồng bộ) — để
-      // việc chụp không bị trễ thêm bởi thời gian detect của chính tick đang xử lý violation.
+      // việc chụp không bị trễ thêm bởi thời gian detect. PHẢI gọi vô điều kiện, kể cả lúc
+      // isBusy — nếu tạm dừng tick() trong lúc đang ghi 1 violation thì 4s "sau vi phạm"
+      // (postFrames) sẽ KHÔNG có frame nào được chụp, khiến video bị đứng hình đúng ngay mốc
+      // 4s (lặp lại frame cuối chụp được) suốt phần còn lại của clip — đã tự gây ra lỗi này khi
+      // thêm optimization tạm dừng detect, sửa lại bằng cách chỉ dừng phần NẶNG (MediaPipe) dưới
+      // đây, không dừng tick().
       engines.evidence.tick(timestamp);
+
+      if (engines.evidence.isBusy) {
+        rafIdRef.current = window.requestAnimationFrame(processFrame);
+        return;
+      }
 
       if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;
@@ -171,13 +187,21 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
           if (evaluation.events.length > 0) {
             setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
             evaluation.events.forEach((event) => {
-              engines.evidence.recordEvidence(event).then((captured) => {
-                if (!captured) return;
-
+              // recordEvidence() báo violation log NGAY (tách rời khỏi việc quay video) — onUpdate
+              // được gọi NHIỀU LẦN cho cùng 1 `item.id`: lần đầu 'pending' (log đã tạo, chưa có
+              // video) để UI/BE hiện thông báo tức thì, lần sau 'uploaded'/'failed' khi video xử lý
+              // xong. Match theo `id` để UPDATE đúng item thay vì thêm dòng mới mỗi lần.
+              void engines.evidence.recordEvidence(event, (item) => {
                 setEvidence((current) => {
-                  const next = [captured, ...current].slice(0, 20);
-                  engines.evidence.releaseEvidence(current.filter((item) => !next.includes(item)));
+                  const idx = current.findIndex((existing) => existing.id === item.id);
+                  if (idx === -1) return [item, ...current].slice(0, 20);
 
+                  const previous = current[idx];
+                  if (previous.videoObjectUrl && previous.videoObjectUrl !== item.videoObjectUrl) {
+                    engines.evidence.releaseEvidence([previous]);
+                  }
+                  const next = [...current];
+                  next[idx] = item;
                   return next;
                 });
               });
