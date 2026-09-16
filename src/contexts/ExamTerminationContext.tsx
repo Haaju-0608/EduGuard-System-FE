@@ -159,13 +159,6 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     setAiViolationCount(payload.currentAiViolationCount);
   });
 
-  // 3) Polling khi bị disqualify thủ công — giúp sinh viên tự động biết được lecturer đã restore
-  //    mà không cần bấm gì hay F5. Dừng khi restored (isExamTerminated về false) hoặc rời trang.
-  useEffect(() => {
-    if (!isExamTerminated || terminationType !== 'disqualified' || !participationId) return;
-    const id = setInterval(() => { void refreshStatus(); }, 10_000);
-    return () => clearInterval(id);
-  }, [isExamTerminated, terminationType, participationId, refreshStatus]);
 
   // 4) Recovery — mạng rớt rồi SignalR tự reconnect lại: check status ngay thay vì đợi event mới,
   //    vì trong lúc mất kết nối có thể đã bị terminate mà chưa nhận được event.

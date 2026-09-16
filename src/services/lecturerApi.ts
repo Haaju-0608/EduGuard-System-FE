@@ -446,6 +446,24 @@ export async function fetchViolationById(id: string): Promise<ApiViolationLog> {
   return apiGet<ApiViolationLog>(`/api/violation-logs/${id}`);
 }
 
+/**
+ * GET /api/browser-violations?participationId=X (commit 1fe0e84, Phú) — vi phạm trình duyệt
+ * (TabSwitch/WindowBlur/ExitFullscreen) của 1 lượt thi, cùng shape ApiViolationLog với
+ * /api/violation-logs (AI/camera) nên dùng lại được y hệt UI hiển thị (EvidenceModal, severity
+ * badge...) — chỉ khác nguồn dữ liệu, tách bảng riêng ở BE (BrowserViolationController).
+ */
+export async function fetchBrowserViolations(
+  participationId: string,
+  params: ListQueryParams = {},
+): Promise<PagedResult<ApiViolationLog>> {
+  const page = params.page ?? 1;
+  const pageSize = params.pageSize ?? 100;
+  const { data, pagination } = await apiGetPaginated<ApiViolationLog[]>(
+    `/api/browser-violations${buildQueryParams({ participationId, page, pageSize })}`,
+  );
+  return { items: data, pagination };
+}
+
 /** GET /api/exam-slots/{id} — lấy tên bài thi */
 export async function fetchExamSlotById(id: string): Promise<import('../types/api').ApiExamSlot | null> {
   try {

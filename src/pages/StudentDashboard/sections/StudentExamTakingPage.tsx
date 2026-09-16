@@ -28,11 +28,11 @@ import { getPassageAndQuestion } from '../../../utils/readingQuestion';
 function TerminationModal({
   reason,
   isDisqualified,
-  onCheckStatus,
+  onExit,
 }: {
   reason: string | null;
   isDisqualified: boolean;
-  onCheckStatus: () => void;
+  onExit: () => void;
 }) {
   return createPortal(
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-200 flex items-center justify-center p-4">
@@ -51,15 +51,15 @@ function TerminationModal({
           </p>
         </div>
         {isDisqualified ? (
-          <div className="space-y-3">
-            <p className="text-xs text-muted/70">Waiting for lecturer decision. Checking automatically every 10 seconds.</p>
-            <button
-              onClick={onCheckStatus}
-              className="w-full py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/20 transition-colors"
-            >
-              Check Now
-            </button>
-          </div>
+          // Không còn tính năng Restore ở phía giảng viên (đã bỏ theo yêu cầu Giang) — đình chỉ giờ
+          // là VĨNH VIỄN, không có gì để chờ nữa. Cho thoát thẳng ra màn chính thay vì tự poll status
+          // vô ích (đã xoá luôn vòng poll 10s ở ExamTerminationContext.tsx, vốn chỉ để chờ restore).
+          <button
+            onClick={onExit}
+            className="w-full py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/20 transition-colors"
+          >
+            Exit to Main Screen
+          </button>
         ) : (
           <div className="flex items-center justify-center gap-2 text-muted text-xs">
             <div className="w-3.5 h-3.5 border-2 border-blue-bright/30 border-t-blue-bright rounded-full animate-spin" />
@@ -607,6 +607,10 @@ export default function StudentExamTakingPage() {
     setSubmitted(true);
     setSubmitting(true);
     setSubmitError(null);
+    // Tắt camera/AI proctoring ngay khi bắt đầu nộp — trước đây chỉ nhánh terminate mới gọi stop(),
+    // nên nộp bài bình thường (tay hoặc hết giờ) để camera chạy tiếp vô ích suốt lúc xem ResultScreen
+    // cho tới khi unmount (bấm Back to My Exams), vừa tốn tài nguyên vừa là vấn đề riêng tư.
+    proctoringRef.current.stop();
 
     const pid = participationIdRef.current;
     const answerList = Object.entries(answersRef.current).map(([questionId, val]) => ({
@@ -640,8 +644,10 @@ export default function StudentExamTakingPage() {
   // (proctoring.stop() dừng AI/webcam/evidence recorder), rồi auto-submit đúng 1 lần (doSubmit tự
   // guard qua `submitted`), sau đó ResultScreen thay thế toàn bộ UI thi (freeze hoàn toàn).
   useEffect(() => {
-    // 'disqualified' = lecturer tay — KHÔNG auto-submit ngay, cho thời gian lecturer restore.
-    // Polling 10s trong ExamTerminationContext sẽ reset isExamTerminated nếu được restore.
+    // 'disqualified' = lecturer đình chỉ tay — KHÔNG auto-submit, để TerminationModal đứng yên hiện
+    // rõ "Disqualified" + nút "Exit to Main Screen" cho sinh viên tự thoát (không còn Restore ở phía
+    // lecturer nữa nên đình chỉ là vĩnh viễn — không cần chờ gì cả, chỉ là chủ động không âm thầm
+    // nộp bài hộ sinh viên mà không cho họ biết).
     // 'browser-violation' (hoặc chưa xác định) = auto-terminate → submit luôn như cũ.
     if (termination.isExamTerminated && !submitted && termination.terminationType !== 'disqualified') {
       proctoringRef.current.stop();
@@ -970,7 +976,7 @@ export default function StudentExamTakingPage() {
         <TerminationModal
           reason={termination.reason}
           isDisqualified={termination.terminationType === 'disqualified'}
-          onCheckStatus={() => void termination.refreshStatus()}
+          onExit={() => navigate(examsListPath)}
         />
       )}
 

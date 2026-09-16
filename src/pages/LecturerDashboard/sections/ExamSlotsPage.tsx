@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { FiArrowLeft, FiCalendar, FiClock, FiFileText, FiSearch } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
-import Pagination from '../../../components/ui/Pagination';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
 import { useAuth } from '../../../contexts/AuthContext';
 import {
@@ -20,6 +19,7 @@ import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHu
 import { useListFilters } from '../../../hooks/useListFilters';
 import { HubRoute } from '../../../services/realtimeClient';
 import { fetchClassById, fetchExamSlots } from '../../../services/schoolAdminApi';
+import { formatDateGroupLabel, groupByDate } from '../../../utils/groupByDate';
 import type { ExamSlot, ExamSlotStatus, LecturerClass } from '../../../types/lecturer';
 
 function formatDateTime(iso: string): string {
@@ -88,10 +88,9 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
   );
 }
 
-const PAGE_SIZE = 9;
-
 /** Danh sách bài thi (mình coi thi) của 1 lớp cụ thể — vào từ ExamClassesPage (chọn lớp trước),
- *  khớp luồng Class → Exams đã dùng ở Attendance. */
+ *  khớp luồng Class → Exams đã dùng ở Attendance. Nhóm theo ngày (yêu cầu Giang) thay vì phân
+ *  trang phẳng — dễ nhìn hơn khi lướt qua nhiều bài thi trải dài nhiều ngày. */
 export default function ExamSlotsPage() {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
@@ -99,7 +98,6 @@ export default function ExamSlotsPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<ExamSlotStatus | 'all'>('all');
-  const [page, setPage] = useState(1);
 
   const stateCls = (location.state as { cls?: LecturerClass } | null)?.cls ?? null;
   const { data: fetchedCls, loading: loadingCls } = useAsyncData(
@@ -131,13 +129,9 @@ export default function ExamSlotsPage() {
     [statusFilter],
   );
 
-  const filteredSlots = useListFilters(slots, search, ['examName', 'classCode', 'className'], predicates);
-
-  const totalPages = Math.max(1, Math.ceil(filteredSlots.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageItems = filteredSlots.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  useEffect(() => { setPage(1); }, [search, statusFilter, classId]);
+  const filteredSlots = useListFilters(slots, search, ['examName', 'classCode', 'className'], predicates)
+    .slice().sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  const slotGroups = groupByDate(filteredSlots, (s) => s.startTime);
 
   const loading = loadingCls || loadingSlots;
 
@@ -193,14 +187,22 @@ export default function ExamSlotsPage() {
       ) : filteredSlots.length === 0 ? (
         <EmptyState icon="📝" title="No exam slots" description="No exam slots assigned to you for this class yet." />
       ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {pageItems.map((slot, i) => (
-              <ExamSlotCard key={slot.id} slot={slot} index={i} />
-            ))}
-          </div>
-          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${filteredSlots.length} exams`} />
-        </>
+        <div className="space-y-8">
+          {slotGroups.map((group) => (
+            <div key={group.date.getTime()}>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="font-syne font-bold text-white-soft text-sm whitespace-nowrap">{formatDateGroupLabel(group.date)}</h2>
+                <span className="text-xs text-muted whitespace-nowrap">{group.items.length} exam{group.items.length !== 1 ? 's' : ''}</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {group.items.map((slot, i) => (
+                  <ExamSlotCard key={slot.id} slot={slot} index={i} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </PageShell>
   );

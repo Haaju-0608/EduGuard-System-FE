@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import {
-  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiMail, FiPhone, FiShield, FiTrash2, FiX, FiXCircle,
+  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiExternalLink, FiMail, FiPhone, FiShield, FiTrash2, FiX, FiXCircle,
 } from 'react-icons/fi';
 import { useAsyncData } from '../../hooks/useAsyncData';
+import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { fetchStudentDetail, revokeStudentBiometricData } from '../../services/schoolAdminApi';
 
@@ -71,9 +73,20 @@ export default function StudentDetailModal({
   onClose: () => void;
 }) {
   const toast = useToast();
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const { data, loading, error, reload } = useAsyncData(() => fetchStudentDetail(studentId), [studentId]);
   const [revoking, setRevoking] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+
+  // Trang Face Approval (ảnh Front/Left/Right) hiện chỉ có ở SchoolAdmin (/school/biometric) —
+  // SuperAdmin chưa có trang tương đương nên chỉ hiện nút này đúng role, tránh dẫn tới 404.
+  const canViewFacePhotos = user?.role?.trim().toLowerCase() === 'schooladmin';
+  const goToFacePhotos = () => {
+    if (!data?.studentCode) return;
+    onClose();
+    navigate(`/school/biometric?studentCode=${encodeURIComponent(data.studentCode)}`);
+  };
 
   const handleRevoke = async () => {
     setRevoking(true);
@@ -157,6 +170,14 @@ export default function StudentDetailModal({
                 )}
                 {data.biometric.latestRequestReason && (
                   <p className="text-[11px] text-muted mt-1 italic">"{data.biometric.latestRequestReason}"</p>
+                )}
+                {canViewFacePhotos && data.biometric.latestRequestStatus && (
+                  <button
+                    onClick={goToFacePhotos}
+                    className="flex items-center gap-1.5 text-[11px] font-semibold text-blue-bright bg-transparent border-none cursor-pointer hover:underline mt-2.5"
+                  >
+                    <FiExternalLink size={11} /> View submitted face photos
+                  </button>
                 )}
                 {data.biometric.hasActiveBiometric && (
                   <div className="mt-3 pt-3 border-t border-border">

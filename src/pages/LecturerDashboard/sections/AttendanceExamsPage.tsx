@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { FiArrowLeft, FiCalendar, FiClock } from 'react-icons/fi';
 import { AnimateIn } from '../../../components/lecturer/LecturerAnimations';
@@ -11,10 +10,10 @@ import {
   SkeletonCard,
   UniCard,
 } from '../../../components/lecturer/LecturerUI';
-import Pagination from '../../../components/ui/Pagination';
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import { useAuth } from '../../../contexts/AuthContext';
 import { fetchClassById, fetchExamSlots } from '../../../services/schoolAdminApi';
+import { formatDateGroupLabel, groupByDate } from '../../../utils/groupByDate';
 import type { ExamSlot, ExamSlotStatus, LecturerClass } from '../../../types/lecturer';
 
 function formatDateTime(iso: string): string {
@@ -68,15 +67,15 @@ function ExamCard({ exam, cls, index, onOpen }: { exam: ExamSlot; cls: LecturerC
   );
 }
 
-const PAGE_SIZE = 9;
-
-/** Danh sách bài thi (mình coi thi) của 1 lớp — bấm 1 bài thi để vào roster điểm danh của bài đó. */
+/** Danh sách bài thi (mình coi thi) của 1 lớp — bấm 1 bài thi để vào roster điểm danh của bài đó.
+ *  Nhóm theo ngày (yêu cầu Giang: "để nó theo ngày, ngày đó có bao nhiêu cái rồi kéo xuống tới
+ *  ngày khác cho dễ nhìn") thay vì phân trang phẳng — mỗi lớp thường không nhiều bài thi nên cuộn
+ *  hết 1 lượt là đủ, không cần Pagination nữa. */
 export default function AttendanceExamsPage() {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
-  const [page, setPage] = useState(1);
 
   const stateCls = (location.state as { cls?: LecturerClass } | null)?.cls ?? null;
 
@@ -92,14 +91,9 @@ export default function AttendanceExamsPage() {
     return result.items.filter((e) => e.classId === classId && (!user?.id || e.proctorId === user.id));
   }, [classId, user?.id]);
   const exams = (data ?? []).slice().sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  const examGroups = groupByDate(exams, (e) => e.startTime);
 
   const loading = loadingCls || loadingExams;
-
-  const totalPages = Math.max(1, Math.ceil(exams.length / PAGE_SIZE));
-  const safePage = Math.min(page, totalPages);
-  const pageItems = exams.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
-
-  useEffect(() => { setPage(1); }, [classId]);
 
   const goToRoster = (exam: ExamSlot) =>
     navigate(`/lecture/attendance/${classId}/${exam.id}`, { state: { exam, cls } });
@@ -135,14 +129,22 @@ export default function AttendanceExamsPage() {
           description="You're not assigned as proctor for any exam in this class."
         />
       ) : (
-        <>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {pageItems.map((exam, i) => (
-              <ExamCard key={exam.id} exam={exam} cls={cls} index={i} onOpen={goToRoster} />
-            ))}
-          </div>
-          <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${exams.length} exams`} />
-        </>
+        <div className="space-y-8">
+          {examGroups.map((group) => (
+            <div key={group.date.getTime()}>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="font-syne font-bold text-white-soft text-sm whitespace-nowrap">{formatDateGroupLabel(group.date)}</h2>
+                <span className="text-xs text-muted whitespace-nowrap">{group.items.length} exam{group.items.length !== 1 ? 's' : ''}</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+                {group.items.map((exam, i) => (
+                  <ExamCard key={exam.id} exam={exam} cls={cls} index={i} onOpen={goToRoster} />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       )}
     </PageShell>
   );

@@ -553,6 +553,14 @@ function todayLocalDate() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+// Năm nay -1 tới +4 — đủ cho lớp cũ vừa qua lẫn lên kế hoạch trước vài năm, tự trượt theo năm hiện
+// tại mỗi lần load (không hard-code cứng 1 dải năm cố định).
+function academicYearOptions(): { value: string; label: string }[] {
+  const current = new Date().getFullYear();
+  const years = Array.from({ length: 6 }, (_, i) => current - 1 + i);
+  return years.map((y) => ({ value: String(y), label: String(y) }));
+}
+
 interface ClassFormData {
   courseName: string;
   courseCode: string;
@@ -720,13 +728,29 @@ function ClassFormModal({
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">
-                Semester{!isEdit && <span className="text-gold ml-1">*</span>} <span className="normal-case font-normal">(no numbers — put the year in Academic Year)</span>
+                Semester{!isEdit && <span className="text-gold ml-1">*</span>}
               </label>
-              <input type="text" value={form.semester} onChange={set('semester')} placeholder="e.g. Fall" className={inputCls} />
+              <CustomSelect
+                value={form.semester}
+                onChange={(v) => setForm((f) => ({ ...f, semester: v }))}
+                options={[
+                  { value: '', label: '— Select semester —' },
+                  { value: 'Spring', label: 'Spring' },
+                  { value: 'Summer', label: 'Summer' },
+                  { value: 'Fall', label: 'Fall' },
+                  { value: 'Winter', label: 'Winter' },
+                ]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Academic Year{!isEdit && <span className="text-gold ml-1">*</span>}</label>
-              <input type="text" value={form.academicYear} onChange={set('academicYear')} placeholder="e.g. 2026" className={inputCls} />
+              <CustomSelect
+                value={form.academicYear}
+                onChange={(v) => setForm((f) => ({ ...f, academicYear: v }))}
+                options={[{ value: '', label: '— Select year —' }, ...academicYearOptions()]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5">Start Date</label>

@@ -34,22 +34,23 @@ const TYPE_COLORS: Record<NotificationType, string> = {
   system: 'bg-gold',
 };
 
-/** Điều hướng khi bấm vào thông báo — chỉ ExamSlot có route đích rõ ràng hiện tại (vi phạm bài thi,
- *  luôn gửi cho đúng Lecturer phụ trách lớp — xem ViolationlogServices.cs SendToUserAsync), nên các
- *  referenceType khác (AttendanceSession/Institution/Transaction) tạm để trống, giữ hành vi cũ
- *  (không phải link, không phải regression).
+/** Điều hướng khi bấm vào thông báo — dẫn thẳng tới trang Violation Review, đúng đến CHÍNH học
+ *  sinh gây vi phạm (không chỉ đúng bài thi chung chung). LƯU Ý: mount path thật là "/lecture/*"
+ *  (KHÔNG PHẢI "/lecturer") — xem App.tsx.
  *
- *  Dẫn thẳng tới trang Violation Review (không phải Live Monitoring) — đúng ý "bấm thông báo phải
- *  đến violation của học sinh đó". LƯU Ý: mount path thật là "/lecture/*" (KHÔNG PHẢI "/lecturer") —
- *  xem App.tsx. NotificationResponseDto chỉ có 1 field ReferenceId (đang mang ExamSlotId), không có
- *  chỗ chứa participationId — nên chỉ truyền được `examSlotId`, không có `participationId` như link
- *  "Review" trong banner threshold của LiveMonitoringPage.tsx (dòng ~355, có đủ cả 2 field vì đọc
- *  thẳng từ payload SignalR). ViolationReviewPage.tsx vì vậy chỉ tự chọn ĐÚNG BÀI THI, không tự mở
- *  sẵn đúng học sinh — đã báo BE cân nhắc thêm participationId vào Notification nếu cần chính xác
- *  hơn (vd thêm ReferenceTypeEnum.ExamParticipation hoặc 1 field JSON payload riêng). */
+ *  BE (commit 1fe0e84, Phú — đã báo theo đúng yêu cầu) thêm hẳn ReferenceTypeEnum.ExamParticipation
+ *  và đổi MỌI notification loại ViolationDetected (AI + browser + disqualify) sang tham chiếu thẳng
+ *  participation.Id thay vì examSlotId cũ — nên `referenceId` giờ CHÍNH LÀ participationId.
+ *  ViolationReviewPage.tsx đã có sẵn cơ chế deep-link theo `?participationId=` (dùng chung với
+ *  banner threshold của LiveMonitoringPage.tsx) — nó tự tra examSlotId qua participationCache khi
+ *  URL không kèm `examSlotId`, nên chỉ cần truyền đúng participationId là đủ, không cần sửa gì
+ *  thêm ở trang đó.
+ *
+ *  Các referenceType khác (AttendanceSession/Institution/Transaction) chưa có route đích, tạm để
+ *  trống — không phải link, không phải regression. */
 function buildActionPath(referenceType: string | null, referenceId: string | null): string | undefined {
   if (!referenceId) return undefined;
-  if (referenceType === 'ExamSlot') return `/lecture/violations?examSlotId=${referenceId}`;
+  if (referenceType === 'ExamParticipation') return `/lecture/violations?participationId=${referenceId}`;
   return undefined;
 }
 

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import { FiCheck, FiClock, FiSearch, FiShield, FiUser, FiX, FiChevronRight, FiImage } from 'react-icons/fi';
 import {
   EmptyState,
@@ -273,12 +274,19 @@ const PAGE_SIZE = 12;
 
 export default function BiometricApprovalPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [statusFilter, setStatusFilter] = useState<BiometricStatus | 'all'>('all');
   const [search, setSearch] = useState('');
   const [reviewing, setReviewing]   = useState<string | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<BiometricRequest | null>(null);
   const [page, setPage] = useState(1);
   const toast = useToast();
+
+  // Deep-link từ StudentDetailModal ("View submitted face photos") — ?studentCode=X tự mở đúng
+  // modal ảnh của sinh viên đó, không bắt School Admin phải tự tìm/bấm lại. Chỉ áp dụng 1 lần
+  // (deepLinkAppliedRef) rồi xoá query param khỏi URL, để bấm Back/đóng modal không tự mở lại.
+  const deepLinkStudentCode = searchParams.get('studentCode');
+  const deepLinkAppliedRef = useRef(false);
 
   const institutionId = user?.institutionId ?? undefined;
 
@@ -298,6 +306,17 @@ export default function BiometricApprovalPage() {
   });
 
   const requests = data ?? [];
+
+  // Áp dụng deep-link ngay khi có đủ data — BE trả mặc định mới nhất trước (-createdAt), nên request
+  // đầu tiên khớp studentCode chính là request "latest" mà StudentDetailModal đang hiển thị.
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !deepLinkStudentCode || requests.length === 0) return;
+    const match = requests.find((r) => r.studentId === deepLinkStudentCode);
+    if (!match) return;
+    deepLinkAppliedRef.current = true;
+    setSelectedRequest(match);
+    setSearchParams((prev) => { prev.delete('studentCode'); return prev; }, { replace: true });
+  }, [requests, deepLinkStudentCode, setSearchParams]);
 
   // Filter by status + search (student ID, cũng khớp luôn tên cho tiện tra)
   const filteredRequests = useMemo(() => {

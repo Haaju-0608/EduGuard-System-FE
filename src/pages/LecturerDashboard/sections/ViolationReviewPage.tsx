@@ -9,10 +9,10 @@ import {
 import { useAsyncData } from '../../../hooks/useAsyncData';
 import {
   fetchViolationLogs,
+  fetchBrowserViolations,
   fetchParticipationById,
   disqualifyParticipation,
   voidExamParticipation,
-  updateParticipationStatus,
   reviewViolationLog,
   resolveEvidenceUrl,
 } from '../../../services/lecturerApi';
@@ -22,6 +22,7 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { useHubConnection, useHubEvent, useHubGroup } from '../../../hooks/useHubConnection';
 import { HubRoute } from '../../../services/realtimeClient';
 import { getViolationLabel } from '../../../utils/violationLabels';
+import { formatDateGroupLabel, groupByDate } from '../../../utils/groupByDate';
 import type { ApiViolationLog, ApiExamParticipation } from '../../../types/api';
 
 interface ResourceChangedPayload {
@@ -43,6 +44,14 @@ interface ParticipationGroup {
 const LOG_FETCH_SIZE = 500;
 // 9 = đúng 1 lưới 3x3 (grid xl:grid-cols-3 bên dưới) mỗi trang, tính theo số THẺ chứ không phải số log
 const CARDS_PER_PAGE = 9;
+
+// BE lưu vi phạm browser (TabSwitch/WindowBlur/ExitFullscreen) và vi phạm AI/camera CHUNG 1 bảng
+// ViolationLogs — GET /api/violation-logs (fetchViolationLogs, dùng cho `group.logs`) KHÔNG lọc
+// theo loại, trả về CẢ HAI trộn lẫn (xem ViolationlogServices.cs GetAllAsync, không có filter type
+// nào). Phải tự lọc ở FE để tab "Camera" không hiện lộn vi phạm browser vào — nếu không thì tab
+// Camera/Browser sẽ trùng y hệt nhau khi participation đó chỉ có vi phạm browser.
+const BROWSER_VIOLATION_TYPES = new Set(['TabSwitch', 'WindowBlur', 'ExitFullscreen']);
+const isCameraViolation = (log: ApiViolationLog) => !BROWSER_VIOLATION_TYPES.has(log.violationType);
 
 function severityConfig(severity: string) {
   if (severity === 'Severe')
@@ -198,18 +207,16 @@ interface EvidenceModalProps {
   onClose: () => void;
   onDisqualify: (log: ApiViolationLog) => void;
   onVoid: (log: ApiViolationLog) => void;
-  onRestore: (log: ApiViolationLog) => void;
   disqualifying: boolean;
   voiding: boolean;
-  restoring: boolean;
   alreadyDisqualified: boolean;
   isReviewed: boolean;
   reviewedByName: string | null;
 }
 
 function EvidenceModal({
-  log, participation, examName, onClose, onDisqualify, onVoid, onRestore,
-  disqualifying, voiding, restoring, alreadyDisqualified, isReviewed, reviewedByName,
+  log, participation, examName, onClose, onDisqualify, onVoid,
+  disqualifying, voiding, alreadyDisqualified, isReviewed, reviewedByName,
 }: EvidenceModalProps) {
   const viol = getViolationLabel(log.violationType);
   const sev = severityConfig(log.severity);
@@ -335,18 +342,6 @@ function EvidenceModal({
                     <><FiSlash size={14} /> Disqualify Student</>
                   )}
                 </button>
-              ) : alreadyDisqualified ? (
-                <button
-                  onClick={() => onRestore(log)}
-                  disabled={restoring}
-                  className="flex-1 py-2.5 rounded-xl bg-green text-navy text-sm font-semibold border border-green hover:bg-green/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
-                >
-                  {restoring ? (
-                    <><span className="animate-spin">⏳</span> Restoring…</>
-                  ) : (
-                    <><FiRefreshCw size={14} /> Restore Participation</>
-                  )}
-                </button>
               ) : (
                 <button disabled className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold opacity-60 cursor-not-allowed">
                   {deadLabel}
@@ -384,16 +379,14 @@ interface ParticipationDetailModalProps {
   onViewLog: (log: ApiViolationLog) => void;
   onDisqualify: () => void;
   onVoid: () => void;
-  onRestore: () => void;
   disqualifying: boolean;
   voiding: boolean;
-  restoring: boolean;
   alreadyDisqualified: boolean;
 }
 
 function ParticipationDetailModal({
   group, participation, examName, reviewedLogIds,
-  onClose, onViewLog, onDisqualify, onVoid, onRestore, disqualifying, voiding, restoring, alreadyDisqualified,
+  onClose, onViewLog, onDisqualify, onVoid, disqualifying, voiding, alreadyDisqualified,
 }: ParticipationDetailModalProps) {
   const studentName = participation?.student?.fullName ?? participation?.student?.email ?? null;
   const status = participation?.status;
@@ -404,6 +397,20 @@ function ParticipationDetailModal({
     status === 'Left'   ? '🚪 Student Left The Exam' :
     status === 'Absent' ? '❌ Student Was Absent' :
     null;
+
+  // Vi phạm camera/AI và vi phạm trình duyệt — cùng đọc từ /api/violation-logs (group.logs, trộn
+  // lẫn cả 2 loại, xem BROWSER_VIOLATION_TYPES ở đầu file) nên phải tự lọc ra "camera" bằng
+  // isCameraViolation. Riêng list Browser vẫn gọi /api/browser-violations (commit 1fe0e84 Phú) thay
+  // vì lọc client-side từ group.logs — endpoint đó là nguồn chuẩn/độc lập, tránh lệch nếu sau này
+  // group.logs bị phân trang hoặc BE đổi field type.
+  const [tab, setTab] = useState<'camera' | 'browser'>('camera');
+  const { data: browserData, loading: browserLoading } = useAsyncData(
+    () => fetchBrowserViolations(group.participationId, { pageSize: 100 }),
+    [group.participationId],
+  );
+  const browserLogs = browserData?.items ?? [];
+  const cameraLogs = group.logs.filter(isCameraViolation);
+  const activeLogs = tab === 'camera' ? cameraLogs : browserLogs;
 
   return createPortal(
     <div className="fixed inset-0 z-150 flex items-end sm:items-center justify-center sm:p-6 overflow-y-auto" onClick={onClose}>
@@ -423,7 +430,7 @@ function ParticipationDetailModal({
                 {studentName ?? `Student …${group.participationId.slice(-6)}`}
               </h2>
               <p className="text-xs text-muted truncate">
-                {examName ?? '—'} · {group.logs.length} violation{group.logs.length !== 1 ? 's' : ''}
+                {examName ?? '—'} · {cameraLogs.length + browserLogs.length} violation{cameraLogs.length + browserLogs.length !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
@@ -432,9 +439,35 @@ function ParticipationDetailModal({
           </button>
         </div>
 
+        {/* Camera (AI) vs Browser — 2 bảng riêng hoàn toàn ở BE (yêu cầu Giang) */}
+        <div className="flex gap-2 px-4 pt-3 shrink-0">
+          <button
+            type="button"
+            onClick={() => setTab('camera')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+              tab === 'camera' ? 'bg-blue text-white border-blue' : 'bg-transparent text-muted border-border hover:border-blue/40'
+            }`}
+          >
+            Camera ({cameraLogs.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab('browser')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+              tab === 'browser' ? 'bg-blue text-white border-blue' : 'bg-transparent text-muted border-border hover:border-blue/40'
+            }`}
+          >
+            Browser ({browserLoading ? '…' : browserLogs.length})
+          </button>
+        </div>
+
         {/* Violations list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar min-h-0">
-          {group.logs.map((log) => {
+          {activeLogs.length === 0 ? (
+            <p className="text-muted text-sm text-center py-8">
+              {tab === 'browser' && browserLoading ? 'Loading…' : `No ${tab} violations for this student.`}
+            </p>
+          ) : activeLogs.map((log) => {
             const viol = getViolationLabel(log.violationType);
             const sev = severityConfig(log.severity);
             const isReviewed = log.reviewedBy != null || reviewedLogIds.has(log.id);
@@ -488,18 +521,6 @@ function ParticipationDetailModal({
                 <><FiSlash size={14} /> Disqualify Student</>
               )}
             </button>
-          ) : alreadyDisqualified ? (
-            <button
-              onClick={onRestore}
-              disabled={restoring}
-              className="flex-1 py-2.5 rounded-xl bg-green text-navy text-sm font-semibold border border-green hover:bg-green/80 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer flex items-center justify-center gap-2"
-            >
-              {restoring ? (
-                <><span className="animate-spin">⏳</span> Restoring…</>
-              ) : (
-                <><FiRefreshCw size={14} /> Restore Participation</>
-              )}
-            </button>
           ) : (
             <button disabled className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold opacity-60 cursor-not-allowed">
               {deadLabel}
@@ -512,13 +533,13 @@ function ParticipationDetailModal({
   );
 }
 
-// ─── Confirm Action Dialog (Disqualify / Void / Restore) ────────────────────────
+// ─── Confirm Action Dialog (Disqualify / Void) ────────────────────────
 
 interface ConfirmDialogProps {
   log: ApiViolationLog;
   violationCount: number;
   studentName: string | null;
-  mode: 'disqualify' | 'void' | 'restore';
+  mode: 'disqualify' | 'void';
   onConfirm: (reason: string) => void;
   onCancel: () => void;
 }
@@ -530,23 +551,18 @@ function ConfirmDialog({ log, violationCount, studentName, mode, onConfirm, onCa
     : `${viol.label} violation detected by AI proctoring`;
   const [reason, setReason] = useState(defaultReason);
   const isVoid = mode === 'void';
-  const isRestore = mode === 'restore';
 
   return createPortal(
     <div className="fixed inset-0 z-170 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onCancel} />
-      <div className={`relative z-10 bg-navy-card border rounded-[20px] w-full max-w-sm p-6 shadow-2xl ${isRestore ? 'border-green/40' : 'border-red/40'}`}>
+      <div className="relative z-10 bg-navy-card border rounded-[20px] w-full max-w-sm p-6 shadow-2xl border-red/40">
         <div className="text-center mb-5">
-          <div className="text-4xl mb-3">{isRestore ? '♻️' : isVoid ? '🗑️' : '⛔'}</div>
+          <div className="text-4xl mb-3">{isVoid ? '🗑️' : '⛔'}</div>
           <h3 className="font-syne font-bold text-white-soft text-lg">
-            {isRestore ? 'Restore Participation?' : isVoid ? 'Void Exam Result?' : 'Disqualify Student?'}
+            {isVoid ? 'Void Exam Result?' : 'Disqualify Student?'}
           </h3>
           <p className="text-muted text-sm mt-2">
-            {isRestore ? (
-              <>Undoes the disqualification. If exam time hasn't ended, the student can{' '}
-                <span className="text-green font-bold">resume the exam</span>; otherwise the attempt is{' '}
-                <span className="text-green font-bold">marked Submitted</span> for grading.</>
-            ) : isVoid ? (
+            {isVoid ? (
               <>This will invalidate the student's submitted answers and set the participation to{' '}
                 <span className="text-red font-bold">Disqualified</span>. The submission will no longer
                 count toward grading, but the record is kept for audit.</>
@@ -558,34 +574,28 @@ function ConfirmDialog({ log, violationCount, studentName, mode, onConfirm, onCa
         </div>
         <div className="bg-navy border border-border rounded-xl p-3 mb-4 text-sm text-muted space-y-1">
           <p><span className="text-white-soft font-medium">Student:</span> {studentName ?? `…${log.participationId.slice(-8)}`}</p>
-          {!isRestore && (
-            <p><span className="text-white-soft font-medium">Violations:</span> {violationCount} (latest: {viol.icon} {viol.label})</p>
-          )}
+          <p><span className="text-white-soft font-medium">Violations:</span> {violationCount} (latest: {viol.icon} {viol.label})</p>
         </div>
-        {!isRestore && (
-          <div className="mb-5">
-            <label className="text-[10px] font-bold text-muted uppercase tracking-wide block mb-1.5">
-              {isVoid ? 'Void Reason' : 'Disqualification Reason'}
-            </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              rows={2}
-              className="w-full bg-navy border border-border rounded-xl px-3 py-2 text-sm text-white-soft resize-none outline-none focus:border-blue-bright/40 transition-colors placeholder:text-muted"
-            />
-          </div>
-        )}
+        <div className="mb-5">
+          <label className="text-[10px] font-bold text-muted uppercase tracking-wide block mb-1.5">
+            {isVoid ? 'Void Reason' : 'Disqualification Reason'}
+          </label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            rows={2}
+            className="w-full bg-navy border border-border rounded-xl px-3 py-2 text-sm text-white-soft resize-none outline-none focus:border-blue-bright/40 transition-colors placeholder:text-muted"
+          />
+        </div>
         <div className="flex gap-3">
           <button onClick={onCancel} className="flex-1 py-2.5 rounded-xl border border-border text-muted text-sm font-semibold hover:border-blue/40 hover:text-white-soft transition-all cursor-pointer">
             Cancel
           </button>
           <button
             onClick={() => onConfirm(reason.trim() || defaultReason)}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all cursor-pointer ${
-              isRestore ? 'bg-green text-navy border-green hover:bg-green/80' : 'bg-red text-white border-red hover:bg-red/80'
-            }`}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all cursor-pointer bg-red text-white border-red hover:bg-red/80"
           >
-            {isRestore ? 'Restore' : isVoid ? 'Void Result' : 'Disqualify'}
+            {isVoid ? 'Void Result' : 'Disqualify'}
           </button>
         </div>
       </div>
@@ -734,14 +744,13 @@ export default function ViolationReviewPage() {
   const [disqualifiedIds, setDisqualifiedIds] = useState<Set<string>>(new Set());
   const [disqualifyingId, setDisqualifyingId] = useState<string | null>(null);
   const [voidingId, setVoidingId] = useState<string | null>(null);
-  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   // log IDs reviewed in this session (local optimistic state)
   const [reviewedLogIds, setReviewedLogIds] = useState<Set<string>>(new Set());
 
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedLog, setSelectedLog] = useState<ApiViolationLog | null>(null);
-  const [confirmAction, setConfirmAction] = useState<{ log: ApiViolationLog; violationCount: number; mode: 'disqualify' | 'void' | 'restore' } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ log: ApiViolationLog; violationCount: number; mode: 'disqualify' | 'void' } | null>(null);
 
   // null = đang ở màn "chọn bài thi" (Exam → student, thay vì list phẳng như trước) — chọn 1 exam
   // rồi mới thấy danh sách sinh viên (thẻ participation) đã vi phạm trong đúng bài thi đó.
@@ -782,13 +791,15 @@ export default function ViolationReviewPage() {
 
   // Đánh dấu đỏ học sinh đã đạt ngưỡng cảnh báo vi phạm (yêu cầu Giang) — không có field "đã đạt
   // ngưỡng" trả sẵn từ BE cho từng participation, nhưng có thể suy ra khá sát: số dòng ViolationLog
-  // đã lưu cho 1 participation CHÍNH LÀ số vi phạm AI thật sau khi BE đã tự lọc cooldown/max-count/
-  // consecutive-type lúc ghi (xem ViolationlogServices.cs CreateAsync) — so trực tiếp với
-  // aiNotifyThreshold hiện hành của trường là đủ chính xác, không cần BE trả thêm field riêng.
+  // AI thật (loại trừ vi phạm browser — xem BROWSER_VIOLATION_TYPES/isCameraViolation, group.logs
+  // trộn lẫn cả 2 loại) đã lưu cho 1 participation CHÍNH LÀ số vi phạm AI thật sau khi BE đã tự lọc
+  // cooldown/max-count/consecutive-type lúc ghi (xem ViolationlogServices.cs CreateAsync) — so trực
+  // tiếp với aiNotifyThreshold hiện hành của trường là đủ chính xác, không cần BE trả thêm field
+  // riêng. (aiNotifyThreshold khác hẳn browserNotifyThreshold ở BE — không được gộp 2 loại lại.)
   const { data: proctoringSettings } = useAsyncData(() => fetchEffectiveProctoringSettings(), []);
   const aiNotifyThreshold = proctoringSettings?.aiNotifyThreshold ?? Infinity;
   const reachedThreshold = useCallback(
-    (group: ParticipationGroup) => group.logs.length >= aiNotifyThreshold,
+    (group: ParticipationGroup) => group.logs.filter(isCameraViolation).length >= aiNotifyThreshold,
     [aiNotifyThreshold],
   );
 
@@ -845,6 +856,7 @@ export default function ViolationReviewPage() {
   interface ExamGroupSummary {
     examSlotId: string;
     examName: string;
+    startTime: string;
     groups: ParticipationGroup[];
     severeCount: number;
     warningCount: number;
@@ -858,6 +870,7 @@ export default function ViolationReviewPage() {
         map.set(p.examSlotId, {
           examSlotId: p.examSlotId,
           examName: withClassCode(p.examSlotId, p.examName) ?? 'Unknown Exam',
+          startTime: (examSlotsData ?? []).find((e) => e.id === p.examSlotId)?.startTime ?? new Date(0).toISOString(),
           groups: [],
           severeCount: 0,
           warningCount: 0,
@@ -869,7 +882,11 @@ export default function ViolationReviewPage() {
       entry.warningCount += g.logs.filter((l) => l.severity === 'Warning').length;
     });
     return [...map.values()].sort((a, b) => b.groups.length - a.groups.length);
-  }, [allGroups, participationCache, withClassCode]);
+  }, [allGroups, participationCache, withClassCode, examSlotsData]);
+  // Nhóm màn "chọn bài thi" theo ngày (yêu cầu Giang) — dùng đúng startTime thật của exam slot, đã
+  // tra sẵn ở trên; nếu chưa kịp tải examSlotsData thì tạm fallback về epoch (rơi xuống cuối danh
+  // sách), tự sửa lại đúng ngày thật ngay khi examSlotsData tải xong.
+  const examDateGroups = groupByDate(examGroups, (e) => e.startTime);
 
   const selectedExamGroup = examGroups.find((e) => e.examSlotId === selectedExamSlotId) ?? null;
   const scopedGroups = selectedExamGroup?.groups ?? [];
@@ -977,37 +994,15 @@ export default function ViolationReviewPage() {
     setConfirmAction({ log: group.logs[0], violationCount: group.logs.length, mode: 'void' });
   }, []);
 
-  const handleRestore = useCallback((log: ApiViolationLog) => {
-    const group = groups.find((g) => g.participationId === log.participationId);
-    setSelectedLog(null);
-    setConfirmAction({ log, violationCount: group?.logs.length ?? 1, mode: 'restore' });
-  }, [groups]);
-
-  const handleRestoreGroup = useCallback((group: ParticipationGroup) => {
-    setConfirmAction({ log: group.logs[0], violationCount: group.logs.length, mode: 'restore' });
-  }, []);
-
   const handleConfirmAction = useCallback(async (reason: string) => {
     if (!confirmAction) return;
     const { log, mode } = confirmAction;
     setConfirmAction(null);
     const isVoid = mode === 'void';
-    const isRestore = mode === 'restore';
-    if (isRestore) setRestoringId(log.participationId);
-    else if (isVoid) setVoidingId(log.participationId);
+    if (isVoid) setVoidingId(log.participationId);
     else setDisqualifyingId(log.participationId);
     try {
-      if (isRestore) {
-        // Gửi "Joined" — BE's ResolveRestoreStatus tự chọn đúng:
-        // còn giờ thi → Joined (sinh viên tiếp tục làm bài), hết giờ → Submitted.
-        await updateParticipationStatus(log.participationId, 'Joined');
-        toast.success('Participation restored', 'Student can now resume the exam (if time remains).');
-        setDisqualifiedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(log.participationId);
-          return next;
-        });
-      } else if (isVoid) {
+      if (isVoid) {
         await voidExamParticipation(log.participationId, reason);
         toast.success('Exam result voided', "The student's submitted answers have been invalidated.");
         // Cả 2 hành động đều đưa participation về cùng status Disqualified ở BE.
@@ -1019,11 +1014,11 @@ export default function ViolationReviewPage() {
       }
     } catch (err) {
       // BE từ chối rõ ràng nếu participation không còn đúng trạng thái yêu cầu (Joined cho
-      // disqualify, Submitted cho void, Disqualified cho restore) — hiện đúng message thật thay vì
-      // "try again" chung chung, vì retry không giúp được gì trong trường hợp đó.
+      // disqualify, Submitted cho void) — hiện đúng message thật thay vì "try again" chung chung,
+      // vì retry không giúp được gì trong trường hợp đó.
       toast.error(
-        isRestore ? 'Failed to restore' : isVoid ? 'Failed to void result' : 'Failed to disqualify',
-        err instanceof Error ? err.message : `Could not ${isRestore ? 'restore the participation' : isVoid ? 'void the exam result' : 'disqualify the student'}.`,
+        isVoid ? 'Failed to void result' : 'Failed to disqualify',
+        err instanceof Error ? err.message : `Could not ${isVoid ? 'void the exam result' : 'disqualify the student'}.`,
       );
     } finally {
       // Lấy lại đúng status mới nhất — dù thành công hay thất bại (status thật đã đổi từ trước,
@@ -1031,7 +1026,6 @@ export default function ViolationReviewPage() {
       void refreshParticipation(log.participationId);
       setDisqualifyingId(null);
       setVoidingId(null);
-      setRestoringId(null);
     }
   }, [confirmAction, toast, refreshParticipation]);
 
@@ -1157,16 +1151,27 @@ export default function ViolationReviewPage() {
             ))}
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-            {examGroups.map((exam) => (
-              <ExamPickerCard
-                key={exam.examSlotId}
-                examName={exam.examName}
-                studentCount={exam.groups.length}
-                severeCount={exam.severeCount}
-                warningCount={exam.warningCount}
-                onClick={() => setSelectedExamSlotId(exam.examSlotId)}
-              />
+          <div className="space-y-8">
+            {examDateGroups.map((group) => (
+              <div key={group.date.getTime()}>
+                <div className="flex items-center gap-3 mb-4">
+                  <h2 className="font-syne font-bold text-white-soft text-sm whitespace-nowrap">{formatDateGroupLabel(group.date)}</h2>
+                  <span className="text-xs text-muted whitespace-nowrap">{group.items.length} exam{group.items.length !== 1 ? 's' : ''}</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {group.items.map((exam) => (
+                    <ExamPickerCard
+                      key={exam.examSlotId}
+                      examName={exam.examName}
+                      studentCount={exam.groups.length}
+                      severeCount={exam.severeCount}
+                      warningCount={exam.warningCount}
+                      onClick={() => setSelectedExamSlotId(exam.examSlotId)}
+                    />
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         )
@@ -1237,10 +1242,8 @@ export default function ViolationReviewPage() {
           onViewLog={(log) => void handleOpenEvidence(log)}
           onDisqualify={() => handleDisqualifyGroup(selectedGroup)}
           onVoid={() => handleVoidGroup(selectedGroup)}
-          onRestore={() => handleRestoreGroup(selectedGroup)}
           disqualifying={disqualifyingId === selectedGroup.participationId}
           voiding={voidingId === selectedGroup.participationId}
-          restoring={restoringId === selectedGroup.participationId}
           alreadyDisqualified={
             disqualifiedIds.has(selectedGroup.participationId) ||
             participationCache[selectedGroup.participationId]?.status === 'Disqualified'
@@ -1260,10 +1263,8 @@ export default function ViolationReviewPage() {
           onClose={() => setSelectedLog(null)}
           onDisqualify={handleDisqualify}
           onVoid={handleVoid}
-          onRestore={handleRestore}
           disqualifying={disqualifyingId === selectedLog.participationId}
           voiding={voidingId === selectedLog.participationId}
-          restoring={restoringId === selectedLog.participationId}
           alreadyDisqualified={
             disqualifiedIds.has(selectedLog.participationId) ||
             participationCache[selectedLog.participationId]?.status === 'Disqualified'
