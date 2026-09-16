@@ -2,15 +2,28 @@ import { useNavigate } from 'react-router-dom';
 import { FiArrowRight, FiCalendar, FiClock } from 'react-icons/fi';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
-import { fetchExamParticipations, fetchStudentExamSlots } from '../../../services/schoolAdminApi';
+import {
+  fetchExamParticipations,
+  fetchMyExamAttendanceStatus,
+  fetchStudentExamSlots,
+  type StudentAttendanceRecord,
+} from '../../../services/schoolAdminApi';
 import type { ExamSlot } from '../../../types/lecturer';
 import type { ParticipationStatus } from '../../../types/api';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
-type StudentStatus = 'available' | 'upcoming' | 'completed' | 'missed' | 'submitted' | 'disqualified';
+type StudentStatus = 'available' | 'no-attendance' | 'upcoming' | 'completed' | 'missed' | 'submitted' | 'disqualified';
 
-function deriveStatus(slot: ExamSlot, participation?: ParticipationStatus): StudentStatus {
+// Khớp đúng deriveStudentStatus của StudentExamsPage.tsx — trước đây trang Dashboard không check
+// điểm danh nên nút Start ở "Available Now" nhảy thẳng qua verify dù lecturer chưa điểm danh Present/
+// Late, trong khi trang My Exams (đích đến sau khi bấm "View all") lại đúng hiện "Awaiting Attendance"
+// cho CHÍNH bài thi đó — 2 nơi lệch nhau gây hiểu nhầm là bấm Start bỏ qua được điểm danh.
+function deriveStatus(
+  slot: ExamSlot,
+  participation: ParticipationStatus | undefined,
+  attendanceStatus: StudentAttendanceRecord['status'] | undefined,
+): StudentStatus {
   if (participation === 'Submitted') return 'submitted';
   if (participation === 'Disqualified') return 'disqualified';
   const now = Date.now();
@@ -18,9 +31,10 @@ function deriveStatus(slot: ExamSlot, participation?: ParticipationStatus): Stud
   const end = new Date(slot.endTime).getTime();
   if (slot.status === 'completed') return 'completed';
   if (slot.status === 'cancelled') return 'missed';
-  if (slot.status === 'ongoing') return 'available';
+  const isCheckedIn = attendanceStatus === 'present' || attendanceStatus === 'late';
+  if (slot.status === 'ongoing') return isCheckedIn ? 'available' : 'no-attendance';
   if (now < start) return 'upcoming';
-  if (now <= end) return 'available';
+  if (now <= end) return isCheckedIn ? 'available' : 'no-attendance';
   return 'missed';
 }
 
@@ -64,9 +78,16 @@ export default function StudentOverview() {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
 
   const { data, loading } = useAsyncData(async () => {
-    if (!user?.id) return { slots: [] as ExamSlot[], participations: {} as Record<string, ParticipationStatus> };
+    if (!user?.id) {
+      return {
+        slots: [] as ExamSlot[],
+        participations: {} as Record<string, ParticipationStatus>,
+        attendance: {} as Record<string, StudentAttendanceRecord['status']>,
+      };
+    }
 
     const slots = await fetchStudentExamSlots(user.id);
+    const attendance = await fetchMyExamAttendanceStatus(user.id).catch(() => ({} as Record<string, StudentAttendanceRecord['status']>));
 
     // Only check participation for currently-active slots
     const active = slots.filter((s) => {
@@ -91,20 +112,22 @@ export default function StudentOverview() {
       }),
     );
 
-    return { slots, participations };
+    return { slots, participations, attendance };
   }, [user?.id]);
 
   const slots = data?.slots ?? [];
   const participations = data?.participations ?? {};
+  const attendance = data?.attendance ?? {};
 
   const withStatus = slots.map((s) => ({
     ...s,
-    _status: deriveStatus(s, participations[s.id]),
+    _status: deriveStatus(s, participations[s.id], attendance[s.id]),
   }));
 
-  const available    = withStatus.filter((s) => s._status === 'available').slice(0, 3);
-  const upcoming     = withStatus.filter((s) => s._status === 'upcoming').slice(0, 3);
-  const submitted    = withStatus.filter((s) => s._status === 'submitted' || s._status === 'completed');
+  const available      = withStatus.filter((s) => s._status === 'available').slice(0, 3);
+  const noAttendance   = withStatus.filter((s) => s._status === 'no-attendance').slice(0, 3);
+  const upcoming       = withStatus.filter((s) => s._status === 'upcoming').slice(0, 3);
+  const submitted      = withStatus.filter((s) => s._status === 'submitted' || s._status === 'completed');
 
   const counts = {
     total:     slots.length,
@@ -183,6 +206,28 @@ export default function StudentOverview() {
                 >
                   Start <FiArrowRight />
                 </button>
+              }
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Awaiting Attendance — bài thi đang trong giờ thi nhưng lecturer/proctor chưa điểm danh
+          Present/Late, nên KHÔNG được bấm Start (khớp đúng gate ở StudentExamsPage.tsx). */}
+      {!loading && noAttendance.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="font-syne font-bold text-white-soft text-base flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
+            Awaiting Attendance
+          </h2>
+          {noAttendance.map((exam) => (
+            <ExamRow
+              key={exam.id}
+              slot={exam}
+              action={
+                <span className="flex items-center gap-1.5 text-[10px] font-bold text-gold bg-gold/10 border border-gold/25 px-2.5 py-1 rounded-full whitespace-nowrap">
+                  <span className="w-1.5 h-1.5 rounded-full bg-gold animate-pulse" /> Waiting for Attendance
+                </span>
               }
             />
           ))}
