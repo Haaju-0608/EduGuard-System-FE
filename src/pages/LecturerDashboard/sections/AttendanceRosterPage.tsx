@@ -393,6 +393,13 @@ export default function AttendanceRosterPage() {
         stats={exam ? [
           { label: 'Status', value: exam.status.charAt(0).toUpperCase() + exam.status.slice(1), icon: '📌' },
           { label: 'Students', value: String(roster.length), icon: '👥' },
+          {
+            label: 'Starts',
+            value: new Date(exam.startTime).toLocaleString('en-GB', {
+              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+            }),
+            icon: '🕐',
+          },
         ] : undefined}
       />
 

@@ -89,6 +89,11 @@ export default function LiveMonitoringPage() {
   const [loadingState, setLoadingState] = useState(false);
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
+  // BE không trả identityVerifiedAt qua bất kỳ response nào FE đang đọc (GetStatus/GetById/realtime
+  // state đều thiếu field này) — tự nhớ cục bộ participation nào vừa duyệt tay để đổi UI ngay, thay
+  // vì bấm xong nút vẫn y nguyên như cũ (chỉ có toast thoáng qua, dễ tưởng chưa có tác dụng gì). Tự
+  // dọn khi participation đó thật sự Joined (qua StudentJoinedExam) hoặc đổi sang exam khác.
+  const [approvedIds, setApprovedIds] = useState<Set<string>>(new Set());
   // Cảnh báo "đạt ngưỡng thông báo" (AiNotifyThreshold / BrowserNotifyThreshold) — KHÔNG tự
   // disqualify, chỉ nhắc Lecturer tự quyết định (đúng yêu cầu: cả AI và browser giờ đều cần
   // Lecturer xác nhận, không còn auto-terminate ở ngưỡng 3 như trước). Key theo
@@ -102,6 +107,7 @@ export default function LiveMonitoringPage() {
     setApprovingId(participationId);
     try {
       await manualApproveIdentity(participationId);
+      setApprovedIds((prev) => new Set(prev).add(participationId));
       toast.success('Identity approved', `${fullName} can now enter the exam.`);
     } catch (err) {
       toast.error('Failed to approve', err instanceof Error ? err.message : 'Please try again.');
@@ -165,6 +171,7 @@ export default function LiveMonitoringPage() {
     if (!selectedExamId) { setStudents({}); setFeed([]); return; }
     setLoadingState(true);
     setFeed([]);
+    setApprovedIds(new Set());
     fetchExamRealtimeState(selectedExamId)
       .then((state) => {
         setExamLabel(state.examName ?? '');
@@ -201,14 +208,26 @@ export default function LiveMonitoringPage() {
 
   useHubEvent<StudentJoinedExamEventPayload>(examHub, 'StudentJoinedExam', (p) => {
     if (p.examSlotId !== selectedExamId) return;
-    setStudents((prev) => (prev[p.participationId] ? prev : {
+    // Bug cũ: guard `prev[p.participationId] ? prev : {...}` bỏ qua HẲN việc cập nhật nếu student
+    // đã có sẵn trong roster (vd đang "Not Joined" từ snapshot ban đầu) — nghĩa là card KHÔNG BAO
+    // GIỜ chuyển sang "In Progress" khi họ join thật, kể cả sau khi đã Approve Identity thành công.
+    // Giờ luôn patch đúng field cần đổi (status/actualStart/isOnline), giữ nguyên violationCount cũ
+    // nếu record đã tồn tại thay vì reset về 0.
+    setStudents((prev) => ({
       ...prev,
       [p.participationId]: {
+        ...prev[p.participationId],
         participationId: p.participationId, studentId: p.studentId, fullName: p.fullName,
         status: 'Joined', actualStart: p.joinedAt, actualEnd: null, lastSeenAt: p.joinedAt,
-        isOnline: true, violationCount: 0,
+        isOnline: true, violationCount: prev[p.participationId]?.violationCount ?? 0,
       },
     }));
+    setApprovedIds((prev) => {
+      if (!prev.has(p.participationId)) return prev;
+      const next = new Set(prev);
+      next.delete(p.participationId);
+      return next;
+    });
   });
 
   useHubEvent<ExamSubmittedEventPayload>(examHub, 'ExamSubmitted', (p) => {
@@ -408,16 +427,26 @@ export default function LiveMonitoringPage() {
                       <FiClock size={10} /> Last seen {fmtTime(s.lastSeenAt)}
                     </p>
                     {s.status.toLowerCase() === 'absent' && (
-                      <button
-                        type="button"
-                        onClick={() => void handleApproveIdentity(s.participationId, s.fullName)}
-                        disabled={approvingId === s.participationId}
-                        title="Manually confirm this student's identity if AI face verification keeps rejecting them"
-                        className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-gold/30 bg-gold/10 text-gold text-[11px] font-semibold cursor-pointer hover:bg-gold/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <FiUserCheck size={12} />
-                        {approvingId === s.participationId ? 'Approving…' : 'Approve Identity'}
-                      </button>
+                      approvedIds.has(s.participationId) ? (
+                        // Bấm xong không có gì khác trên UI (chỉ toast thoáng qua) dễ khiến giám thị
+                        // tưởng chưa có tác dụng — hiện rõ trạng thái "đã duyệt, đang chờ học sinh vào
+                        // lại" thay vì để y nguyên nút "Approve Identity" như chưa bấm gì.
+                        <div className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-green/30 bg-green/10 text-green text-[11px] font-semibold">
+                          <FiCheckCircle size={12} />
+                          Approved — waiting for student to re-enter
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => void handleApproveIdentity(s.participationId, s.fullName)}
+                          disabled={approvingId === s.participationId}
+                          title="Manually confirm this student's identity if AI face verification keeps rejecting them"
+                          className="mt-3 w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-gold/30 bg-gold/10 text-gold text-[11px] font-semibold cursor-pointer hover:bg-gold/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          <FiUserCheck size={12} />
+                          {approvingId === s.participationId ? 'Approving…' : 'Approve Identity'}
+                        </button>
+                      )
                     )}
                   </div>
                 ))}

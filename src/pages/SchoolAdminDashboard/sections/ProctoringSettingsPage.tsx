@@ -230,10 +230,15 @@ export default function ProctoringSettingsPage() {
 
           {/* fieldset disabled tự khoá hết input/checkbox bên trong khi có exam ongoing — không
               phải tự thêm disabled={hasOngoingExam} lặp lại ở từng input. className="contents" để
-              fieldset không sinh box riêng, không phá layout/spacing giữa 2 card. */}
+              fieldset không sinh box riêng, nhưng hệ quả là nó cũng "vô hình" với selector
+              space-y-6 của div cha (space-y chỉ áp margin-top cho ĐÚNG con trực tiếp, mà con trực
+              tiếp ở đây là chính cái fieldset — margin đó bị bỏ qua hoàn toàn vì display:contents
+              không sinh box để nhận margin). Kết quả là 2 card bên trong dính sát vào nhau và vào
+              card phía trên fieldset, không có gap nào — phải tự thêm mt-6 cho từng card bên
+              trong để bù lại đúng khoảng cách mà space-y-6 lẽ ra phải tạo ra. */}
           <fieldset disabled={hasOngoingExam} className="contents">
           {/* General thresholds */}
-          <div className="bg-navy-card border border-border rounded-[20px] p-6">
+          <div className="bg-navy-card border border-border rounded-[20px] p-6 mt-6">
             <p className="text-sm font-bold text-white-soft mb-4">General Thresholds</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
@@ -285,7 +290,7 @@ export default function ProctoringSettingsPage() {
           </div>
 
           {/* Per-violation-type thresholds */}
-          <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden">
+          <div className="bg-navy-card border border-border rounded-[20px] overflow-hidden mt-6">
             <div className="px-6 py-4 border-b border-border">
               <p className="text-sm font-bold text-white-soft">Detection Thresholds</p>
               <p className="text-[11px] text-muted mt-1">Seconds a signal must persist before it counts as a violation, per type.</p>
