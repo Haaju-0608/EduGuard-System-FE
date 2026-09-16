@@ -38,7 +38,7 @@ const TYPE_COLORS: Record<NotificationType, string> = {
  *  sinh gây vi phạm (không chỉ đúng bài thi chung chung). LƯU Ý: mount path thật là "/lecture/*"
  *  (KHÔNG PHẢI "/lecturer") — xem App.tsx.
  *
- *  BE (commit 1fe0e84, Phú — đã báo theo đúng yêu cầu) thêm hẳn ReferenceTypeEnum.ExamParticipation
+ *  BE (commit 1fe0e84) thêm hẳn ReferenceTypeEnum.ExamParticipation
  *  và đổi MỌI notification loại ViolationDetected (AI + browser + disqualify) sang tham chiếu thẳng
  *  participation.Id thay vì examSlotId cũ — nên `referenceId` giờ CHÍNH LÀ participationId.
  *  ViolationReviewPage.tsx đã có sẵn cơ chế deep-link theo `?participationId=` (dùng chung với

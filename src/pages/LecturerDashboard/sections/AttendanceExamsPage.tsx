@@ -68,9 +68,8 @@ function ExamCard({ exam, cls, index, onOpen }: { exam: ExamSlot; cls: LecturerC
 }
 
 /** Danh sách bài thi (mình coi thi) của 1 lớp — bấm 1 bài thi để vào roster điểm danh của bài đó.
- *  Nhóm theo ngày (yêu cầu Giang: "để nó theo ngày, ngày đó có bao nhiêu cái rồi kéo xuống tới
- *  ngày khác cho dễ nhìn") thay vì phân trang phẳng — mỗi lớp thường không nhiều bài thi nên cuộn
- *  hết 1 lượt là đủ, không cần Pagination nữa. */
+ *  Nhóm theo ngày thay vì phân trang phẳng, để dễ phân biệt các đợt thi cách xa nhau — mỗi lớp
+ *  thường không nhiều bài thi nên cuộn hết 1 lượt là đủ, không cần Pagination nữa. */
 export default function AttendanceExamsPage() {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();

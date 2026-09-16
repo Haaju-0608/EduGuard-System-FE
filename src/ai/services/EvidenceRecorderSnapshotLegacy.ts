@@ -75,8 +75,8 @@ export class EvidenceRecorderSnapshotLegacy {
   // true suốt từ lúc bắt đầu ghi 1 violation cho tới hết cooldown sau khi cắt+upload xong — trong
   // lúc này MỌI violation mới đều bị BỎ QUA hoàn toàn (không log, không video), useAiProctoring.ts
   // cũng tạm dừng luôn việc chạy MediaPipe khi thấy cờ này (đỡ tranh CPU main thread, xem
-  // getMatrixData... trong processFrame) — vừa đúng yêu cầu "xử lý xong 1 cái mới bắt cái mới",
-  // vừa giảm giật hình vì không còn ai tranh main thread với vòng lặp cắt video nữa.
+  // getMatrixData... trong processFrame) — đảm bảo xử lý xong 1 vi phạm rồi mới bắt vi phạm tiếp
+  // theo, đồng thời giảm giật hình vì không còn ai tranh main thread với vòng lặp cắt video nữa.
   private busy = false;
   private lastCaptureAt = 0;
   // Thời điểm start() được gọi — dùng để CHẶN bắt violation trong DEFAULT_PRE_EVENT_MS đầu tiên
@@ -145,8 +145,8 @@ export class EvidenceRecorderSnapshotLegacy {
   async recordEvidence(violation: ViolationEvent): Promise<EvidenceItem | null> {
     if (!this.isRunning || this.busy) {
       // Đang xử lý violation trước (ghi hình / cắt video / upload / cooldown sau đó) → BỎ QUA
-      // hoàn toàn violation này, không log, không video — đúng yêu cầu "xử lý xong 1 cái mới bắt
-      // cái mới". Học sinh có thể có nhiều tín hiệu vi phạm liên tiếp nhưng chỉ đúng 1 trong số đó
+      // hoàn toàn violation này, không log, không video — chỉ xử lý 1 vi phạm tại 1 thời điểm.
+      // Học sinh có thể có nhiều tín hiệu vi phạm liên tiếp nhưng chỉ đúng 1 trong số đó
       // (cái đầu tiên mở được cửa sổ ghi) thực sự trở thành 1 record — không còn "violation không
       // có video" nữa vì mọi record giờ LUÔN đi kèm đủ video (composeAndUpload cắt xong mới báo).
       console.debug(`[EvidenceRecorder] Busy processing a previous violation — ignoring ${violation.type}.`);
@@ -200,8 +200,8 @@ export class EvidenceRecorderSnapshotLegacy {
         durationMs,
       );
     } finally {
-      // Cooldown tính từ NGAY SAU KHI cắt+upload xong (không phải từ lúc violation bắt đầu) —
-      // đúng yêu cầu. Trong lúc này useAiProctoring.ts vẫn thấy isBusy = true nên MediaPipe vẫn
+      // Cooldown tính từ NGAY SAU KHI cắt+upload xong (không phải từ lúc violation bắt đầu).
+      // Trong lúc này useAiProctoring.ts vẫn thấy isBusy = true nên MediaPipe vẫn
       // tạm dừng, main thread rảnh hoàn toàn cho browser flush xong việc mạng/encode còn sót lại.
       await this.wait(this.options.cooldownAfterClipMs);
       this.busy = false;

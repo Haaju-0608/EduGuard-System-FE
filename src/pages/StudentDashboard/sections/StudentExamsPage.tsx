@@ -51,8 +51,8 @@ function deriveStudentStatus(
   if (slot.status === 'completed') return 'missed';
   if (slot.status === 'cancelled') return 'missed';
 
-  // Phải được lecturer điểm danh Present/Late trước mới cho vào thi — đây là gate ở FE, chặn thật
-  // cần BE (ExamWorkflowService.JoinAsync hiện chưa kiểm tra điều kiện này, đã báo Giang).
+  // Phải được lecturer điểm danh Present/Late trước mới cho vào thi — đây là gate ở FE; BE
+  // (ExamWorkflowService.JoinAsync) hiện chưa kiểm tra điều kiện này nên chưa phải chặn thật.
   const isCheckedIn = attendanceStatus === 'present' || attendanceStatus === 'late';
   if (slot.status === 'ongoing') return isCheckedIn ? 'available' : 'no-attendance';
   // scheduled: derive from time

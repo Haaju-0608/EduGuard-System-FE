@@ -83,8 +83,8 @@ function EnrollmentPanel({
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<ImportClassEnrollmentsResult | null>(null);
 
-  // Lọc theo Ngành + Khoá nhập học của sinh viên (đề xuất của Phú, BE commit ebf5cec: GET
-  // /api/users/students) — thu hẹp gợi ý khi trường có nhiều sinh viên trùng tên, dễ chọn nhầm.
+  // Lọc theo Ngành + Khoá nhập học của sinh viên (GET /api/exam-participations/students) — thu
+  // hẹp gợi ý khi trường có nhiều sinh viên trùng tên, dễ chọn nhầm.
   // `null` = chưa áp filter (giữ nguyên hành vi search cũ).
   const [majorFilter, setMajorFilter] = useState('');
   const [yearFilter, setYearFilter] = useState('');

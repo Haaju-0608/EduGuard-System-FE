@@ -64,9 +64,9 @@ export default function ProctoringSettingsPage() {
   );
 
   // Khoá form khi trường đang có bài thi diễn ra — đổi ngưỡng phát hiện giữa chừng 1 ca thi sẽ làm
-  // ViolationEngine phía student đổi hành vi bất nhất ngay trong lúc thi (yêu cầu Giang). Chỉ là
-  // khoá UI phía FE — chưa có validate tương ứng ở BE, nên vẫn có thể vô tình sửa được nếu gọi
-  // thẳng API (đã cân nhắc báo BE thêm chặn thật ở ProctoringSettingsService nếu cần chắc chắn).
+  // ViolationEngine phía student đổi hành vi bất nhất ngay trong lúc thi. Chỉ là khoá UI phía FE —
+  // chưa có validate tương ứng ở BE, nên vẫn có thể vô tình sửa được nếu gọi thẳng API (cần báo BE
+  // thêm chặn thật ở ProctoringSettingsService nếu muốn chắc chắn).
   const { data: examSlotsData } = useAsyncData(
     () => fetchExamSlots({ page: 1, pageSize: 200 }).then((r) => r.items),
     [],

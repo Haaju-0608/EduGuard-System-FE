@@ -89,8 +89,8 @@ function ExamSlotCard({ slot, index }: { slot: ExamSlot; index: number }) {
 }
 
 /** Danh sách bài thi (mình coi thi) của 1 lớp cụ thể — vào từ ExamClassesPage (chọn lớp trước),
- *  khớp luồng Class → Exams đã dùng ở Attendance. Nhóm theo ngày (yêu cầu Giang) thay vì phân
- *  trang phẳng — dễ nhìn hơn khi lướt qua nhiều bài thi trải dài nhiều ngày. */
+ *  khớp luồng Class → Exams đã dùng ở Attendance. Nhóm theo ngày thay vì phân trang phẳng — dễ
+ *  nhìn hơn khi lướt qua nhiều bài thi trải dài nhiều ngày. */
 export default function ExamSlotsPage() {
   const { classId } = useParams<{ classId: string }>();
   const navigate = useNavigate();

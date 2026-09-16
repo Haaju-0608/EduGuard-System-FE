@@ -28,9 +28,8 @@ interface NotificationPanelProps {
 export default function NotificationPanel({ open, onClose }: NotificationPanelProps) {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications();
   const panelRef = useRef<HTMLDivElement>(null);
-  // Bộ lọc "chỉ xem thông báo vi phạm" (đạt ngưỡng cảnh báo vi phạm) — theo yêu cầu Giang: cần 1
-  // chỗ riêng để xem loại thông báo này, tách khỏi các loại khác (attendance/biometric/system) đang
-  // trộn chung trong panel.
+  // Bộ lọc "chỉ xem thông báo vi phạm" (đạt ngưỡng cảnh báo vi phạm) — tách riêng loại thông báo
+  // này khỏi các loại khác (attendance/biometric/system) đang trộn chung trong panel.
   const [filter, setFilter] = useState<'all' | NotificationType>('all');
   const visibleNotifications = filter === 'all' ? notifications : notifications.filter((n) => n.type === filter);
   const violationCount = notifications.filter((n) => n.type === 'violation').length;

@@ -605,12 +605,9 @@ export async function fetchStudentDetail(userId: string): Promise<ApiStudentDeta
  *  đăng ký khuôn mặt lại từ đầu. SchoolAdmin chỉ thu hồi được sinh viên cùng trường (BE tự chặn).
  *  404 nếu sinh viên hiện không có biometric data nào đang active.
  *
- *  LƯU Ý (đã báo Hậu): ảnh Front bị xoá qua đây trùng file với BiometricRequest.FrontImagePath
- *  (BiometricRequestService.ApproveAsync gán thẳng, không phải bản sao riêng) — nên request đã
- *  Approved cũ vẫn hiện nguyên trên trang Face Approval nhưng ảnh Front bị vỡ link. Đã cân nhắc đổi
- *  qua deleteBiometricRequest() (xoá sạch + đổi status) nhưng bị revert vì BE không có delete thật
- *  — status chỉ đổi thành "Rejected" (SoftDeleteAsync chỉ set status, không có DeletedAt), gây hiểu
- *  lầm với case reject do ảnh xấu. Giữ nguyên endpoint này cho tới khi BE bổ sung status riêng. */
+ *  BE xoá cả 3 ảnh (front/left/right) qua BioRequestId liên kết và đặt DeletedAt trên
+ *  BiometricRequest tương ứng (BiometricDatumService.RevokeAllForStudentAsync), nên request đã
+ *  Approved cũ không còn hiện lại với ảnh vỡ link trên trang Face Approval nữa. */
 export async function revokeStudentBiometricData(studentId: string): Promise<void> {
   await apiDelete(`/api/biometric-data/student/${studentId}/revoke-all`);
 }

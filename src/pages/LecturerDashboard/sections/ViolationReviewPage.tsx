@@ -493,7 +493,7 @@ function ParticipationDetailModal({
           </button>
         </div>
 
-        {/* Camera (AI) vs Browser — 2 bảng riêng hoàn toàn ở BE (yêu cầu Giang) */}
+        {/* Camera (AI) vs Browser — 2 nguồn dữ liệu riêng hoàn toàn ở BE */}
         <div className="flex gap-2 px-4 pt-3 shrink-0">
           <button
             type="button"
@@ -826,9 +826,9 @@ export default function ViolationReviewPage() {
 
   // Class code của từng exam slot (vd "CSI202") — ExamParticipationResponseDto (BE) chỉ có
   // ExamName, không có class code, nên phải tự tra thêm qua fetchExamSlots (đã có sẵn classCode
-  // resolve từ trước, dùng lại đúng convention của LiveMonitoringPage.tsx). Theo yêu cầu Giang: tên
-  // bài thi phải hiện dạng "CSI202 - Midterm" chứ không phải chỉ "Midterm" (dễ nhầm khi 1 giảng viên
-  // dạy nhiều lớp cùng tên đề thi).
+  // resolve từ trước, dùng lại đúng convention của LiveMonitoringPage.tsx). Tên bài thi hiển thị
+  // dạng "CSI202 - Midterm" thay vì chỉ "Midterm", để tránh nhầm lẫn khi một giảng viên dạy nhiều
+  // lớp dùng cùng tên đề thi.
   const { data: examSlotsData } = useAsyncData(
     () => fetchExamSlots({ page: 1, pageSize: 200 }).then((r) => r.items),
     [],
@@ -843,7 +843,7 @@ export default function ViolationReviewPage() {
     return code && code !== '—' ? `${code} - ${examName}` : examName;
   }, [classCodeBySlot]);
 
-  // Đánh dấu đỏ học sinh đã đạt ngưỡng cảnh báo vi phạm (yêu cầu Giang) — không có field "đã đạt
+  // Đánh dấu đỏ học sinh đã đạt ngưỡng cảnh báo vi phạm — không có field "đã đạt
   // ngưỡng" trả sẵn từ BE cho từng participation, nhưng có thể suy ra khá sát: số dòng ViolationLog
   // AI thật (loại trừ vi phạm browser — xem BROWSER_VIOLATION_TYPES/isCameraViolation, group.logs
   // trộn lẫn cả 2 loại) đã lưu cho 1 participation CHÍNH LÀ số vi phạm AI thật sau khi BE đã tự lọc
@@ -937,9 +937,9 @@ export default function ViolationReviewPage() {
     });
     return [...map.values()].sort((a, b) => b.groups.length - a.groups.length);
   }, [allGroups, participationCache, withClassCode, examSlotsData]);
-  // Nhóm màn "chọn bài thi" theo ngày (yêu cầu Giang) — dùng đúng startTime thật của exam slot, đã
-  // tra sẵn ở trên; nếu chưa kịp tải examSlotsData thì tạm fallback về epoch (rơi xuống cuối danh
-  // sách), tự sửa lại đúng ngày thật ngay khi examSlotsData tải xong.
+  // Nhóm màn "chọn bài thi" theo ngày — dùng đúng startTime thật của exam slot, đã tra sẵn ở trên;
+  // nếu chưa kịp tải examSlotsData thì tạm fallback về epoch (rơi xuống cuối danh sách), tự sửa
+  // lại đúng ngày thật ngay khi examSlotsData tải xong.
   const examDateGroups = groupByDate(examGroups, (e) => e.startTime);
 
   const selectedExamGroup = examGroups.find((e) => e.examSlotId === selectedExamSlotId) ?? null;

@@ -7,9 +7,9 @@ export interface DateGroup<T> {
 /**
  * Nhóm 1 danh sách theo NGÀY (giờ local, không phải UTC — tránh lệch ngày cho người xem ở múi giờ
  * khác) — dùng cho các trang list dài (Attendance exams, Exam slots, Violation Review exam picker)
- * theo yêu cầu Giang: "để nó theo ngày, ngày đó có bao nhiêu cái rồi kéo xuống tới ngày khác cho dễ
- * nhìn". Trả về mới nhất trước (giảm dần theo ngày); thứ tự items TRONG 1 ngày giữ nguyên như mảng
- * đầu vào — caller tự sort trước nếu cần thứ tự phụ (vd theo giờ).
+ * để phân tách các đợt cách xa nhau theo ngày thay vì phân trang phẳng. Trả về mới nhất trước
+ * (giảm dần theo ngày); thứ tự items TRONG 1 ngày giữ nguyên như mảng đầu vào — caller tự sort
+ * trước nếu cần thứ tự phụ (vd theo giờ).
  */
 export function groupByDate<T>(items: T[], getIsoDate: (item: T) => string): DateGroup<T>[] {
   const map = new Map<number, DateGroup<T>>();

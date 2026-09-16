@@ -50,8 +50,8 @@ export class EvidenceRecorder {
   private mimeType = '';
   private isRunning = false;
   // true suốt từ lúc bắt đầu ghi 1 violation tới hết cooldown sau khi ghi+upload xong — trong lúc
-  // này MỌI violation mới đều bị BỎ QUA hoàn toàn (không log, không video), đúng yêu cầu "xử lý
-  // xong 1 cái mới bắt cái mới".
+  // này MỌI violation mới đều bị BỎ QUA hoàn toàn (không log, không video): xử lý xong 1 vi phạm
+  // rồi mới bắt đầu ghi nhận vi phạm tiếp theo, không cho phép chồng lấn.
   private busy = false;
   private options: Required<Omit<EvidenceRecorderOptions, 'uploadUrl'>> & Pick<EvidenceRecorderOptions, 'uploadUrl'>;
 

@@ -51,9 +51,9 @@ function TerminationModal({
           </p>
         </div>
         {isDisqualified ? (
-          // Không còn tính năng Restore ở phía giảng viên (đã bỏ theo yêu cầu Giang) — đình chỉ giờ
-          // là VĨNH VIỄN, không có gì để chờ nữa. Cho thoát thẳng ra màn chính thay vì tự poll status
-          // vô ích (đã xoá luôn vòng poll 10s ở ExamTerminationContext.tsx, vốn chỉ để chờ restore).
+          // Không còn tính năng Restore ở phía giảng viên — đình chỉ giờ là VĨNH VIỄN, không có gì
+          // để chờ nữa. Cho thoát thẳng ra màn chính thay vì tự poll status vô ích (đã xoá luôn
+          // vòng poll 10s ở ExamTerminationContext.tsx, vốn chỉ để chờ restore).
           <button
             onClick={onExit}
             className="w-full py-2.5 rounded-xl bg-gold/10 border border-gold/30 text-gold text-sm font-semibold cursor-pointer hover:bg-gold/20 transition-colors"
