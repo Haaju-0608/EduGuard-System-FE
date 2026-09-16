@@ -104,12 +104,20 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   // hạn thật của thư viện, không phải lỗi cấu hình — đã revert về chạy đồng bộ main thread như
   // trước (đã chứng minh chạy được ở production).
   //
-  // Bù lại: khi EvidenceRecorder đang bận xử lý 1 violation (ghi hình + cắt video + upload +
-  // cooldown, xem EvidenceRecorder.isBusy), TẠM DỪNG HẲN việc chạy MediaPipe (và cả việc chụp
-  // frame rolling buffer) — không có lý do chạy detect trong lúc mọi violation mới đều bị bỏ qua,
-  // và main thread rảnh hoàn toàn giúp vòng lặp cắt video của EvidenceRecorder chạy đúng nhịp thời
-  // gian thật, không còn bị kéo dài ra (video từng bị dài gấp đôi ~20s thay vì 8s) hay giật do
-  // tranh CPU với detect. rAF loop vẫn chạy (chỉ bỏ qua việc nặng) để sẵn sàng resume ngay khi hết bận.
+  // TRƯỚC ĐÂY: khi EvidenceRecorder đang bận (isBusy — ghi hình + upload + cooldown), việc detect
+  // MediaPipe bị TẠM DỪNG HẲN — cần thiết lúc đó vì EvidenceRecorder tự ghép video từ ảnh JPEG chụp
+  // rời rạc (canvas.captureStream(0) + tự bơm frame bằng tay), một vòng lặp CHẠY TRÊN JS main
+  // thread nên bị tranh CPU với MediaPipe là hỏng ngay (video dài gấp đôi, đứng hình...).
+  //
+  // GIỜ: EvidenceRecorder ghi TRỰC TIẾP từ MediaStream camera bằng MediaRecorder (xem
+  // EvidenceRecorder.ts) — việc mã hoá do trình duyệt tự lo ở tầng native, KHÔNG cần JS main
+  // thread rảnh để chạy đúng nhịp (khác hẳn cách ghép JPEG cũ) — nên không còn lý do phải tạm dừng
+  // MediaPipe nữa. Bỏ việc pause để giảm "vùng mù" (trước đây ~9-13s sau mỗi vi phạm KHÔNG detect
+  // được gì cả) — MediaPipe giờ chạy liên tục kể cả lúc EvidenceRecorder đang bận; vi phạm mới phát
+  // hiện được trong lúc đó vẫn hiện trong `violations` (để minh bạch) nhưng KHÔNG được ghi
+  // log/video mới (EvidenceRecorder.recordEvidence() tự bỏ qua qua chính `busy` flag của nó) — 2
+  // clip evidence vẫn KHÔNG BAO GIỜ chồng lấn/lẫn frame vào nhau vì lý do đó, không phải vì
+  // MediaPipe từng bị dừng.
   const processFrame = useCallback(
     (timestamp: number) => {
       if (!runningRef.current) return;
@@ -120,19 +128,10 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         return;
       }
 
-      // Chụp frame evidence ngay đầu tick, TRƯỚC khi chạy MediaPipe (việc nặng, đồng bộ) — để
-      // việc chụp không bị trễ thêm bởi thời gian detect. PHẢI gọi vô điều kiện, kể cả lúc
-      // isBusy — nếu tạm dừng tick() trong lúc đang ghi 1 violation thì 4s "sau vi phạm"
-      // (postFrames) sẽ KHÔNG có frame nào được chụp, khiến video bị đứng hình đúng ngay mốc
-      // 4s (lặp lại frame cuối chụp được) suốt phần còn lại của clip — đã tự gây ra lỗi này khi
-      // thêm optimization tạm dừng detect, sửa lại bằng cách chỉ dừng phần NẶNG (MediaPipe) dưới
-      // đây, không dừng tick().
+      // Giữ lại cho tương thích ngược với EvidenceRecorderSnapshotLegacy.ts (bản dự phòng dùng
+      // cách ghép JPEG cũ, cần tick() để chụp frame rolling buffer) — bản MediaRecorder hiện tại
+      // không dùng gì tới hàm này (no-op), gọi vô hại.
       engines.evidence.tick(timestamp);
-
-      if (engines.evidence.isBusy) {
-        rafIdRef.current = window.requestAnimationFrame(processFrame);
-        return;
-      }
 
       if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;

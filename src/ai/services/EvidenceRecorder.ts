@@ -28,8 +28,14 @@ const VIOLATION_TYPE_MAP: Record<ViolationType, string> = {
 const DEFAULT_CLIP_MS = 8000;
 // Khoảng nghỉ SAU KHI ghi xong 1 clip (đã upload), trước khi cho phép bắt violation tiếp theo —
 // tính từ lúc xử lý xong, không phải từ lúc violation bắt đầu. Cùng với `busy`, đảm bảo LUÔN chỉ
-// xử lý đúng 1 violation tại 1 thời điểm — không log/không video nào bị "rỗng" nữa.
-const DEFAULT_COOLDOWN_AFTER_CLIP_MS = 5000;
+// xử lý đúng 1 violation tại 1 thời điểm — không log/không video nào bị "rỗng" nữa. Để ngắn (1s)
+// vì không cần dài hơn: việc "không bắt trùng đoạn lặp lại của vi phạm cũ" đã do vote-window reset
+// + activeEmission state machine trong ViolationEngine.ts tự lo (độc lập với giá trị này) — cooldown
+// dài hơn chỉ tạo thêm "vùng mù" không detect được gì, không có lợi ích chống trùng nào thêm. Việc
+// clip TRƯỚC không dính frame của clip SAU cũng không phụ thuộc giá trị này — `busy` đã tự đảm bảo
+// KHÔNG có 2 MediaRecorder nào chạy chồng lấn (violation mới bị bỏ qua hoàn toàn cho tới khi busy
+// hết), nên dù cooldown = 0 vẫn không có chuyện 2 clip lẫn frame vào nhau.
+const DEFAULT_COOLDOWN_AFTER_CLIP_MS = 1000;
 const DEFAULT_VIDEO_BITS_PER_SECOND = 2_600_000;
 const DEFAULT_PARTICIPATION_ID = 'local-ai-prototype';
 const DEFAULT_SESSION_ID = 'local-session';

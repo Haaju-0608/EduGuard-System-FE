@@ -21,6 +21,15 @@ const DEFAULT_THRESHOLDS: ViolationEngineThresholds = {
 const VOTE_RATIO = 0.72;
 const VOTED_TYPES: ViolationType[] = ['FACE_OBSTRUCTED', 'HEAD_TURN', 'EYE_DIVERSION'];
 
+// Quay đầu (HEAD_TURN) LUÔN kéo theo tín hiệu eye diversion tăng lên CÙNG LÚC (landmark mắt trong
+// khung hình dịch theo góc nghiêng đầu, dù người dùng không hề "đảo mắt" độc lập với đầu — đã thấy
+// rõ hiện tượng này khi test ở /proctoring-test). Cả 2 dùng ngưỡng thời gian ~bằng nhau nên thường
+// vượt ngưỡng ở ĐÚNG 1 tick evaluate() — nhưng để chắc chắn không lệch do rung khung hình/vote
+// window, dùng cửa sổ thời gian ngắn này để coi EYE_DIVERSION xảy ra ngay sau HEAD_TURN là CÙNG 1
+// hành vi (không báo là 2 vi phạm riêng) — không áp dụng ngược lại (không nén HEAD_TURN nếu diễn
+// ra sau EYE_DIVERSION, vì đó có thể là 2 hành vi thật sự khác nhau, cách nhau đủ xa).
+const EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS = 1000;
+
 const LABELS: Record<ViolationType, string> = {
   ABSENCE: 'No face detected',
   MULTIPLE_FACE: 'Multiple faces detected',
@@ -34,6 +43,7 @@ export class ViolationEngine {
   private signalStart = new Map<ViolationType, number>();
   private activeEmission = new Set<ViolationType>();
   private voteWindows = new Map<ViolationType, Array<{ timestamp: number; active: boolean }>>();
+  private lastHeadTurnEmittedAt: number | null = null;
 
   constructor(thresholds: Partial<ViolationEngineThresholds> = {}) {
     this.thresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
@@ -83,6 +93,17 @@ export class ViolationEngine {
       const durationMs = params.timestamp - startedAt;
       if (durationMs >= this.thresholdFor(type) && !this.activeEmission.has(type)) {
         this.activeEmission.add(type);
+
+        if (type === 'HEAD_TURN') {
+          this.lastHeadTurnEmittedAt = params.timestamp;
+        } else if (
+          type === 'EYE_DIVERSION'
+          && this.lastHeadTurnEmittedAt !== null
+          && params.timestamp - this.lastHeadTurnEmittedAt <= EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS
+        ) {
+          return;
+        }
+
         events.push({
           id: `${type}-${params.timestamp}`,
           type,
@@ -121,6 +142,7 @@ export class ViolationEngine {
     this.signalStart.clear();
     this.activeEmission.clear();
     this.voteWindows.clear();
+    this.lastHeadTurnEmittedAt = null;
   }
 
   private resolveImmediateSignals(params: {
