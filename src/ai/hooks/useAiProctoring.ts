@@ -84,6 +84,16 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   const lastFrameAtRef = useRef(0);
   const lastUiUpdateAtRef = useRef(0);
   const evidenceRef = useRef<EvidenceItem[]>([]);
+  // Giới hạn AI Violation Count (Proctoring Settings) — lấy 1 lần cùng lúc applyProctoringSettings()
+  // fetch ngưỡng. Dùng ref (không phải state) để processFrame's useCallback không phải tạo lại mỗi
+  // lần đổi settings — chỉ đọc giá trị mới nhất mỗi frame.
+  const maxAiViolationCountRef = useRef<number | null>(null);
+  // Số vi phạm AI THẬT (đã được BE xác nhận, qua SignalR/GET status) — nơi gọi (vd
+  // StudentExamTakingPage.tsx) phải tự đồng bộ vào đây bằng reportAiViolationCount() mỗi khi
+  // termination.aiViolationCount đổi, VÌ hook này không tự biết con số đó (nó sống ở
+  // ExamTerminationContext, không phải ở đây) — không tự đếm cục bộ để tránh lệch với BE, giống
+  // lý do ExamTerminationContext.tsx không tự đếm ViolationEngine event.
+  const currentAiViolationCountRef = useRef(0);
 
   const stopLoop = useCallback(() => {
     runningRef.current = false;
@@ -194,8 +204,13 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
           // — để activeEmission/vote-window trong ViolationEngine không bị "đứng" rồi phải tích
           // lại từ đầu sau khi hết busy. Nhưng CHỈ xử lý (hiện lên list + gọi recordEvidence) khi
           // KHÔNG busy — vi phạm phát hiện được trong lúc busy chắc chắn sẽ bị recordEvidence() tự
-          // bỏ qua (không log, không video) nên không hiện lên UI, tránh hiện "vi phạm ma".
-          if (evaluation.events.length > 0 && !engines.evidence.isBusy) {
+          // bỏ qua (không log, không video) nên không hiện lên UI, tránh hiện "vi phạm ma". Cũng
+          // KHÔNG xử lý nếu đã đạt Max AI Violation Count — BE cũng chặn tạo log mới lúc này (trả
+          // về log CŨ), nhưng nếu FE vẫn cứ hiện lên list/tăng số cục bộ thì học sinh thấy count
+          // tiếp tục tăng dù giáo viên/BE đã dừng ghi nhận từ lâu — gây lệch giữa 2 bên.
+          const reachedMaxCount = maxAiViolationCountRef.current !== null
+            && currentAiViolationCountRef.current >= maxAiViolationCountRef.current;
+          if (evaluation.events.length > 0 && !engines.evidence.isBusy && !reachedMaxCount) {
             setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
             evaluation.events.forEach((event) => {
               // recordEvidence() báo violation log NGAY (tách rời khỏi việc quay video) — onUpdate
@@ -236,6 +251,7 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     if (!video) return;
 
     setError(null);
+    currentAiViolationCountRef.current = 0;
 
     // ── Camera ──
     try {
@@ -309,6 +325,7 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
         if (key) mapped[key] = entry.detectionThresholdSeconds * 1000;
       });
       engines.violation.setThresholds(mapped);
+      maxAiViolationCountRef.current = settings.maxAiViolationCount;
       setThresholdsSource('server');
       setActiveThresholds(engines.violation.getThresholds());
     } catch (err) {
@@ -317,6 +334,13 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       setActiveThresholds(engines.violation.getThresholds());
     }
   }, [engines.violation]);
+
+  // Nơi gọi (StudentExamTakingPage.tsx) tự đồng bộ số vi phạm AI THẬT (termination.aiViolationCount,
+  // lấy từ BE qua SignalR/GET status) vào đây mỗi khi nó đổi — dùng để so với maxAiViolationCountRef
+  // ở processFrame, chặn hiện thêm "vi phạm ma" sau khi đã đạt giới hạn ghi nhận của BE.
+  const reportAiViolationCount = useCallback((count: number) => {
+    currentAiViolationCountRef.current = count;
+  }, []);
 
   const clearLocalEvidence = useCallback(() => {
     setViolations([]);
@@ -357,5 +381,6 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     clearLocalEvidence,
     updateProctoringConfig,
     applyProctoringSettings,
+    reportAiViolationCount,
   };
 }

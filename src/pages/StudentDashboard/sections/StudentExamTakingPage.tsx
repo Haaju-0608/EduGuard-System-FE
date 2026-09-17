@@ -450,6 +450,13 @@ export default function StudentExamTakingPage() {
   const proctoringRef = useRef(proctoring);
   proctoringRef.current = proctoring;
 
+  // Đồng bộ số vi phạm AI THẬT (BE xác nhận qua SignalR ViolationDetected/GET status) vào
+  // useAiProctoring — để nó tự dừng hiện thêm "vi phạm ma" lên UI khi đã đạt Max AI Violation Count
+  // (BE cũng đã dừng ghi nhận từ lúc đó, chỉ trả lại log CŨ — không tạo log/video mới).
+  useEffect(() => {
+    proctoring.reportAiViolationCount(termination.aiViolationCount);
+  }, [proctoring.reportAiViolationCount, termination.aiViolationCount]);
+
   // Phát hiện đổi tab / mất focus / thoát fullscreen → report BE. Chặn copy/paste/DevTools cục bộ
   // (không report). Cả 2 tự tắt khi bài đã nộp hoặc đã bị terminate.
   useBrowserViolation(

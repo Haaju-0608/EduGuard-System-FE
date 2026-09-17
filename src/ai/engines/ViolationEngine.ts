@@ -23,11 +23,13 @@ const VOTED_TYPES: ViolationType[] = ['FACE_OBSTRUCTED', 'HEAD_TURN', 'EYE_DIVER
 
 // Quay đầu (HEAD_TURN) LUÔN kéo theo tín hiệu eye diversion tăng lên CÙNG LÚC (landmark mắt trong
 // khung hình dịch theo góc nghiêng đầu, dù người dùng không hề "đảo mắt" độc lập với đầu — đã thấy
-// rõ hiện tượng này khi test ở /proctoring-test). Cả 2 dùng ngưỡng thời gian ~bằng nhau nên thường
-// vượt ngưỡng ở ĐÚNG 1 tick evaluate() — nhưng để chắc chắn không lệch do rung khung hình/vote
-// window, dùng cửa sổ thời gian ngắn này để coi EYE_DIVERSION xảy ra ngay sau HEAD_TURN là CÙNG 1
-// hành vi (không báo là 2 vi phạm riêng) — không áp dụng ngược lại (không nén HEAD_TURN nếu diễn
-// ra sau EYE_DIVERSION, vì đó có thể là 2 hành vi thật sự khác nhau, cách nhau đủ xa).
+// rõ hiện tượng này khi test ở /proctoring-test). Ngưỡng thời gian của 2 loại này giờ có thể chỉnh
+// riêng ở BE (Detection Thresholds) — nên KHÔNG thể giả định HEAD_TURN luôn vượt ngưỡng trước: nếu
+// eyeDiversionMs được đặt thấp hơn headTurnMs, EYE_DIVERSION sẽ bắt được TRƯỚC. Vì vậy nén theo CẢ
+// 2 CHIỀU — loại nào bắt được TRƯỚC thì được báo, loại còn lại nếu bắt được trong cửa sổ này ngay
+// sau đó thì coi là CÙNG 1 hành vi (không báo thêm) — tránh tạo thêm 1 dòng log "ẩn" mà người dùng
+// không nhận ra là do đúng 1 lần quay đầu (từng gây lệch max-violation-count: đặt max=15 nhưng chỉ
+// thấy 14 lần catch thật vì 1 slot bị "ăn" bởi cặp HeadTurn+EyeDiversion tính thành 2).
 const EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS = 1000;
 
 const LABELS: Record<ViolationType, string> = {
@@ -41,9 +43,15 @@ const LABELS: Record<ViolationType, string> = {
 export class ViolationEngine {
   private thresholds: ViolationEngineThresholds;
   private signalStart = new Map<ViolationType, number>();
-  private activeEmission = new Set<ViolationType>();
+  // Mốc thời gian LẦN BÁO GẦN NHẤT của từng loại — dùng để quyết định có báo lại không nếu hành vi
+  // vẫn tiếp diễn LIÊN TỤC (xem readyToEmit ở evaluate()). Trước đây dùng 1 Set "đã báo rồi thì
+  // thôi mãi mãi" — gây bug: học sinh rời khỏi khung hình (ABSENCE) và không quay lại nữa thì CHỈ
+  // bị tính đúng 1 vi phạm cho TOÀN BỘ phần còn lại của ca thi, dù vẫn đang vắng mặt liên tục. Giờ
+  // hành vi liên tục sẽ được báo lại đều đặn mỗi `threshold` — EvidenceRecorder.busy tự nhiên
+  // throttle việc ghi log/video xuống ~1 lần mỗi ~9-10s (thời gian quay+upload+cooldown 1 clip),
+  // không lo bị spam violation dù ViolationEngine muốn báo dày hơn thế.
+  private lastEmittedAt = new Map<ViolationType, number>();
   private voteWindows = new Map<ViolationType, Array<{ timestamp: number; active: boolean }>>();
-  private lastHeadTurnEmittedAt: number | null = null;
 
   constructor(thresholds: Partial<ViolationEngineThresholds> = {}) {
     this.thresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
@@ -82,7 +90,7 @@ export class ViolationEngine {
     (['ABSENCE', 'MULTIPLE_FACE', 'FACE_OBSTRUCTED', 'HEAD_TURN', 'EYE_DIVERSION'] as ViolationType[]).forEach((type) => {
       if (!signals.includes(type)) {
         this.signalStart.delete(type);
-        this.activeEmission.delete(type);
+        this.lastEmittedAt.delete(type);
         return;
       }
 
@@ -91,17 +99,26 @@ export class ViolationEngine {
       this.signalStart.set(type, startedAt);
 
       const durationMs = params.timestamp - startedAt;
-      if (durationMs >= this.thresholdFor(type) && !this.activeEmission.has(type)) {
-        this.activeEmission.add(type);
+      const threshold = this.thresholdFor(type);
+      const lastEmitted = this.lastEmittedAt.get(type);
+      // Báo LẦN ĐẦU khi vượt ngưỡng, rồi báo LẶP LẠI mỗi `threshold` nếu hành vi vẫn tiếp diễn
+      // liên tục (không hề dừng) — xem giải thích ở field lastEmittedAt.
+      const readyToEmit = durationMs >= threshold
+        && (lastEmitted === undefined || params.timestamp - lastEmitted >= threshold);
+
+      if (readyToEmit) {
+        this.lastEmittedAt.set(type, params.timestamp);
 
         if (type === 'HEAD_TURN') {
-          this.lastHeadTurnEmittedAt = params.timestamp;
-        } else if (
-          type === 'EYE_DIVERSION'
-          && this.lastHeadTurnEmittedAt !== null
-          && params.timestamp - this.lastHeadTurnEmittedAt <= EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS
-        ) {
-          return;
+          const lastEyeDiversion = this.lastEmittedAt.get('EYE_DIVERSION');
+          const mergedIntoRecentEyeDiversion = lastEyeDiversion !== undefined
+            && params.timestamp - lastEyeDiversion <= EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS;
+          if (mergedIntoRecentEyeDiversion) return;
+        } else if (type === 'EYE_DIVERSION') {
+          const lastHeadTurn = this.lastEmittedAt.get('HEAD_TURN');
+          const mergedIntoRecentHeadTurn = lastHeadTurn !== undefined
+            && params.timestamp - lastHeadTurn <= EYE_DIVERSION_HEAD_TURN_MERGE_WINDOW_MS;
+          if (mergedIntoRecentHeadTurn) return;
         }
 
         events.push({
@@ -140,9 +157,8 @@ export class ViolationEngine {
 
   reset() {
     this.signalStart.clear();
-    this.activeEmission.clear();
+    this.lastEmittedAt.clear();
     this.voteWindows.clear();
-    this.lastHeadTurnEmittedAt = null;
   }
 
   private resolveImmediateSignals(params: {

@@ -106,15 +106,16 @@ function useResolvedEvidenceUrl(path: string | null) {
 
 // ─── Evidence Video ───────────────────────────────────────────────────────────
 // Tải cả file thành blob rồi phát qua object URL thay vì trỏ <video src> thẳng tới URL đã resolve.
-// Lý do thật sự (đã verify bằng ffprobe + tự parse EBML trên 1 file thật): Chrome's MediaRecorder
-// CÓ ghi Duration vào header .webm khi assemble Blob, nhưng ghi giá trị SAI — chỉ "1" đơn vị
-// TimecodeScale (1ms) dù data giải mã ra đủ 100% (150 frame ~10s), nên <video> đọc duration ra
-// 0:00 và bấm Play không chạy, dù file hoàn toàn không hỏng. EvidenceRecorder.ts giờ đã vá lỗi
-// này TRƯỚC khi upload cho các clip ghi MỚI, nhưng các clip cũ đã nằm sẵn trên Supabase từ trước
-// vẫn còn lỗi header — nên ở đây vá lại lần nữa bằng patchWebmDuration mỗi khi xem (dùng đúng
-// ~10s là thời lượng cố định của mọi clip evidence theo thiết kế: DEFAULT_PRE_EVENT_MS +
-// DEFAULT_POST_VIOLATION_MS trong EvidenceRecorder.ts).
-const EVIDENCE_CLIP_DURATION_MS = 10_000;
+// Lý do thật sự (đã verify bằng ffprobe + tự parse EBML trên 1 file thật, từ thời clip còn ghi bằng
+// cách chụp JPEG rồi ghép — xem EvidenceRecorderSnapshotLegacy.ts): Chrome's MediaRecorder CÓ ghi
+// Duration vào header .webm khi assemble Blob, nhưng ghi giá trị SAI — chỉ "1" đơn vị TimecodeScale
+// (1ms) dù data giải mã ra đủ 100%, nên <video> đọc duration ra 0:00 và bấm Play không chạy, dù
+// file hoàn toàn không hỏng. EvidenceRecorder.ts hiện tại (ghi trực tiếp từ MediaStream camera)
+// không còn gặp lỗi này nữa, nhưng vẫn giữ patch ở đây cho an toàn với clip cũ + không hại gì với
+// clip mới (đằng nào cũng đúng ~8s thật theo thiết kế). PHẢI khớp đúng DEFAULT_CLIP_MS trong
+// EvidenceRecorder.ts (8000ms) — để sai (vd 10s cũ) sẽ hiện thanh tiến trình/thời gian sai lệch
+// dù nội dung video vẫn đúng.
+const EVIDENCE_CLIP_DURATION_MS = 8_000;
 
 // EvidenceRecorder.ts giờ báo violation log NGAY (không đợi video) rồi mới quay 8s + cooldown 5s +
 // upload — nên `evidencePath` có thể trống trong khoảng đầu dù violation đã có thật. Cửa sổ này
