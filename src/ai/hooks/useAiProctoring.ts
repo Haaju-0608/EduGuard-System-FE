@@ -105,19 +105,21 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   // trước (đã chứng minh chạy được ở production).
   //
   // TRƯỚC ĐÂY: khi EvidenceRecorder đang bận (isBusy — ghi hình + upload + cooldown), việc detect
-  // MediaPipe bị TẠM DỪNG HẲN — cần thiết lúc đó vì EvidenceRecorder tự ghép video từ ảnh JPEG chụp
-  // rời rạc (canvas.captureStream(0) + tự bơm frame bằng tay), một vòng lặp CHẠY TRÊN JS main
-  // thread nên bị tranh CPU với MediaPipe là hỏng ngay (video dài gấp đôi, đứng hình...).
+  // MediaPipe bị TẠM DỪNG HẲN suốt cả quãng đó — cần thiết lúc đó vì EvidenceRecorder tự ghép video
+  // từ ảnh JPEG chụp rời rạc (canvas.captureStream(0) + tự bơm frame bằng tay), một vòng lặp CHẠY
+  // TRÊN JS main thread nên bị tranh CPU với MediaPipe là hỏng ngay (video dài gấp đôi, đứng hình...).
   //
   // GIỜ: EvidenceRecorder ghi TRỰC TIẾP từ MediaStream camera bằng MediaRecorder (xem
-  // EvidenceRecorder.ts) — việc mã hoá do trình duyệt tự lo ở tầng native, KHÔNG cần JS main
-  // thread rảnh để chạy đúng nhịp (khác hẳn cách ghép JPEG cũ) — nên không còn lý do phải tạm dừng
-  // MediaPipe nữa. Bỏ việc pause để giảm "vùng mù" (trước đây ~9-13s sau mỗi vi phạm KHÔNG detect
-  // được gì cả) — MediaPipe giờ chạy liên tục kể cả lúc EvidenceRecorder đang bận; vi phạm mới phát
-  // hiện được trong lúc đó vẫn hiện trong `violations` (để minh bạch) nhưng KHÔNG được ghi
-  // log/video mới (EvidenceRecorder.recordEvidence() tự bỏ qua qua chính `busy` flag của nó) — 2
-  // clip evidence vẫn KHÔNG BAO GIỜ chồng lấn/lẫn frame vào nhau vì lý do đó, không phải vì
-  // MediaPipe từng bị dừng.
+  // EvidenceRecorder.ts). ĐÃ THỬ bỏ pause hoàn toàn (giả thiết MediaRecorder không cần main thread
+  // rảnh để mã hoá đúng, khác cách JPEG cũ) — nhưng thực tế MediaPipe (WASM/GL, đọc frame từ CÙNG
+  // camera stream) tranh tài nguyên GPU/decode với MediaRecorder ngay trong lúc quay khiến 1 số
+  // clip bị lỗi/rỗng (violation có log/count/thông báo bên BE nhưng không ra được video) — nên vẫn
+  // PHẢI tạm dừng detect trong lúc quay clip thật để bảo vệ chất lượng, y như trước.
+  //
+  // Khác trước ở chỗ: chỉ pause đúng lúc `isRecording` (8s quay), KHÔNG pause suốt cả `isBusy`
+  // (quay + upload + cooldown, ~9-10s) như bản gốc — sau khi quay xong, MediaPipe được chạy lại
+  // ngay trong lúc upload+cooldown (không đụng camera/GPU nữa nên an toàn), giảm được vùng mù còn
+  // lại xuống chỉ ~1-2s so với ~9-10s trước đây.
   const processFrame = useCallback(
     (timestamp: number) => {
       if (!runningRef.current) return;
@@ -132,6 +134,11 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
       // cách ghép JPEG cũ, cần tick() để chụp frame rolling buffer) — bản MediaRecorder hiện tại
       // không dùng gì tới hàm này (no-op), gọi vô hại.
       engines.evidence.tick(timestamp);
+
+      if (engines.evidence.isRecording) {
+        rafIdRef.current = window.requestAnimationFrame(processFrame);
+        return;
+      }
 
       if (timestamp - lastFrameAtRef.current >= FRAME_INTERVAL_MS) {
         lastFrameAtRef.current = timestamp;
@@ -183,7 +190,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
             calibration,
           });
 
-          if (evaluation.events.length > 0) {
+          // Vẫn phải luôn gọi engines.violation.evaluate() ở trên dù đang isBusy (upload/cooldown)
+          // — để activeEmission/vote-window trong ViolationEngine không bị "đứng" rồi phải tích
+          // lại từ đầu sau khi hết busy. Nhưng CHỈ xử lý (hiện lên list + gọi recordEvidence) khi
+          // KHÔNG busy — vi phạm phát hiện được trong lúc busy chắc chắn sẽ bị recordEvidence() tự
+          // bỏ qua (không log, không video) nên không hiện lên UI, tránh hiện "vi phạm ma".
+          if (evaluation.events.length > 0 && !engines.evidence.isBusy) {
             setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
             evaluation.events.forEach((event) => {
               // recordEvidence() báo violation log NGAY (tách rời khỏi việc quay video) — onUpdate

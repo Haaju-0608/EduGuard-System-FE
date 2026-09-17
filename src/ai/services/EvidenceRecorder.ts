@@ -59,6 +59,13 @@ export class EvidenceRecorder {
   // này MỌI violation mới đều bị BỎ QUA hoàn toàn (không log, không video): xử lý xong 1 vi phạm
   // rồi mới bắt đầu ghi nhận vi phạm tiếp theo, không cho phép chồng lấn.
   private busy = false;
+  // true CHỈ trong đúng lúc MediaRecorder đang quay clip thật (8s) — hẹp hơn `busy` (không tính
+  // lúc upload/cooldown). useAiProctoring.ts dùng riêng cờ này để tạm dừng MediaPipe CHỈ trong lúc
+  // quay: để MediaPipe chạy song song lúc upload/cooldown (giảm điểm mù) nhưng vẫn bảo vệ chất
+  // lượng clip đang ghi — MediaPipe (WASM/GL, đọc frame từ cùng camera stream) tranh tài nguyên
+  // GPU/decode với MediaRecorder trong lúc quay có thể làm clip bị lỗi/rỗng (đã xảy ra thật khi
+  // từng bỏ pause suốt cả `busy`, xem lịch sử sửa ở useAiProctoring.ts).
+  private recording = false;
   private options: Required<Omit<EvidenceRecorderOptions, 'uploadUrl'>> & Pick<EvidenceRecorderOptions, 'uploadUrl'>;
 
   constructor(options: EvidenceRecorderOptions = {}) {
@@ -73,10 +80,16 @@ export class EvidenceRecorder {
     };
   }
 
-  /** true suốt từ lúc bắt đầu ghi 1 violation tới hết cooldown — dùng để useAiProctoring.ts tạm
-   *  dừng chạy MediaPipe (không có lý do detect thêm trong lúc mọi violation mới đều bị bỏ qua). */
+  /** true suốt từ lúc bắt đầu ghi 1 violation tới hết cooldown — dùng để bỏ qua việc xử lý (thêm
+   *  vào list/gọi recordEvidence) các violation mới phát hiện được trong lúc này, vì chắc chắn sẽ
+   *  bị recordEvidence() tự bỏ qua — tránh hiện "vi phạm ma" không được ghi log/video lên UI. */
   get isBusy() {
     return this.busy;
+  }
+
+  /** true CHỈ trong lúc MediaRecorder đang quay clip thật — xem giải thích ở field `recording`. */
+  get isRecording() {
+    return this.recording;
   }
 
   start(video: HTMLVideoElement) {
@@ -189,6 +202,11 @@ export class EvidenceRecorder {
         return;
       }
 
+      const finish = (blob: Blob | null) => {
+        this.recording = false;
+        resolve(blob);
+      };
+
       const recorder = new MediaRecorder(this.stream, {
         ...(this.mimeType ? { mimeType: this.mimeType } : {}),
         videoBitsPerSecond: this.options.videoBitsPerSecond,
@@ -205,10 +223,11 @@ export class EvidenceRecorder {
         // không chấp nhận tham số codec (vd "video/webm;codecs=vp9") → phải bỏ phần sau dấu ";"
         const rawType = recorder.mimeType || this.mimeType || 'video/webm';
         const baseType = rawType.split(';')[0].trim();
-        resolve(new Blob(chunks, { type: baseType }));
+        finish(new Blob(chunks, { type: baseType }));
       };
-      recorder.onerror = () => resolve(null);
+      recorder.onerror = () => finish(null);
 
+      this.recording = true;
       recorder.start();
       window.setTimeout(() => {
         if (recorder.state !== 'inactive') {
@@ -230,6 +249,7 @@ export class EvidenceRecorder {
     this.stream = null;
     this.mimeType = '';
     this.busy = false;
+    this.recording = false;
   }
 
   releaseEvidence(items: EvidenceItem[]) {
