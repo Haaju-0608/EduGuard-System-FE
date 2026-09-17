@@ -116,13 +116,13 @@ export class EvidenceRecorder {
   }
 
   /**
-   * Tách rời 2 việc để cả học sinh lẫn giáo viên thấy thông báo NGAY, không phải đợi 8s quay +
-   * upload video xong mới biết có vi phạm: (1) POST /api/violation-logs NGAY LẬP TỨC — BE tạo
-   * record + bắn SignalR ViolationDetected cho cả 2 bên liền; (2) quay clip + upload video CHẠY
-   * SAU, độc lập, không chặn bước (1). `onUpdate` được gọi NHIỀU LẦN cho cùng 1 violation (cùng
-   * `item.id`) theo tiến trình: 'pending' (log đã tạo, video đang quay) → 'uploaded'/'failed' khi
-   * video xử lý xong — nơi gọi (useAiProctoring.ts) tự match theo `id` để cập nhật đúng item thay
-   * vì thêm mới.
+   * Tách rời 2 việc, chạy SONG SONG (không phải nối tiếp) ngay từ T=0: (1) quay clip — bắt đầu
+   * NGAY, đồng bộ, để không mất khoảnh khắc vi phạm thật; (2) POST /api/violation-logs — để BE
+   * tạo record + bắn SignalR ViolationDetected cho cả học sinh lẫn giáo viên ngay, không đợi 8s
+   * quay + upload xong mới biết có vi phạm. `onUpdate` được gọi NHIỀU LẦN cho cùng 1 violation
+   * (cùng `item.id`) theo tiến trình: 'pending' (log đã tạo, video đang quay) → 'uploaded'/'failed'
+   * khi video xử lý xong — nơi gọi (useAiProctoring.ts) tự match theo `id` để cập nhật đúng item
+   * thay vì thêm mới.
    */
   async recordEvidence(violation: ViolationEvent, onUpdate: (item: EvidenceItem) => void): Promise<void> {
     if (!this.isRunning || this.busy) {
@@ -135,6 +135,15 @@ export class EvidenceRecorder {
       const capturedAt = Date.now();
       const timestampIso = new Date(capturedAt).toISOString();
       const violations = [this.toViolationMetadata(violation)];
+
+      // Bắt đầu quay clip NGAY LẬP TỨC, SONG SONG với việc POST log — KHÔNG đợi log tạo xong mới
+      // quay. `recordClip()` gọi `recorder.start()` đồng bộ ngay trong lời gọi này (không có await
+      // nào trước đó) nên camera bắt đầu ghi ngay đúng khoảnh khắc T=0 của violation. Trước đây
+      // đợi `await postViolationLog()` (1 network round-trip, có thể mất vài trăm ms tới vài giây)
+      // xong mới gọi recordClip() — đủ thời gian để học sinh đã NGỪNG hành vi vi phạm (vd bỏ tay
+      // che camera ra) trước khi camera kịp bắt đầu ghi, khiến video chỉ còn thấy lúc "sau" vi
+      // phạm, mất đúng đoạn cần làm bằng chứng nhất.
+      const clipPromise = this.recordClip(this.options.clipMs);
 
       let violationId: string | null = null;
       try {
@@ -158,7 +167,7 @@ export class EvidenceRecorder {
       onUpdate(baseItem);
       if (!this.isRunning) return;
 
-      const videoBlob = await this.recordClip(this.options.clipMs);
+      const videoBlob = await clipPromise;
       if (!this.isRunning) return;
       if (!videoBlob || videoBlob.size === 0) {
         onUpdate({ ...baseItem, uploadStatus: 'failed', uploadError: 'Recording produced an empty clip.' });
