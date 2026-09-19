@@ -10,20 +10,25 @@ import { getAccessToken } from '../../services/authStorage';
 // từ ảnh tĩnh vốn rất dễ vỡ.
 //
 // "Pre-roll": để giáo viên xem được cả TRƯỚC lúc vi phạm (không chỉ hậu quả), LUÔN có MediaRecorder
-// chạy nền, tự khởi động lại mỗi PRE_ROLL_MS (xem startPreRollSlot/rotatePreRollSlot) — khi vi phạm
-// xảy ra, "nhận" lấy đúng phiên đang chạy đó (claimPreRoll) và ghi TIẾP cho đủ tổng clipMs, KHÔNG
-// dừng rồi mở phiên mới. Vì là ĐÚNG 1 phiên MediaRecorder liên tục từ trước khi có vi phạm, video
-// có sẵn header hợp lệ ngay từ đầu — không phải ghép nhiều file rời (rủi ro thiếu header đã lường
-// trước, xem trao đổi trước đó).
+// chạy nền — khi vi phạm xảy ra, "nhận" lấy đúng phiên đang chạy đó (claimPreRoll) và ghi TIẾP cho
+// đủ tổng clipMs, KHÔNG dừng rồi mở phiên mới. Vì là ĐÚNG 1 phiên MediaRecorder liên tục từ trước
+// khi có vi phạm, video có sẵn header hợp lệ ngay từ đầu — không phải ghép nhiều file rời (rủi ro
+// thiếu header đã lường trước, xem trao đổi trước đó).
 //
-// Chạy 2 SLOT xen kẽ (lệch pha nhau đúng nửa chu kỳ, xem start()) thay vì 1 — vì nếu chỉ 1 slot,
-// lúc vi phạm rơi ĐÚNG NGAY SAU khi slot đó vừa tự khởi động lại thì đoạn "trước" gần như 0s (đã
-// verify bằng cách tự dựng trang phát từng frame của 1 clip thật — thấy rõ trường hợp elapsed chỉ
-// ~0.6-1s dù PRE_ROLL_MS=5000). Với 2 slot lệch pha, claimPreRoll() luôn chọn slot có elapsed LỚN
-// HƠN trong 2 — đảm bảo tối thiểu ~PRE_ROLL_MS/2, tối đa gần PRE_ROLL_MS. Đổi lại: 2 MediaRecorder
-// chạy nền cùng lúc thay vì 1 (thêm 1 chút tải nền, không đụng camera lúc `recording=true` thật).
-const PRE_ROLL_MS = 5000;
-const PRE_ROLL_SLOT_COUNT = 2;
+// PRE_ROLL_MIN_MS: đảm bảo TỐI THIỂU đúng khoảng này của đoạn "trước" cho vi phạm KẾ TIẾP — bằng
+// cách kéo dài `busy` (nếu cần) sau mỗi violation cho tới khi pre-roll (vừa refill lúc quay xong,
+// xem claimPreRoll) đã tích đủ mốc này, xem chỗ tính waitMs trong recordEvidence() — CHỦ ĐỘNG chờ
+// đủ chứ không chỉ dựa vào cooldown cấu hình + hy vọng may rủi (cách làm trước: 2 slot xen kẽ,
+// chọn slot elapsed lớn hơn — vẫn có thể không đủ nếu 2 vi phạm xảy ra quá sát nhau, đã verify
+// thực tế bị vậy). Đảm bảo này chỉ áp dụng chắc chắn cho vi phạm XẢY RA NGAY SAU vi phạm trước —
+// nếu cách nhau rất lâu (học sinh bình thường một lúc lâu), slot pre-roll có thể đã tự rotate lại
+// (xem PRE_ROLL_ROTATE_MS) nên quay về mức ngẫu nhiên 0-PRE_ROLL_ROTATE_MS như thiết kế đơn giản.
+const PRE_ROLL_MIN_MS = 4000;
+// Nếu không có violation nào "nhận" pre-roll trong khoảng này, tự huỷ + mở slot mới — CHỈ để giới
+// hạn kích thước clip/bộ nhớ (browser không flush ondataavailable nếu không gọi requestData/stop,
+// nên 1 slot bị bỏ quên rất lâu sẽ giữ ngày càng nhiều dữ liệu chưa flush trong bộ nhớ). Đặt rộng
+// hơn PRE_ROLL_MIN_MS khá nhiều để không rotate mất ngay lúc vừa chờ đủ mốc tối thiểu xong.
+const PRE_ROLL_ROTATE_MS = 10_000;
 
 // "Watchdog": trình duyệt có thể tạm ngưng/giảm tần suất chạy setTimeout khi tab bị ẩn (chuyển tab
 // khác) — nếu đúng lúc đó có 1 violation đang xử lý (quay/upload/cooldown), timer quyết định lúc
@@ -90,10 +95,9 @@ export class EvidenceRecorder {
   // GPU/decode với MediaRecorder trong lúc quay có thể làm clip bị lỗi/rỗng (đã xảy ra thật khi
   // từng bỏ pause suốt cả `busy`, xem lịch sử sửa ở useAiProctoring.ts).
   private recording = false;
-  // 2 slot pre-roll xen kẽ (xem PRE_ROLL_MS ở trên) — mỗi phần tử null khi chưa kịp khởi động (vd
-  // vừa gọi start(), hoặc slot vừa bị claim/rotate xong đang chờ tạo lại) hoặc đang busy.
-  private preRollSlots: Array<{ recorder: MediaRecorder; chunks: Blob[]; startedAt: number; rotateTimer: number } | null> =
-    new Array(PRE_ROLL_SLOT_COUNT).fill(null);
+  // Phiên MediaRecorder pre-roll hiện tại — null khi chưa kịp khởi động (vd vừa gọi start()) hoặc
+  // đang chờ tạo lại (giữa lúc claim và lúc quay xong, xem claimPreRoll()).
+  private preRoll: { recorder: MediaRecorder; chunks: Blob[]; startedAt: number; rotateTimer: number } | null = null;
   // Mốc thời gian lúc `busy` chuyển thành true — dùng để watchdog phát hiện kẹt quá lâu (xem
   // STUCK_RECOVERY_MS). MediaRecorder đang thực sự ghi (không phải pre-roll chờ) tại thời điểm đó,
   // để watchdog có thể ép dừng đúng recorder bị treo.
@@ -145,14 +149,7 @@ export class EvidenceRecorder {
     this.mimeType = this.resolveMimeType();
     this.isRunning = true;
     this.watchdogTimer = window.setInterval(() => this.checkStuck(), STUCK_RECOVERY_CHECK_INTERVAL_MS);
-
-    // Khởi động từng slot LỆCH NHAU đúng 1/PRE_ROLL_SLOT_COUNT chu kỳ — để claimPreRoll() luôn có
-    // ít nhất 1 slot đã chạy được một khoảng "đáng kể" (xem giải thích ở PRE_ROLL_MS phía trên).
-    for (let i = 0; i < PRE_ROLL_SLOT_COUNT; i++) {
-      const delay = (PRE_ROLL_MS / PRE_ROLL_SLOT_COUNT) * i;
-      if (delay <= 0) this.startPreRollSlot(i);
-      else window.setTimeout(() => this.startPreRollSlot(i), delay);
-    }
+    this.startPreRoll();
   }
 
   /** Không còn cần chụp frame rời rạc (MediaRecorder tự ghi trực tiếp từ camera) — giữ lại hàm
@@ -188,12 +185,13 @@ export class EvidenceRecorder {
       const timestampIso = new Date(capturedAt).toISOString();
       const violations = [this.toViolationMetadata(violation)];
 
-      // "Nhận" lấy phiên pre-roll đang chạy sẵn (đã ghi được ~0-2s TRƯỚC lúc violation này xảy ra)
-      // và ghi TIẾP tới khi đủ tổng clipMs — SONG SONG với việc POST log, không đợi log tạo xong
-      // mới quay. claimPreRoll() thao tác đồng bộ ngay trong lời gọi này (không có await nào trước
-      // đó) nên không mất thêm khoảnh khắc nào. Trước đây gọi recordClip() MỚI ở đúng lúc violation
-      // xảy ra — camera CHỈ bắt đầu ghi từ T=0, không có đoạn "trước" (giáo viên chỉ thấy hậu quả,
-      // không thấy được đầu đuôi vi phạm).
+      // "Nhận" lấy phiên pre-roll đang chạy sẵn (đã ghi được đoạn TRƯỚC lúc violation này xảy ra —
+      // tối thiểu PRE_ROLL_MIN_MS nếu violation này xảy ra ngay sau 1 violation khác, xem waitMs ở
+      // finally dưới) và ghi TIẾP tới khi đủ tổng clipMs — SONG SONG với việc POST log, không đợi
+      // log tạo xong mới quay. claimPreRoll() thao tác đồng bộ ngay trong lời gọi này (không có
+      // await nào trước đó) nên không mất thêm khoảnh khắc nào. Trước đây gọi recordClip() MỚI ở
+      // đúng lúc violation xảy ra — camera CHỈ bắt đầu ghi từ T=0, không có đoạn "trước" (giáo viên
+      // chỉ thấy hậu quả, không thấy được đầu đuôi vi phạm).
       const clipPromise = this.claimPreRoll(this.options.clipMs);
 
       let violationId: string | null = null;
@@ -247,23 +245,34 @@ export class EvidenceRecorder {
         });
       }
     } finally {
-      // Cooldown tính từ NGAY SAU KHI ghi+upload xong (không phải từ lúc violation bắt đầu).
-      await this.wait(this.options.cooldownAfterClipMs);
+      // Chờ ĐỦ CẢ 2 điều kiện trước khi cho phép bắt violation tiếp theo: (1) cooldown cấu hình
+      // (cooldownAfterClipMs), VÀ (2) pre-roll (đã refill lúc quay xong, xem claimPreRoll) đã tích
+      // đủ PRE_ROLL_MIN_MS — lấy khoảng LỚN HƠN trong 2. Nếu cooldown đã đủ dài thì không cần chờ
+      // thêm; nếu cooldown ngắn hơn mức pre-roll cần, tự kéo dài thêm đúng phần thiếu — đảm bảo
+      // violation KẾ TIẾP (nếu xảy ra ngay khi vừa hết chờ) LUÔN có đủ đoạn "trước", không còn phụ
+      // thuộc may rủi thời điểm như trước.
+      const preRollElapsedSoFar = this.preRoll ? performance.now() - this.preRoll.startedAt : 0;
+      const preRollCatchUpMs = Math.max(PRE_ROLL_MIN_MS - preRollElapsedSoFar, 0);
+      const waitMs = Math.max(this.options.cooldownAfterClipMs, preRollCatchUpMs);
+      await this.wait(waitMs);
       if (this.generation === myGeneration) {
         this.busy = false;
         this.busySince = null;
-        // Chuẩn bị sẵn 1 phiên pre-roll MỚI ngay khi hết cooldown, để violation KẾ TIẾP cũng có
-        // sẵn đoạn "trước" — không phải đợi PRE_ROLL_MS đầu tiên mới có.
+        // Chỉ còn là lớp phòng hờ — slot vừa bị claim đã được refill NGAY từ trong claimPreRoll()
+        // (không đợi tới đây) nên bình thường đã đang chạy sẵn rồi; gọi lại ở đây vô hại (no-op)
+        // trừ khi vì lý do gì chưa kịp khởi động.
         this.startPreRoll();
       }
     }
   }
 
-  /** Bắt đầu (hoặc bỏ qua nếu slot đó đã có sẵn/không đủ điều kiện) 1 slot pre-roll — tự huỷ + khởi
-   *  động lại slot đó sau PRE_ROLL_MS nếu không có violation nào "nhận" lấy nó kịp. Dùng để "refill"
-   *  từng slot RIÊNG (không đụng slot khác) — xem chỗ gọi ở finally của recordEvidence/checkStuck. */
-  private startPreRollSlot(index: number) {
-    if (!this.stream || !this.isRunning || this.busy || this.preRollSlots[index]) return;
+  /** Bắt đầu (hoặc bỏ qua nếu đã có sẵn/không đủ điều kiện) 1 phiên pre-roll — tự huỷ + khởi động
+   *  lại sau PRE_ROLL_ROTATE_MS nếu không có violation nào "nhận" lấy nó kịp (chỉ để giới hạn kích
+   *  thước/bộ nhớ, xem giải thích ở PRE_ROLL_ROTATE_MS phía trên) — KHÔNG chặn theo `busy`: pre-roll
+   *  là recorder ĐỘC LẬP với recorder đang thực sự ghi violation hiện tại (`activeRecorder`), vẫn
+   *  an toàn chạy song song suốt lúc busy. */
+  private startPreRoll() {
+    if (!this.stream || !this.isRunning || this.preRoll) return;
 
     const recorder = new MediaRecorder(this.stream, {
       ...(this.mimeType ? { mimeType: this.mimeType } : {}),
@@ -275,67 +284,45 @@ export class EvidenceRecorder {
     };
     recorder.start();
 
-    const rotateTimer = window.setTimeout(() => this.rotatePreRollSlot(index), PRE_ROLL_MS);
-    this.preRollSlots[index] = { recorder, chunks, startedAt: performance.now(), rotateTimer };
+    const rotateTimer = window.setTimeout(() => this.rotatePreRoll(), PRE_ROLL_ROTATE_MS);
+    this.preRoll = { recorder, chunks, startedAt: performance.now(), rotateTimer };
   }
 
-  /** Refill TẤT CẢ slot đang trống (null) — dùng ở những chỗ không cần biết slot nào vừa được giải
-   *  phóng (sau cooldown, sau watchdog reset...): slot đang chạy dở vẫn được giữ nguyên, không đụng. */
-  private startPreRoll() {
-    for (let i = 0; i < this.preRollSlots.length; i++) this.startPreRollSlot(i);
-  }
-
-  /** Hết PRE_ROLL_MS mà không có violation nào nhận lấy slot này — bỏ (không cần lấy blob, không ai
-   *  dùng tới) rồi mở slot mới thay vào, GIỮ ĐÚNG index đó (không ảnh hưởng slot còn lại). */
-  private rotatePreRollSlot(index: number) {
-    const current = this.preRollSlots[index];
-    this.preRollSlots[index] = null;
+  /** Hết PRE_ROLL_ROTATE_MS mà không có violation nào nhận lấy phiên hiện tại — bỏ (không cần lấy
+   *  blob, không ai dùng tới) rồi mở phiên mới thay vào. */
+  private rotatePreRoll() {
+    const current = this.preRoll;
+    this.preRoll = null;
     if (current && current.recorder.state !== 'inactive') {
       current.recorder.onstop = null;
       current.recorder.stop();
     }
-    this.startPreRollSlot(index);
+    this.startPreRoll();
   }
 
   private stopPreRoll() {
-    for (let i = 0; i < this.preRollSlots.length; i++) {
-      const current = this.preRollSlots[i];
-      this.preRollSlots[i] = null;
-      if (!current) continue;
+    const current = this.preRoll;
+    this.preRoll = null;
+    if (!current) return;
 
-      window.clearTimeout(current.rotateTimer);
-      if (current.recorder.state !== 'inactive') {
-        current.recorder.onstop = null;
-        current.recorder.stop();
-      }
+    window.clearTimeout(current.rotateTimer);
+    if (current.recorder.state !== 'inactive') {
+      current.recorder.onstop = null;
+      current.recorder.stop();
     }
   }
 
-  /** "Nhận" lấy slot pre-roll đã chạy LÂU NHẤT (elapsed lớn nhất trong các slot đang sống) và ghi
-   *  TIẾP cho tới khi tổng thời lượng (tính từ lúc slot đó bắt đầu, KHÔNG phải từ bây giờ) đạt
-   *  targetTotalMs — vẫn là ĐÚNG 1 MediaRecorder liên tục nên không có rủi ro thiếu header. Slot
-   *  còn lại (nếu có) tiếp tục chạy độc lập, không bị đụng tới. Nếu chưa có slot nào sẵn (vd vừa
-   *  Start() xong, chưa kịp qua PRE_ROLL_MS/PRE_ROLL_SLOT_COUNT đầu tiên) thì quay mới từ đây,
-   *  không có đoạn "trước". */
+  /** "Nhận" lấy phiên pre-roll đang chạy (nếu có) và ghi TIẾP cho tới khi tổng thời lượng (tính từ
+   *  lúc phiên đó bắt đầu, KHÔNG phải từ bây giờ) đạt targetTotalMs — vẫn là ĐÚNG 1 MediaRecorder
+   *  liên tục nên không có rủi ro thiếu header. Nếu chưa có pre-roll sẵn (vd vừa Start() xong, chưa
+   *  kịp qua 1 nhịp) thì quay mới từ đây, không có đoạn "trước". */
   private claimPreRoll(targetTotalMs: number): Promise<Blob | null> {
-    let bestIndex = -1;
-    let bestElapsed = -1;
-    for (let i = 0; i < this.preRollSlots.length; i++) {
-      const slot = this.preRollSlots[i];
-      if (!slot || slot.recorder.state === 'inactive') continue;
-      const elapsed = performance.now() - slot.startedAt;
-      if (elapsed > bestElapsed) {
-        bestElapsed = elapsed;
-        bestIndex = i;
-      }
-    }
+    const current = this.preRoll;
+    this.preRoll = null;
 
-    if (bestIndex === -1) {
+    if (!current || current.recorder.state === 'inactive') {
       return this.recordClip(targetTotalMs);
     }
-
-    const current = this.preRollSlots[bestIndex]!;
-    this.preRollSlots[bestIndex] = null;
 
     window.clearTimeout(current.rotateTimer);
     const elapsedMs = performance.now() - current.startedAt;
@@ -347,6 +334,13 @@ export class EvidenceRecorder {
       const finish = (blob: Blob | null) => {
         this.recording = false;
         this.activeRecorder = null;
+        // Refill NGAY SAU KHI quay xong (không phải ngay lúc claim) — nếu refill ngay lúc claim,
+        // phiên mới sẽ bắt đầu ghi ĐÚNG lúc violation này còn đang quay, khiến "trước" của
+        // violation KẾ TIẾP chứa cả cảnh của violation NÀY (dính frame vi phạm trước). Refill ở
+        // đây: chỉ bắt đầu sau khi camera đã dừng ghi clip này, nên không chồng lấn nội dung. Tối
+        // đa 2 recorder chạy song song 1 lúc (không phải 3): trong lúc quay chỉ có recorder đang
+        // quay; pre-roll mới chỉ "sống lại" ngay khi recorder đó vừa dừng.
+        this.startPreRoll();
         resolve(blob);
       };
 
