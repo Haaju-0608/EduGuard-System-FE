@@ -159,6 +159,7 @@ function mapApiExamSlot(slot: ApiExamSlot, classMap: Map<string, LecturerClass>)
     durationMinutes: slot.expectedDurationMinutes,
     status: deriveExamSlotStatus(slot),
     proctorId: slot.proctor?.id ?? slot.lecturer?.id,
+    proctorName: slot.proctor?.fullName ?? slot.lecturer?.fullName,
   };
 }
 

@@ -65,14 +65,19 @@ export async function deleteInstitution(id: string): Promise<void> {
   await apiDelete(`/api/institutions/${id}`);
 }
 
-/** Suspend: PUT /api/institutions/{id} với status=Suspended */
-export async function suspendInstitution(id: string): Promise<ApiInstitution> {
-  return apiPut<ApiInstitution>(`/api/institutions/${id}`, { status: 'Suspended' });
+// PUT /api/institutions/{id}/status (commit 08689b0, Hậu) — endpoint riêng chỉ đổi status, không
+// đòi hỏi gửi lại Name/SubDomain/ContactEmail/BillingModel như PUT /api/institutions/{id} full-update
+// (trước đây suspend/activate dùng nhầm endpoint đó, thiếu field bị BE từ chối 400 "Name: Institution
+// name is required." dù không hề đụng tới tên trường — xem lịch sử file này).
+
+/** Suspend: PUT /api/institutions/{id}/status với status=Suspended */
+export async function suspendInstitution(id: string): Promise<void> {
+  await apiPut(`/api/institutions/${id}/status`, { status: 'Suspended' });
 }
 
-/** Activate: PUT /api/institutions/{id} với status=Active */
-export async function activateInstitution(id: string): Promise<ApiInstitution> {
-  return apiPut<ApiInstitution>(`/api/institutions/${id}`, { status: 'Active' });
+/** Activate: PUT /api/institutions/{id}/status với status=Active */
+export async function activateInstitution(id: string): Promise<void> {
+  await apiPut(`/api/institutions/${id}/status`, { status: 'Active' });
 }
 
 /** POST /api/institutions/{id}/renew-subscription — chỉ SchoolAdmin. Gia hạn subscriptionExpiresAt

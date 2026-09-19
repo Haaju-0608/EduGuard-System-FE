@@ -270,7 +270,19 @@ export default function AttendanceRosterPage() {
       // Phí điểm danh giờ BE tự trừ ngầm server-side ngay khi session chuyển sang Completed
       // (AttendanceSessionService.TryDeductAttendanceFeeAsync) — Lecturer không cần/không nên tự
       // gọi API ví hay API trừ tiền nữa (2 API đó chỉ cho SchoolAdmin/SuperAdmin gọi).
-      await endAttendanceSession(session.id, computeAttendanceEndTime(session.examEndTime));
+      try {
+        await endAttendanceSession(session.id, computeAttendanceEndTime(session.examEndTime));
+      } catch (err) {
+        // session.examEndTime đi qua fetchExamSlotById nội bộ (buildAttendanceSession), vốn nuốt
+        // lỗi im lặng thành null nếu request đó fail vì bất kỳ lý do gì (vd token chưa sẵn sàng
+        // ngay sau khi đăng nhập lại) — khiến computeAttendanceEndTime rơi về "now" thay vì đúng
+        // giờ kết thúc bài thi, và nếu session bị bỏ quên qua khỏi giờ đó, BE từ chối vì "now" đã
+        // trễ hơn ExamSlot.EndTime. Trang này đã có sẵn `exam` (nguồn đáng tin cậy hơn hẳn, không
+        // qua chuỗi fetch dễ lỗi đó) — thử lại đúng 1 lần bằng exam.endTime trước khi báo lỗi thật.
+        const isRangeError = err instanceof Error && /within the exam slot/i.test(err.message);
+        if (!isRangeError || !exam?.endTime) throw err;
+        await endAttendanceSession(session.id, computeAttendanceEndTime(exam.endTime));
+      }
       setSession(null);
       toast.info('Session ended', 'Attendance data has been saved.');
       void reloadExamRecords();

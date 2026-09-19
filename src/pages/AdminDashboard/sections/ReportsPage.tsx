@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FiDownload, FiBarChart2, FiPieChart, FiInfo, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
+import { FiDownload, FiPieChart, FiInfo, FiTrendingUp, FiRefreshCw } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import { useToast } from '../../../contexts/ToastContext';
 import { useAsyncData } from '../../../hooks/useAsyncData';
@@ -12,9 +12,7 @@ import {
   fetchRevenueReport,
   fetchInstitutions,
   exportReport,
-  type AttendanceReportItem,
 } from '../../../services/adminApi';
-import { fetchSchoolAdminClassesSimple } from '../../../services/schoolAdminApi';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -48,12 +46,11 @@ export default function ReportsPage() {
   const { data, loading, error, reload } = useAsyncData(async () => {
     const { from, to } = computeDateRange(datePreset);
     const institutionId = institutionFilter || undefined;
-    const [attendance, violations, classes] = await Promise.all([
+    const [attendance, violations] = await Promise.all([
       fetchAttendanceReport({ institutionId, from, to }),
       fetchViolationReport({ institutionId, from, to }),
-      fetchSchoolAdminClassesSimple({ pageSize: 200 }).catch(() => []),
     ]);
-    return { attendance, violations, classNameById: new Map(classes.map((c) => [c.id, c.name])) };
+    return { attendance, violations };
   }, [institutionFilter, datePreset]);
 
   // Realtime: cùng broadcast ResourceChanged/DashboardStatsChanged/ReportDataChanged như Dashboard
@@ -76,7 +73,6 @@ export default function ReportsPage() {
 
   const attendance = data?.attendance;
   const violations = data?.violations;
-  const classNameById = data?.classNameById ?? new Map<string, string>();
 
   const examsMonitored = violations ? new Set(violations.items.map((i) => i.examSlotId)).size : 0;
   const avgAttendancePct = attendance ? Math.round(attendance.summary.averageRecognitionRate * 100) : 0;
@@ -87,33 +83,6 @@ export default function ReportsPage() {
     { label: 'Avg Attendance', value: `${avgAttendancePct}%`, sub: `${attendance?.summary.totalRecognized ?? 0} students recognized`, color: 'text-green', icon: '✅' },
     { label: 'Completed Sessions', value: String(attendance?.summary.completed ?? 0), sub: `of ${attendance?.summary.sessions ?? 0} total`, color: 'text-cyan', icon: '📋' },
   ];
-
-  // Gom attendance items theo class, tính tỉ lệ điểm danh trung bình mỗi lớp
-  const classRates = (() => {
-    if (!attendance) return [];
-    const byClass = new Map<string, AttendanceReportItem[]>();
-    attendance.items.forEach((it) => {
-      // BE thỉnh thoảng trả về session attendance không gắn classId (dữ liệu cũ/orphan) —
-      // bỏ qua khi group theo lớp thay vì crash trên classId.slice() sau này.
-      if (!it.classId) return;
-      const arr = byClass.get(it.classId) ?? [];
-      arr.push(it);
-      byClass.set(it.classId, arr);
-    });
-    return [...byClass.entries()]
-      .map(([classId, items]) => {
-        const rates = items.map((it) => (it.totalStudents === 0 ? 0 : it.totalRecognized / it.totalStudents));
-        const avgRate = rates.reduce((s, r) => s + r, 0) / rates.length;
-        return {
-          classId,
-          className: classNameById.get(classId) ?? `Class …${classId.slice(-6)}`,
-          ratePct: Math.round(avgRate * 100),
-          sessions: items.length,
-        };
-      })
-      .sort((a, b) => b.ratePct - a.ratePct)
-      .slice(0, 6);
-  })();
 
   const violationTypes = violations?.summary.byType.slice().sort((a, b) => b.count - a.count) ?? [];
   const violationTotal = violations?.summary.total ?? 0;
@@ -191,45 +160,9 @@ export default function ReportsPage() {
       </div>
 
       {/* Charts Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* Attendance by Class */}
-        <div className="lg:col-span-3 bg-navy-card border border-border rounded-[16px] p-5">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="font-syne font-bold text-white-soft text-base flex items-center gap-2">
-              <FiBarChart2 className="text-blue-bright" />
-              Attendance by Class
-            </h3>
-            <span className="text-xs text-muted font-dm">{datePreset}</span>
-          </div>
-
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-8 bg-white/5 rounded-lg animate-pulse" />)}
-            </div>
-          ) : classRates.length === 0 ? (
-            <p className="text-muted text-sm text-center py-10">No attendance sessions in this period.</p>
-          ) : (
-            <div className="space-y-3.5">
-              {classRates.map((c, i) => (
-                <div key={c.classId}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-white-soft font-medium truncate">{c.className}</span>
-                    <span className={`font-mono font-bold ${BAR_COLORS[i % BAR_COLORS.length].replace('bg-', 'text-')}`}>{c.ratePct}%</span>
-                  </div>
-                  <div className="w-full h-2 bg-navy rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${BAR_COLORS[i % BAR_COLORS.length]}`}
-                      style={{ width: `${Math.min(100, c.ratePct)}%` }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
+      <div className="grid grid-cols-1 gap-6">
         {/* Violation Types */}
-        <div className="lg:col-span-2 bg-navy-card border border-border rounded-[16px] p-5">
+        <div className="bg-navy-card border border-border rounded-[16px] p-5">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-syne font-bold text-white-soft text-base flex items-center gap-2">
               <FiPieChart className="text-red" />

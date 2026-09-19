@@ -142,4 +142,5 @@ export interface ExamSlot {
   durationMinutes: number;
   status: ExamSlotStatus;
   proctorId?: string;
+  proctorName?: string;
 }

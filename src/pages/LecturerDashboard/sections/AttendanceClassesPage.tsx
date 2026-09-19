@@ -20,6 +20,7 @@ import { useToast } from '../../../contexts/ToastContext';
 import { fetchExamSlots, fetchSchoolAdminClasses } from '../../../services/schoolAdminApi';
 import {
   endAttendanceSession,
+  fetchExamSlotById,
   fetchMyOpenAttendanceSessions,
   type OpenSessionSummary,
 } from '../../../services/lecturerApi';
@@ -88,7 +89,10 @@ export default function AttendanceClassesPage() {
     );
     return classRes.items.filter((c) => myClassIds.has(c.id));
   }, [user?.id]);
-  const classes = data ?? [];
+  // Lớp đang "Active" lên đầu danh sách — dễ thấy ngay lớp nào đang cần chú ý thay vì phải lướt
+  // qua các lớp Completed/Upcoming để tìm. Giữ nguyên thứ tự tương đối giữa các lớp cùng nhóm
+  // (Array.sort của JS đã stable từ ES2019).
+  const classes = [...(data ?? [])].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
   const totalPages = Math.max(1, Math.ceil(classes.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = classes.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -128,7 +132,22 @@ export default function AttendanceClassesPage() {
     setEndingId(id);
     try {
       const target = openSessions.find((s) => s.id === id);
-      await endAttendanceSession(id, computeAttendanceEndTime(target?.examEndTime));
+      try {
+        await endAttendanceSession(id, computeAttendanceEndTime(target?.examEndTime));
+      } catch (err) {
+        // Session bị "quên End" lâu (vd giáo viên logout rồi quay lại sau) rơi đúng vào bug này:
+        // fetchExamSlotById bên trong fetchMyOpenAttendanceSessions nuốt lỗi im lặng thành null
+        // (vd token chưa kịp sẵn sàng ngay sau khi đăng nhập lại) → target.examEndTime sai thành
+        // null dù session CÓ gắn exam thật → computeAttendanceEndTime rơi về nhánh "now - buffer"
+        // thay vì đúng giờ kết thúc bài thi → BE từ chối vì "now" đã trễ hơn examSlot.EndTime từ
+        // lâu. Tự fetch lại examSlot 1 lần nữa (không qua cache nào) rồi thử lại đúng 1 lần trước
+        // khi báo lỗi thật cho giáo viên, thay vì im lặng thất bại.
+        const isRangeError = err instanceof Error && /within the exam slot/i.test(err.message);
+        if (!isRangeError || !target?.examSlotId) throw err;
+        const freshExam = await fetchExamSlotById(target.examSlotId);
+        if (!freshExam?.endTime) throw err;
+        await endAttendanceSession(id, computeAttendanceEndTime(freshExam.endTime));
+      }
       toast.success('Session ended', 'Closed successfully.');
       await loadOpenSessions();
     } catch (err) {

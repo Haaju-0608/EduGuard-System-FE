@@ -340,9 +340,15 @@ export default function InstitutionsPage() {
                       {inst.subDomain && <span className="font-mono">.{inst.subDomain}</span>}
                       <span className="bg-navy px-1.5 py-0.5 rounded text-[10px]">{billingModelLabel(inst.billingModel)}</span>
                       <span>Since {fmt(inst.createdAt)}</span>
+                      {/* Trước đây "Expired"/đỏ chỉ so ngày thô, không quan tâm status thật — nên 1
+                          trường đã được SuperAdmin Activate lại tay (như vừa fix ở suspend/activate)
+                          vẫn hiện "Expired ..." màu đỏ cạnh badge "Active" xanh, đọc mâu thuẫn nhau.
+                          Giờ bám theo `isSuspended` (trạng thái thật đang áp dụng) thay vì tự so
+                          ngày — Active thì luôn hiện trung tính dù ngày trên hồ sơ đã qua, đúng thực
+                          tế là SuperAdmin đã chủ động ghi đè cho phép dùng tiếp. */}
                       {inst.subscriptionExpiresAt && (
-                        <span className={new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'text-red' : ''}>
-                          {new Date(inst.subscriptionExpiresAt).getTime() < Date.now() ? 'Expired' : 'Expires'} {fmt(inst.subscriptionExpiresAt)}
+                        <span className={isSuspended ? 'text-red' : ''}>
+                          {isSuspended ? 'Expired' : 'Expires'} {fmt(inst.subscriptionExpiresAt)}
                         </span>
                       )}
                     </div>

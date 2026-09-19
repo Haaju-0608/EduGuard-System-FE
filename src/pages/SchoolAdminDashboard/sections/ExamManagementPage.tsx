@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   FiBell, FiBookOpen, FiCalendar, FiCheck, FiClock, FiEdit2, FiFileText, FiPlus,
-  FiRefreshCw, FiSearch, FiTrash2, FiUsers, FiX,
+  FiRefreshCw, FiSearch, FiTrash2, FiUser, FiUsers, FiX,
 } from 'react-icons/fi';
 import CustomSelect from '../../../components/ui/CustomSelect';
 import Pagination from '../../../components/ui/Pagination';
@@ -799,6 +799,9 @@ export default function ExamManagementPage() {
                         <FiClock className="text-cyan text-[10px]" /> {slot.durationMinutes} min
                       </span>
                     )}
+                    <span className="flex items-center gap-1 text-[11px] text-muted">
+                      <FiUser className="text-cyan text-[10px]" /> {slot.proctorName ?? 'No proctor assigned'}
+                    </span>
                   </div>
                 </div>
 
