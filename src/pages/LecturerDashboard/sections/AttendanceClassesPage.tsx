@@ -25,9 +25,55 @@ import {
   type OpenSessionSummary,
 } from '../../../services/lecturerApi';
 import { computeAttendanceEndTime } from '../../../utils/attendanceTime';
-import type { LecturerClass } from '../../../types/lecturer';
+import type { ExamSlot, LecturerClass } from '../../../types/lecturer';
 
-function ClassCard({ cls, index, onOpen }: { cls: LecturerClass; index: number; onOpen: (cls: LecturerClass) => void }) {
+interface ClassActivity {
+  /** Thứ tự ưu tiên khi xếp danh sách — số nhỏ hơn lên trước. */
+  rank: number;
+  /** Khoá phụ trong cùng 1 rank (so sánh tăng dần) — quy về mili-giây, đã đảo dấu nếu cần "mới nhất trước". */
+  sortKey: number;
+  label: string | null;
+  tone: 'live' | 'exam' | 'upcoming' | null;
+}
+
+const fmtShort = (iso: string) =>
+  new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** Lớp nào đang cần giám thị chú ý nhất thì lên đầu, để khỏi phải tìm:
+ *   0 = đang điểm danh (có session đang mở) · 1 = đang có bài thi diễn ra · 2 = sắp thi (gần nhất trước)
+ *   3 = lớp Active không có lịch sắp tới · 4 = còn lại, bài thi gần đây nhất lên trước. */
+function classActivity(cls: LecturerClass, exams: ExamSlot[], hasOpenSession: boolean): ClassActivity {
+  if (hasOpenSession) return { rank: 0, sortKey: 0, label: 'Attendance in progress', tone: 'live' };
+
+  const mine = exams.filter((e) => e.classId === cls.id && e.status !== 'cancelled');
+  const ongoing = mine.filter((e) => e.status === 'ongoing');
+  if (ongoing.length > 0) return { rank: 1, sortKey: 0, label: 'Exam in progress', tone: 'exam' };
+
+  const upcoming = mine
+    .filter((e) => e.status === 'scheduled')
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  if (upcoming.length > 0) {
+    return {
+      rank: 2,
+      sortKey: new Date(upcoming[0].startTime).getTime(),
+      label: `Next exam ${fmtShort(upcoming[0].startTime)}`,
+      tone: 'upcoming',
+    };
+  }
+
+  const latest = mine.reduce((max, e) => Math.max(max, new Date(e.startTime).getTime()), 0);
+  return { rank: cls.status === 'active' ? 3 : 4, sortKey: -latest, label: null, tone: null };
+}
+
+const ACTIVITY_TONE: Record<NonNullable<ClassActivity['tone']>, string> = {
+  live: 'text-green bg-green/10 border-green/30',
+  exam: 'text-gold bg-gold/10 border-gold/30',
+  upcoming: 'text-cyan bg-cyan/10 border-cyan/30',
+};
+
+function ClassCard({
+  cls, index, onOpen, activity,
+}: { cls: LecturerClass; index: number; onOpen: (cls: LecturerClass) => void; activity: ClassActivity }) {
   return (
     <AnimateIn index={index}>
       <UniCard facultyId={cls.facultyId} className="flex flex-col h-full cursor-pointer" >
@@ -54,6 +100,12 @@ function ClassCard({ cls, index, onOpen }: { cls: LecturerClass; index: number; 
                 <span>{text}</span>
               </div>
             ))}
+            {activity.label && activity.tone && (
+              <span className={`inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-full border ${ACTIVITY_TONE[activity.tone]}`}>
+                <span className={`w-1.5 h-1.5 rounded-full bg-current ${activity.tone !== 'upcoming' ? 'animate-pulse' : ''}`} />
+                {activity.label}
+              </span>
+            )}
           </div>
 
           <div className="mt-4 pt-4 border-t border-border/60 text-sm font-semibold text-blue-bright">
@@ -84,15 +136,23 @@ export default function AttendanceClassesPage() {
       fetchSchoolAdminClasses({ page: 1, pageSize: 50 }),
       fetchExamSlots({ page: 1, pageSize: 100 }),
     ]);
-    const myClassIds = new Set(
-      examRes.items.filter((e) => e.proctorId === user?.id).map((e) => e.classId),
-    );
-    return classRes.items.filter((c) => myClassIds.has(c.id));
+    const myExams = examRes.items.filter((e) => e.proctorId === user?.id);
+    const myClassIds = new Set(myExams.map((e) => e.classId));
+    return { classes: classRes.items.filter((c) => myClassIds.has(c.id)), myExams };
   }, [user?.id]);
-  // Lớp đang "Active" lên đầu danh sách — dễ thấy ngay lớp nào đang cần chú ý thay vì phải lướt
-  // qua các lớp Completed/Upcoming để tìm. Giữ nguyên thứ tự tương đối giữa các lớp cùng nhóm
-  // (Array.sort của JS đã stable từ ES2019).
-  const classes = [...(data ?? [])].sort((a, b) => (a.status === 'active' ? 0 : 1) - (b.status === 'active' ? 0 : 1));
+
+  // Xếp theo mức "đang cần chú ý": lớp đang điểm danh → đang có bài thi → sắp thi (gần nhất trước) →
+  // lớp Active → còn lại theo bài thi gần đây nhất — thay vì để nguyên thứ tự BE trả, để giám thị
+  // khỏi phải tìm lớp mình đang làm việc (xem classActivity).
+  const openClassIds = new Set(openSessions.map((s) => s.classId));
+  const activityById = new Map(
+    (data?.classes ?? []).map((c) => [c.id, classActivity(c, data?.myExams ?? [], openClassIds.has(c.id))]),
+  );
+  const classes = [...(data?.classes ?? [])].sort((a, b) => {
+    const aa = activityById.get(a.id)!;
+    const bb = activityById.get(b.id)!;
+    return aa.rank - bb.rank || aa.sortKey - bb.sortKey;
+  });
   const totalPages = Math.max(1, Math.ceil(classes.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageItems = classes.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -228,7 +288,7 @@ export default function AttendanceClassesPage() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {pageItems.map((cls, i) => (
-              <ClassCard key={cls.id} cls={cls} index={i} onOpen={goToExams} />
+              <ClassCard key={cls.id} cls={cls} index={i} onOpen={goToExams} activity={activityById.get(cls.id)!} />
             ))}
           </div>
           <Pagination page={safePage} totalPages={totalPages} onChange={setPage} label={`${classes.length} classes`} />

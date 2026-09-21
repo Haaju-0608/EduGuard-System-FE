@@ -1240,21 +1240,57 @@ body::before {
 
 .notif-badge-count {
   position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
+  top: -5px;
+  right: -5px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
   border-radius: 999px;
   background: #EF4444;
   color: #fff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 2px solid var(--color-navy-card);
   line-height: 1;
+  box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6);
+}
+
+/* Thông báo vi phạm chưa đọc trong panel — vạch đỏ bên trái để dễ nhìn giữa các thông báo thường */
+.notif-item-violation {
+  box-shadow: inset 3px 0 0 #EF4444;
+}
+
+/* Có vi phạm chưa xem — badge đập nhịp thu hút chú ý */
+.notif-badge-count--alert {
+  animation: notifBadgePulse 1.6s ease-out infinite;
+}
+
+@keyframes notifBadgePulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.65); }
+  70%  { box-shadow: 0 0 0 9px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+/* Chuông lắc nhẹ mỗi ~4s khi có thông báo chưa đọc */
+.notif-bell-ring {
+  transform-origin: 50% 12%;
+  animation: notifBellRing 4s ease-in-out infinite;
+}
+
+@keyframes notifBellRing {
+  0%, 82%, 100% { transform: rotate(0); }
+  86% { transform: rotate(14deg); }
+  90% { transform: rotate(-12deg); }
+  94% { transform: rotate(8deg); }
+  97% { transform: rotate(-4deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notif-badge-count--alert,
+  .notif-bell-ring { animation: none; }
 }
 
 .notif-panel {

@@ -26,7 +26,9 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
   const [notifOpen, setNotifOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
-  const { unreadCount } = useNotifications();
+  const { unreadCount, unreadViolationCount } = useNotifications();
+  const hasUnread = unreadCount > 0;
+  const hasUnreadViolation = unreadViolationCount > 0;
   const location = useLocation();
   const navigate = useNavigate();
   const mainRef = useRef<HTMLElement>(null);
@@ -171,17 +173,26 @@ export default function DashboardLayout({ children, menuItems = [], campusMode =
 
             {/* Notifications — dropdown kiểu social */}
             <div className="relative z-[110]">
+              {/* Chuông nổi bật hơn khi có thông báo chưa đọc: viền + nền tô màu, icon lắc nhẹ; đỏ hẳn
+                  nếu trong đó có vi phạm chưa xem (thay vì chỉ 1 chấm số nhỏ khó thấy như trước). */}
               <button
                 type="button"
                 onClick={() => setNotifOpen((v) => !v)}
-                aria-label="Notifications"
-                className={`relative w-[36px] h-[36px] rounded-full bg-transparent border text-white-soft flex items-center justify-center cursor-pointer transition-all duration-200 hover:border-cyan hover:bg-cyan-glow
-                  ${notifOpen ? 'border-cyan bg-cyan-glow' : 'border-border'}
+                aria-label={hasUnread ? `Notifications (${unreadCount} unread)` : 'Notifications'}
+                className={`relative w-10 h-10 rounded-full border flex items-center justify-center cursor-pointer transition-all duration-200
+                  ${hasUnreadViolation
+                    ? 'bg-red/15 border-red/60 text-red hover:bg-red/25'
+                    : hasUnread
+                      ? 'bg-cyan-glow border-cyan/60 text-cyan hover:bg-cyan/20'
+                      : 'bg-transparent border-border text-white-soft hover:border-cyan hover:bg-cyan-glow'}
+                  ${notifOpen ? 'ring-2 ring-cyan/40' : ''}
                 `}
               >
-                <FiBell className="text-[1.05rem]" />
-                {unreadCount > 0 && (
-                  <span className="notif-badge-count">{unreadCount > 9 ? '9+' : unreadCount}</span>
+                <FiBell className={`text-[1.25rem] ${hasUnread ? 'notif-bell-ring' : ''}`} />
+                {hasUnread && (
+                  <span className={`notif-badge-count ${hasUnreadViolation ? 'notif-badge-count--alert' : ''}`}>
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
                 )}
               </button>
               <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} />

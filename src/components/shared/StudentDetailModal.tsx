@@ -2,8 +2,9 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
-  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiExternalLink, FiMail, FiPhone, FiShield, FiTrash2, FiX, FiXCircle,
+  FiAward, FiBookOpen, FiCalendar, FiCheckCircle, FiClock, FiExternalLink, FiMail, FiPhone, FiSearch, FiShield, FiTrash2, FiX, FiXCircle,
 } from 'react-icons/fi';
+import CustomSelect from '../ui/CustomSelect';
 import { useAsyncData } from '../../hooks/useAsyncData';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
@@ -66,6 +67,11 @@ function EmptyRow({ label }: { label: string }) {
   return <p className="text-xs text-muted text-center py-4">{label}</p>;
 }
 
+// Giới hạn chiều cao mỗi danh sách lịch sử (kết quả thi / tham gia thi / điểm danh) — hồ sơ 1 sinh
+// viên có thể có hàng chục dòng mỗi loại, để nguyên thì modal kéo dài rất dài; giờ mỗi danh sách tự
+// cuộn riêng bên trong card của nó.
+const LIST_SCROLL_CLASS = 'space-y-2 max-h-56 overflow-y-auto pr-1 custom-scrollbar';
+
 export default function StudentDetailModal({
   studentId, onClose,
 }: {
@@ -78,6 +84,31 @@ export default function StudentDetailModal({
   const { data, loading, error, reload } = useAsyncData(() => fetchStudentDetail(studentId), [studentId]);
   const [revoking, setRevoking] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  // Bộ lọc dùng chung cho cả 3 danh sách lịch sử: theo lớp (courseName) + từ khoá (tên bài thi/lớp).
+  const [courseFilter, setCourseFilter] = useState('');
+  const [keyword, setKeyword] = useState('');
+
+  const courseOptions = React.useMemo(() => {
+    if (!data) return [];
+    const names = new Set<string>();
+    [...data.examResults, ...data.examParticipations, ...data.attendanceHistory].forEach((item) => {
+      if (item.courseName) names.add(item.courseName);
+    });
+    return [...names].sort((a, b) => a.localeCompare(b));
+  }, [data]);
+
+  const kw = keyword.trim().toLowerCase();
+  const matchesFilter = (courseName: string | null, examName?: string | null) => {
+    if (courseFilter && courseName !== courseFilter) return false;
+    if (!kw) return true;
+    return (courseName ?? '').toLowerCase().includes(kw) || (examName ?? '').toLowerCase().includes(kw);
+  };
+  const isFiltering = courseFilter !== '' || kw !== '';
+  const filteredResults = data?.examResults.filter((r) => matchesFilter(r.courseName, r.examName)) ?? [];
+  const filteredParticipations = data?.examParticipations.filter((p) => matchesFilter(p.courseName, p.examName)) ?? [];
+  const filteredAttendance = data?.attendanceHistory.filter((a) => matchesFilter(a.courseName)) ?? [];
+  const countLabel = (shown: number, total: number) => (isFiltering ? `${shown}/${total}` : `${total}`);
+  const hasHistory = !!data && (data.examResults.length + data.examParticipations.length + data.attendanceHistory.length) > 0;
 
   // Trang Face Approval (ảnh Front/Left/Right) hiện chỉ có ở SchoolAdmin (/school/biometric) —
   // SuperAdmin chưa có trang tương đương nên chỉ hiện nút này đúng role, tránh dẫn tới 404.
@@ -216,11 +247,42 @@ export default function StudentDetailModal({
                 )}
               </SectionCard>
 
+              {/* Bộ lọc chung cho 3 danh sách lịch sử bên dưới */}
+              {hasHistory && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-1 min-w-44 bg-navy border border-border rounded-xl px-3 py-2 focus-within:border-blue-bright/40 transition-colors">
+                    <FiSearch className="text-muted shrink-0 text-sm" />
+                    <input
+                      type="text"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      placeholder="Search exam or class..."
+                      className="flex-1 bg-transparent border-none outline-none text-xs text-white-soft placeholder:text-muted"
+                    />
+                  </div>
+                  <CustomSelect
+                    value={courseFilter}
+                    onChange={setCourseFilter}
+                    options={[{ value: '', label: 'All classes' }, ...courseOptions.map((c) => ({ value: c, label: c }))]}
+                    className="w-44"
+                  />
+                  {isFiltering && (
+                    <button
+                      onClick={() => { setCourseFilter(''); setKeyword(''); }}
+                      className="text-[11px] text-muted hover:text-white-soft underline cursor-pointer bg-transparent border-none"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Exam results */}
-              <SectionCard icon={<FiAward />} title={`Exam Results (${data.examResults.length})`}>
-                {data.examResults.length === 0 ? <EmptyRow label="No graded exam results yet." /> : (
-                  <div className="space-y-2">
-                    {data.examResults.map((r) => (
+              <SectionCard icon={<FiAward />} title={`Exam Results (${countLabel(filteredResults.length, data.examResults.length)})`}>
+                {data.examResults.length === 0 ? <EmptyRow label="No graded exam results yet." />
+                  : filteredResults.length === 0 ? <EmptyRow label="No results match your filter." /> : (
+                  <div className={LIST_SCROLL_CLASS}>
+                    {filteredResults.map((r) => (
                       <div key={r.id} className="flex items-center justify-between gap-2 text-sm">
                         <div className="min-w-0">
                           <p className="text-white-soft truncate">{r.examName ?? '—'}</p>
@@ -234,10 +296,11 @@ export default function StudentDetailModal({
               </SectionCard>
 
               {/* Exam participations */}
-              <SectionCard icon={<FiClock />} title={`Exam Participations (${data.examParticipations.length})`}>
-                {data.examParticipations.length === 0 ? <EmptyRow label="No exam participation records." /> : (
-                  <div className="space-y-2">
-                    {data.examParticipations.map((p) => (
+              <SectionCard icon={<FiClock />} title={`Exam Participations (${countLabel(filteredParticipations.length, data.examParticipations.length)})`}>
+                {data.examParticipations.length === 0 ? <EmptyRow label="No exam participation records." />
+                  : filteredParticipations.length === 0 ? <EmptyRow label="No participations match your filter." /> : (
+                  <div className={LIST_SCROLL_CLASS}>
+                    {filteredParticipations.map((p) => (
                       <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
                         <div className="min-w-0">
                           <p className="text-white-soft truncate">{p.examName ?? '—'}</p>
@@ -259,10 +322,11 @@ export default function StudentDetailModal({
               </SectionCard>
 
               {/* Attendance history */}
-              <SectionCard icon={<FiBookOpen />} title={`Attendance History (${data.attendanceHistory.length})`}>
-                {data.attendanceHistory.length === 0 ? <EmptyRow label="No attendance records." /> : (
-                  <div className="space-y-2">
-                    {data.attendanceHistory.map((a) => (
+              <SectionCard icon={<FiBookOpen />} title={`Attendance History (${countLabel(filteredAttendance.length, data.attendanceHistory.length)})`}>
+                {data.attendanceHistory.length === 0 ? <EmptyRow label="No attendance records." />
+                  : filteredAttendance.length === 0 ? <EmptyRow label="No attendance records match your filter." /> : (
+                  <div className={LIST_SCROLL_CLASS}>
+                    {filteredAttendance.map((a) => (
                       <div key={a.id} className="flex items-center justify-between gap-2 text-sm">
                         <div className="min-w-0">
                           <p className="text-white-soft truncate">{a.courseName ?? '—'}</p>

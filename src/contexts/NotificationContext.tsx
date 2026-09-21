@@ -9,6 +9,7 @@ import { HubRoute } from '../services/realtimeClient';
 interface NotificationContextType {
   notifications: AppNotification[];
   unreadCount: number;
+  unreadViolationCount: number;
   loading: boolean;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -34,27 +35,62 @@ const TYPE_COLORS: Record<NotificationType, string> = {
   system: 'bg-gold',
 };
 
-/** Điều hướng khi bấm vào thông báo — dẫn thẳng tới trang Violation Review, đúng đến CHÍNH học
- *  sinh gây vi phạm (không chỉ đúng bài thi chung chung). LƯU Ý: mount path thật là "/lecture/*"
- *  (KHÔNG PHẢI "/lecturer") — xem App.tsx.
+type AppUserRole = 'user' | 'admin' | 'schooladmin' | 'lecture';
+
+/** Điều hướng khi bấm vào thông báo — đích phụ thuộc CẢ loại thông báo LẪN role người nhận (cùng 1
+ *  loại "ViolationDetected" nhưng giảng viên nhận cảnh báo vi phạm còn sinh viên nhận thông báo bị
+ *  loại — trước đây mọi role đều bị đẩy sang /lecture/violations, sinh viên bấm vào là văng khỏi
+ *  trang của mình). LƯU Ý: mount path thật của giảng viên là "/lecture/*" (KHÔNG PHẢI "/lecturer") —
+ *  xem App.tsx.
  *
- *  BE (commit 1fe0e84) thêm hẳn ReferenceTypeEnum.ExamParticipation
- *  và đổi MỌI notification loại ViolationDetected (AI + browser + disqualify) sang tham chiếu thẳng
- *  participation.Id thay vì examSlotId cũ — nên `referenceId` giờ CHÍNH LÀ participationId.
- *  ViolationReviewPage.tsx đã có sẵn cơ chế deep-link theo `?participationId=` (dùng chung với
- *  banner threshold của LiveMonitoringPage.tsx) — nó tự tra examSlotId qua participationCache khi
- *  URL không kèm `examSlotId`, nên chỉ cần truyền đúng participationId là đủ, không cần sửa gì
- *  thêm ở trang đó.
+ *  Với giảng viên, thông báo vi phạm dùng ExamParticipation làm referenceType (BE commit 1fe0e84) —
+ *  `referenceId` CHÍNH LÀ participationId; ViolationReviewPage.tsx đã có sẵn deep-link theo
+ *  `?participationId=` nên chỉ cần truyền đúng id đó.
  *
- *  Các referenceType khác (AttendanceSession/Institution/Transaction) chưa có route đích, tạm để
- *  trống — không phải link, không phải regression. */
-function buildActionPath(referenceType: string | null, referenceId: string | null): string | undefined {
-  if (!referenceId) return undefined;
-  if (referenceType === 'ExamParticipation') return `/lecture/violations?participationId=${referenceId}`;
+ *  Loại/role nào chưa có trang đích hợp lý thì trả undefined (không phải link, không phải regression). */
+function buildActionPath(
+  role: AppUserRole | undefined,
+  rawType: string | null,
+  referenceType: string | null,
+  referenceId: string | null,
+): string | undefined {
+  if (!role) return undefined;
+  // Chuẩn hoá "ViolationDetected" / "VIOLATION_DETECTED" / "violation-detected" về cùng 1 dạng.
+  const t = (rawType ?? '').toLowerCase().replace(/[^a-z]/g, '');
+
+  if (t.includes('violation')) {
+    if (role === 'lecture') {
+      return referenceType === 'ExamParticipation' && referenceId
+        ? `/lecture/violations?participationId=${referenceId}`
+        : '/lecture/violations';
+    }
+    if (role === 'user') return '/student/exams';
+    if (role === 'schooladmin') return '/school/monitoring';
+    return undefined;
+  }
+  if (t.includes('attendance')) {
+    if (role === 'user') return '/student/attendance';
+    if (role === 'lecture') return '/lecture/attendance';
+    return undefined;
+  }
+  if (t.includes('examreminder')) {
+    if (role === 'user') return '/student/exams';
+    if (role === 'lecture') return '/lecture/exams';
+    if (role === 'schooladmin') return '/school/exams';
+    return undefined;
+  }
+  if (t.includes('lowbalance') || t.includes('suspend')) {
+    return role === 'schooladmin' ? '/school/wallet' : undefined;
+  }
+  if (t.includes('biometric')) {
+    if (role === 'user') return '/student/profile';
+    if (role === 'schooladmin') return '/school/biometric';
+    return undefined;
+  }
   return undefined;
 }
 
-function mapApiNotification(n: ApiNotification): AppNotification {
+function mapApiNotification(n: ApiNotification, role: AppUserRole | undefined): AppNotification {
   const type = mapNotificationType(n.type);
   return {
     id: n.id,
@@ -70,7 +106,7 @@ function mapApiNotification(n: ApiNotification): AppNotification {
     read: n.isRead,
     initials: type === 'violation' ? '⚠' : type === 'attendance' ? '✅' : type === 'biometric' ? '🔐' : '🔔',
     accentColor: TYPE_COLORS[type],
-    actionPath: buildActionPath(n.referenceType, n.referenceId),
+    actionPath: buildActionPath(role, n.type, n.referenceType, n.referenceId),
   };
 }
 
@@ -96,7 +132,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       const res = await apiGet<{ items: ApiNotification[]; unreadCount: number }>(
         `/api/notifications/user/${user.id}?pageSize=50`,
       );
-      setNotifications((res.items ?? []).map(mapApiNotification));
+      setNotifications((res.items ?? []).map((n) => mapApiNotification(n, user.role)));
       setServerUnreadCount(res.unreadCount ?? 0);
     } catch {
       setNotifications([]);
@@ -104,7 +140,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [user?.id]);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     reload();
@@ -115,6 +151,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
   useHubEvent(notificationHub, 'NotificationCreated', () => { reload(); });
 
   const unreadCount = serverUnreadCount;
+  // Số thông báo vi phạm CHƯA ĐỌC (trong các thông báo đã tải) — để chuông đổi sang màu đỏ cảnh báo
+  // riêng khi có vi phạm chưa xem, thay vì chỉ hiện 1 con số chung lẫn với thông báo thường.
+  const unreadViolationCount = notifications.filter((n) => n.type === 'violation' && !n.read).length;
 
   const markAsRead = useCallback(async (id: string) => {
     setNotifications((prev) => {
@@ -141,7 +180,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
   return (
     <NotificationContext.Provider
-      value={{ notifications, unreadCount, loading, markAsRead, markAllAsRead, reload }}
+      value={{ notifications, unreadCount, unreadViolationCount, loading, markAsRead, markAllAsRead, reload }}
     >
       {children}
     </NotificationContext.Provider>

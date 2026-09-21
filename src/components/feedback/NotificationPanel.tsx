@@ -102,7 +102,9 @@ export default function NotificationPanel({ open, onClose }: NotificationPanelPr
             const Icon = TYPE_ICONS[notif.type];
             const content = (
               <div
-                className={`notif-item ${notif.read ? 'notif-item-read' : 'notif-item-unread'}`}
+                className={`notif-item ${notif.read ? 'notif-item-read' : 'notif-item-unread'} ${
+                  notif.type === 'violation' && !notif.read ? 'notif-item-violation' : ''
+                }`}
                 onClick={() => markAsRead(notif.id)}
               >
                 <div className="notif-avatar" style={{ background: `${notif.accentColor}22`, borderColor: `${notif.accentColor}44` }}>
