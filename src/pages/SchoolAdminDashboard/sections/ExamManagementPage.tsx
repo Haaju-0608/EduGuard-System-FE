@@ -658,17 +658,25 @@ export default function ExamManagementPage() {
         toast.warning('No students', 'This class has no enrolled students to notify.');
         return;
       }
-      await Promise.all(
+      const results = await Promise.allSettled(
         students.map((s) =>
           sendExamReminderEmail({
             email: s.email,
             studentName: s.fullName?.trim() || s.email,
             examName: slot.examName,
             examTime: slot.startTime,
-          }).catch(() => undefined),
+          }),
         ),
       );
-      toast.success('Reminder sent', `Notified ${students.length} student${students.length > 1 ? 's' : ''}.`);
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      const sent = students.length - failed;
+      if (failed === 0) {
+        toast.success('Reminder sent', `Notified ${sent} student${sent > 1 ? 's' : ''}.`);
+      } else if (sent === 0) {
+        toast.error('Reminder failed', `Could not send to any of the ${students.length} student(s). Check email service configuration.`);
+      } else {
+        toast.warning('Partially sent', `Notified ${sent} of ${students.length} student(s) — ${failed} failed to send.`);
+      }
     } catch (err) {
       toast.error('Error', err instanceof Error ? err.message : 'Failed to send reminder.');
     } finally {

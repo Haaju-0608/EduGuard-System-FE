@@ -37,7 +37,14 @@ export interface ApiRequestOptions {
   skipAuth?: boolean;
   /** Trả nguyên body JSON thay vì unwrap `data` */
   raw?: boolean;
+  /** ms trước khi tự huỷ request — mặc định DEFAULT_TIMEOUT_MS bên dưới */
+  timeoutMs?: number;
 }
+
+// fetch() gốc không có timeout — nếu BE treo (vd SmtpClient chờ kết nối SMTP bị chặn ở tầng mạng),
+// request có thể đứng vô thời hạn và UI kẹt mãi ở trạng thái loading không bao giờ resolve. Luôn
+// tự huỷ sau ngưỡng này để mọi request đều chắc chắn thoát ra (thành công hoặc lỗi rõ ràng).
+const DEFAULT_TIMEOUT_MS = 30000;
 
 function buildAuthHeaders(skipAuth: boolean): Record<string, string> {
   const headers: Record<string, string> = { accept: '*/*' };
@@ -153,7 +160,7 @@ export async function apiRequest<T>(
   path: string,
   options: ApiRequestOptions = {},
 ): Promise<T> {
-  const { method = 'GET', body, headers = {}, skipAuth = false, raw = false } = options;
+  const { method = 'GET', body, headers = {}, skipAuth = false, raw = false, timeoutMs = DEFAULT_TIMEOUT_MS } = options;
 
   const requestHeaders: Record<string, string> = {
     ...buildAuthHeaders(skipAuth),
@@ -165,16 +172,30 @@ export async function apiRequest<T>(
     requestHeaders['Content-Type'] = 'application/json';
   }
 
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method,
-    headers: requestHeaders,
-    body:
-      body === undefined
-        ? undefined
-        : body instanceof FormData
-          ? body
-          : JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: requestHeaders,
+      body:
+        body === undefined
+          ? undefined
+          : body instanceof FormData
+            ? body
+            : JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Please check your connection and try again.', 0);
+    }
+    throw new ApiError('Could not reach the server. Please check your connection and try again.', 0);
+  } finally {
+    clearTimeout(timer);
+  }
 
   const parsed = await parseJsonSafe(res);
 
