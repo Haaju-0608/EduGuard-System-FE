@@ -30,6 +30,17 @@ function computeDateRange(preset: DatePreset): { from?: string; to?: string } {
 
 const BAR_COLORS = ['bg-blue-bright', 'bg-cyan', 'bg-gold', 'bg-red', 'bg-green', 'bg-purple-400'];
 
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** period từ BE dạng "YYYY-MM" (groupBy=month). `short=true` -> chỉ "Jan" (label trục X, tránh đè
+ *  nhau khi có đủ 12 cột); `short=false` -> "Jan 2026" (tooltip đầy đủ). */
+function formatMonthPeriod(period: string, short = false): string {
+  const [year, month] = period.split('-');
+  const idx = Number(month) - 1;
+  if (idx < 0 || idx >= 12) return period;
+  return short ? MONTH_NAMES[idx] : `${MONTH_NAMES[idx]} ${year}`;
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
@@ -46,11 +57,12 @@ export default function ReportsPage() {
   const { data, loading, error, reload } = useAsyncData(async () => {
     const { from, to } = computeDateRange(datePreset);
     const institutionId = institutionFilter || undefined;
-    const [attendance, violations] = await Promise.all([
+    const [attendance, violations, revenue] = await Promise.all([
       fetchAttendanceReport({ institutionId, from, to }),
       fetchViolationReport({ institutionId, from, to }),
+      fetchRevenueReport({ from, to, groupBy: 'month' }),
     ]);
-    return { attendance, violations };
+    return { attendance, violations, revenue };
   }, [institutionFilter, datePreset]);
 
   // Realtime: cùng broadcast ResourceChanged/DashboardStatsChanged/ReportDataChanged như Dashboard
@@ -60,32 +72,52 @@ export default function ReportsPage() {
   useHubGroup(HubRoute.Dashboard, 'JoinSystemDashboard', []);
   useHubEvent(dashboardHub, 'ResourceChanged', () => { reload(); });
 
-  // Preview cho phần Export — Attendance/Violations dùng lại data đã fetch ở trên; Wallet/Revenue
-  // fetch riêng vì SuperAdmin mới xem được và không nằm trong dashboard chính.
-  const needsExportFetch = exportType === 'Wallet' || exportType === 'Revenue';
+  // Chart "Monthly Revenue" cố định 12 tháng gần nhất — KHÔNG theo datePreset ở trên (Last 7/30/90
+  // Days) vì group-by-month mà chỉ lọc vài chục ngày thì đa số chỉ ra đúng 1 cột, nhìn trống trải.
+  // Đây là chart xu hướng nên luôn hiện đủ 12 tháng bất kể bộ lọc chính đang chọn gì.
+  const { data: chartRevenue, loading: chartRevenueLoading } = useAsyncData(async () => {
+    const to = new Date();
+    const from = new Date();
+    from.setMonth(from.getMonth() - 11);
+    from.setDate(1);
+    return fetchRevenueReport({ from: from.toISOString(), to: to.toISOString(), groupBy: 'month' });
+  }, []);
+
+  // Preview cho phần Export — Attendance/Violations/Revenue dùng lại data đã fetch ở trên; chỉ
+  // Wallet còn fetch riêng vì SuperAdmin mới xem được và không nằm trong dashboard chính.
+  const needsExportFetch = exportType === 'Wallet';
   const { data: exportPreview, loading: exportPreviewLoading } = useAsyncData(async () => {
     if (!needsExportFetch) return null;
     const { from, to } = computeDateRange(datePreset);
     const institutionId = institutionFilter || undefined;
-    if (exportType === 'Wallet') return fetchWalletReport({ institutionId, from, to });
-    return fetchRevenueReport({ from, to });
+    return fetchWalletReport({ institutionId, from, to });
   }, [exportType, institutionFilter, datePreset]);
 
   const attendance = data?.attendance;
   const violations = data?.violations;
+  const revenue = data?.revenue;
 
   const examsMonitored = violations ? new Set(violations.items.map((i) => i.examSlotId)).size : 0;
   const avgAttendancePct = attendance ? Math.round(attendance.summary.averageRecognitionRate * 100) : 0;
+  const totalRevenue = revenue ? revenue.summary.topUpAmount + revenue.summary.serviceFeeAmount : 0;
 
   const kpis = [
     { label: 'Exams Monitored', value: String(examsMonitored), sub: `${attendance?.summary.sessions ?? 0} attendance sessions`, color: 'text-blue-bright', icon: '📝' },
     { label: 'Violations Flagged', value: String(violations?.summary.total ?? 0), sub: `${violations?.summary.reviewed ?? 0} reviewed`, color: 'text-red', icon: '⚠️' },
     { label: 'Avg Attendance', value: `${avgAttendancePct}%`, sub: `${attendance?.summary.totalRecognized ?? 0} students recognized`, color: 'text-green', icon: '✅' },
     { label: 'Completed Sessions', value: String(attendance?.summary.completed ?? 0), sub: `of ${attendance?.summary.sessions ?? 0} total`, color: 'text-cyan', icon: '📋' },
+    { label: 'Revenue', value: totalRevenue.toLocaleString(), sub: `${revenue?.summary.transactionCount ?? 0} transactions`, color: 'text-gold', icon: '💰' },
   ];
 
   const violationTypes = violations?.summary.byType.slice().sort((a, b) => b.count - a.count) ?? [];
   const violationTotal = violations?.summary.total ?? 0;
+
+  const monthlyRevenue = (chartRevenue?.items ?? []).map((item) => ({
+    period: item.period,
+    total: item.topUpAmount + item.serviceFeeAmount,
+  }));
+  const monthlyRevenueTotal = monthlyRevenue.reduce((sum, m) => sum + m.total, 0);
+  const maxMonthlyRevenue = Math.max(1, ...monthlyRevenue.map((m) => m.total));
 
   const handleExport = async () => {
     setExporting(true);
@@ -141,7 +173,7 @@ export default function ReportsPage() {
       )}
 
       {/* KPI Cards Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {kpis.map((kpi, i) => (
           <div key={i} className="bg-navy-card border border-border rounded-[16px] p-4 font-dm hover:border-cyan/20 transition-all">
             <div className="flex items-center justify-between mb-2">
@@ -160,7 +192,7 @@ export default function ReportsPage() {
       </div>
 
       {/* Charts Grid */}
-      <div className="grid grid-cols-1 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Violation Types */}
         <div className="bg-navy-card border border-border rounded-[16px] p-5">
           <div className="flex items-center justify-between mb-4">
@@ -193,6 +225,49 @@ export default function ReportsPage() {
                         style={{ width: `${pct}%` }}
                       />
                     </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Monthly Revenue — flex-col + flex-1 bên dưới để chart luôn giãn lấp đầy chiều cao card
+            (card này bị grid canh cao bằng card Violation Types kế bên, chart set height cứng thì
+            để trống phía dưới). */}
+        <div className="bg-navy-card border border-border rounded-[16px] p-5 flex flex-col">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-syne font-bold text-white-soft text-base flex items-center gap-2">
+              <span className="text-gold">💰</span>
+              Monthly Revenue
+            </h3>
+            <span className="text-xs text-muted font-dm">{monthlyRevenueTotal.toLocaleString()} · last 12 months</span>
+          </div>
+
+          {chartRevenueLoading ? (
+            <div className="flex-1 min-h-56 bg-white/5 rounded-lg animate-pulse" />
+          ) : monthlyRevenue.length === 0 || monthlyRevenueTotal === 0 ? (
+            <p className="flex-1 min-h-56 grid place-items-center text-muted text-sm text-center">No revenue recorded in the last 12 months.</p>
+          ) : (
+            <div className="flex items-end justify-between gap-2 flex-1 min-h-56 px-1">
+              {monthlyRevenue.map((m) => {
+                const heightPct = Math.max(4, Math.round((m.total / maxMonthlyRevenue) * 100));
+                return (
+                  <div
+                    key={m.period}
+                    title={`${formatMonthPeriod(m.period)}: ${m.total.toLocaleString()}`}
+                    className="flex flex-col items-center justify-end h-full flex-1 min-w-0 group cursor-default"
+                  >
+                    <span className="text-[10px] text-muted font-dm mb-1.5 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                      {m.total.toLocaleString()}
+                    </span>
+                    <div
+                      className="w-full max-w-7 rounded-t-md bg-linear-to-t from-gold/60 to-gold group-hover:to-gold/80 transition-colors"
+                      style={{ height: `${heightPct}%` }}
+                    />
+                    <span className="text-[10px] text-muted font-dm mt-2 whitespace-nowrap">
+                      {formatMonthPeriod(m.period, true)}
+                    </span>
                   </div>
                 );
               })}
@@ -285,9 +360,9 @@ export default function ReportsPage() {
           )}
           {exportType === 'Revenue' && (
             <div className="space-y-2 text-sm">
-              <PreviewRow label="Transactions" value={exportPreview && 'transactionCount' in exportPreview.summary ? exportPreview.summary.transactionCount : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Top-up revenue" value={exportPreview && 'topUpAmount' in exportPreview.summary ? exportPreview.summary.topUpAmount : undefined} loading={exportPreviewLoading} />
-              <PreviewRow label="Service fee revenue" value={exportPreview && 'serviceFeeAmount' in exportPreview.summary ? exportPreview.summary.serviceFeeAmount : undefined} loading={exportPreviewLoading} />
+              <PreviewRow label="Transactions" value={revenue?.summary.transactionCount} loading={loading} />
+              <PreviewRow label="Top-up revenue" value={revenue?.summary.topUpAmount} loading={loading} />
+              <PreviewRow label="Service fee revenue" value={revenue?.summary.serviceFeeAmount} loading={loading} />
             </div>
           )}
         </div>
