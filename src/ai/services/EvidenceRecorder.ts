@@ -195,8 +195,13 @@ export class EvidenceRecorder {
       const clipPromise = this.claimPreRoll(this.options.clipMs);
 
       let violationId: string | null = null;
+      // false khi BE chặn (max count / cooldown / cùng loại liên tiếp) và trả lại log CŨ — khi đó
+      // clip này không có log nào để gắn vào, phải bỏ chứ không upload đè evidence của log cũ.
+      let isNewLog = true;
       try {
-        violationId = await this.postViolationLog(violation, timestampIso);
+        const created = await this.postViolationLog(violation, timestampIso);
+        violationId = created?.id ?? null;
+        isNewLog = created?.isNew ?? true;
       } catch (error) {
         console.warn('[EvidenceRecorder] Failed to create violation log:', error);
       }
@@ -231,6 +236,12 @@ export class EvidenceRecorder {
 
       if (!violationId || !this.options.uploadUrl) {
         onUpdate({ ...withVideo, uploadStatus: this.options.uploadUrl ? 'failed' : 'local' });
+        return;
+      }
+
+      if (!isNewLog) {
+        // BE không tạo log mới → không upload, giữ clip ở local (không tính là lỗi upload).
+        onUpdate({ ...withVideo, uploadStatus: 'local' });
         return;
       }
 
@@ -478,7 +489,15 @@ export class EvidenceRecorder {
   // giáo viên ngay, không phải đợi 8s quay + upload video xong mới biết có vi phạm. BE tự lo
   // cooldown/max-count/consecutive-type (trả về log CŨ thay vì tạo mới nếu bị chặn) — FE không tự
   // suy đoán, không throw khi bị "nuốt" theo cooldown vì đó là hành vi đúng theo thiết kế.
-  private async postViolationLog(violation: ViolationEvent, timestampIso: string): Promise<string | null> {
+  //
+  // Trả thêm `isNew`: response của trường hợp bị chặn và trường hợp tạo mới CÓ CÙNG hình dạng (đều
+  // 201 + 1 log) nên phân biệt bằng recordedAt — log mới luôn mang đúng recordedAt FE vừa gửi, còn
+  // log cũ được trả lại thì recordedAt sớm hơn. Cần biết để KHÔNG upload clip mới đè lên log cũ
+  // (làm mất evidence của vi phạm trước) khi BE không tạo record mới.
+  private async postViolationLog(
+    violation: ViolationEvent,
+    timestampIso: string,
+  ): Promise<{ id: string; isNew: boolean } | null> {
     if (!this.options.uploadUrl) return null;
 
     const token = getAccessToken();
@@ -500,8 +519,24 @@ export class EvidenceRecorder {
       throw new Error(`Create violation log failed with status ${logResponse.status}.`);
     }
 
-    const logData = (await logResponse.json()) as { id?: string; data?: { id?: string } };
-    return logData.id ?? logData.data?.id ?? null;
+    const logData = (await logResponse.json()) as {
+      id?: string;
+      recordedAt?: string;
+      data?: { id?: string; recordedAt?: string };
+    };
+    const id = logData.id ?? logData.data?.id ?? null;
+    if (!id) return null;
+
+    // Chuỗi thời gian không có múi giờ (thiếu 'Z' hoặc ±hh:mm) sẽ bị Date.parse hiểu là giờ máy —
+    // lệch 7 tiếng ở VN, khiến log mới bị nhầm là "cũ" và mất upload — nên coi là UTC.
+    const returnedAtRaw = logData.recordedAt ?? logData.data?.recordedAt;
+    const returnedAt = returnedAtRaw
+      ? Date.parse(/[zZ]|[+-]\d{2}:?\d{2}$/.test(returnedAtRaw) ? returnedAtRaw : `${returnedAtRaw}Z`)
+      : Number.NaN;
+    // Chỉ coi là log CŨ khi recordedAt trả về sớm hơn hẳn thời điểm vừa gửi (>1s); không đọc được
+    // (NaN / BE không trả field) thì giữ hành vi cũ: coi là log mới.
+    const isExisting = Number.isFinite(returnedAt) && Date.parse(timestampIso) - returnedAt > 1000;
+    return { id, isNew: !isExisting };
   }
 
   // Gắn video vào 1 violation log ĐÃ TỒN TẠI (đã tạo xong ở postViolationLog, trước cả khi video
