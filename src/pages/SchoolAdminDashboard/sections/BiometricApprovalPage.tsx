@@ -168,6 +168,7 @@ function StudentDetailModal({
   reviewing: string | null;
 }) {
   const [reason, setReason] = useState('');
+  const [busyAction, setBusyAction] = useState<'approved' | 'rejected' | null>(null);
   const toast = useToast();
 
   const isPending = request.status === 'pending';
@@ -178,8 +179,13 @@ function StudentDetailModal({
       toast.warning('Reason required', 'Please enter a reason before reviewing.');
       return;
     }
-    await onReview(request.id, status, reason);
-    onClose();
+    setBusyAction(status);
+    try {
+      await onReview(request.id, status, reason);
+      onClose();
+    } finally {
+      setBusyAction(null);
+    }
   };
 
   return createPortal(
@@ -249,8 +255,10 @@ function StudentDetailModal({
                 disabled={isBusy}
                 className="flex-1 flex items-center justify-center gap-2 bio-btn-approve text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
               >
-                <FiCheck />
-                Approve
+                {busyAction === 'approved'
+                  ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <FiCheck />}
+                {busyAction === 'approved' ? 'Checking…' : 'Approve'}
               </button>
               <button
                 type="button"
@@ -258,10 +266,20 @@ function StudentDetailModal({
                 disabled={isBusy}
                 className="flex-1 flex items-center justify-center gap-2 bio-btn-reject text-xs font-bold py-2.5 rounded-xl cursor-pointer transition-all disabled:opacity-50"
               >
-                <FiX />
-                Reject
+                {busyAction === 'rejected'
+                  ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <FiX />}
+                {busyAction === 'rejected' ? 'Rejecting…' : 'Reject'}
               </button>
             </div>
+            {/* Approve gọi lại AI service 3 lần (trích vector từng ảnh) + check trùng khuôn mặt
+                trước khi lưu — có thể mất vài giây, không phải treo. Reject thì nhanh, không cần. */}
+            {busyAction === 'approved' && (
+              <p className="text-[11px] text-gold flex items-center gap-1.5">
+                <FiClock size={11} className="shrink-0" />
+                Running AI face-duplicate check — this can take a few seconds, please wait…
+              </p>
+            )}
           </div>
         )}
       </div>

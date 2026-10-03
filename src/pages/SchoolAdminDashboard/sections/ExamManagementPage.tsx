@@ -259,10 +259,16 @@ function ExamFormModal({
     ? Math.floor((new Date(form.endTime).getTime() - new Date(form.startTime).getTime()) / 60000)
     : null;
 
+  // Lớp đã kết thúc (status 'completed', xem deriveClassStatus) không hợp lý để tạo đề thi mới —
+  // chỉ ẩn khỏi ô chọn multi-select lúc TẠO MỚI. Lúc EDIT vẫn giữ nguyên "classes" đầy đủ (dropdown
+  // single-select riêng ở trên, dòng ~378) để không làm mất lựa chọn của 1 exam slot cũ đang gắn
+  // với lớp đã kết thúc từ trước.
+  const availableClasses = isEdit ? classes : classes.filter((c) => c.status !== 'completed');
+
   const classSearchQuery = classSearch.trim().toLowerCase();
   const filteredClasses = classSearchQuery
-    ? classes.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
-    : classes;
+    ? availableClasses.filter((c) => c.code.toLowerCase().startsWith(classSearchQuery) || c.name.toLowerCase().startsWith(classSearchQuery))
+    : availableClasses;
 
   const inp = 'w-full bg-navy border border-border rounded-xl px-3 py-2.5 text-sm text-white-soft outline-none focus:border-blue-bright/50 transition-colors placeholder:text-muted';
 
@@ -429,7 +435,7 @@ function ExamFormModal({
                   </div>
                 </div>
               )}
-              {classes.length === 0 && (
+              {availableClasses.length === 0 && (
                 <p className="text-muted text-sm mt-1.5">No classes available</p>
               )}
               {form.classIds.length > 0 && (
