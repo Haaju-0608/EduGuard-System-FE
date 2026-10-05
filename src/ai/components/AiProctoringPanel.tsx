@@ -96,7 +96,7 @@ export default function AiProctoringPanel() {
             </span>
             <button
               type="button"
-              onClick={isRunning ? stop : start}
+              onClick={isRunning ? stop : () => void start()}
               className={isRunning ? 'uni-btn-danger' : 'uni-btn-primary'}
             >
               {isRunning ? <FiPauseCircle /> : <FiPlayCircle />}

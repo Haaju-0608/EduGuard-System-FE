@@ -504,8 +504,13 @@ export default function StudentExamTakingPage() {
     const init = async () => {
       // Bật camera TRƯỚC khi gọi /join — BE giờ bắt buộc kèm ảnh liveCapture để verify khuôn mặt,
       // nên <video> cần có frame thật sẵn trước khi ta chụp. Chạy song song với việc tạo participation
-      // để không làm chậm luồng vào thi.
-      const proctoringStart = proctoringRef.current.start();
+      // để không làm chậm luồng vào thi. awaitRealParticipationId: true — participationId thật chỉ có
+      // sau vài network call bên dưới (createExamParticipation, /join, fetchExamParticipations), gọi
+      // updateProctoringConfig() xong mới coi là sẵn sàng; nếu không, vi phạm xảy ra ngay trong lúc
+      // camera vừa bật (vd học sinh chưa kịp vào khung hình) sẽ bị gửi kèm participationId giả, hiện
+      // trong danh sách cục bộ nhưng BE không ghi nhận được cho ca thi thật (xem comment ở
+      // hasRealParticipationRef trong useAiProctoring.ts).
+      const proctoringStart = proctoringRef.current.start({ awaitRealParticipationId: true });
       // Lấy ngưỡng thời gian bắt vi phạm thật từ BE (thay DEFAULT_THRESHOLDS hard-code trong
       // ViolationEngine) — chạy song song, không chặn camera/participation. Không cần await:
       // nếu về chậm hơn vài trăm ms đầu ca thi thì vài frame đầu dùng tạm ngưỡng mặc định, không

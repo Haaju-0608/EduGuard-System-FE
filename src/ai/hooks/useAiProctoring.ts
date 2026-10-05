@@ -94,6 +94,19 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   // ExamTerminationContext, không phải ở đây) — không tự đếm cục bộ để tránh lệch với BE, giống
   // lý do ExamTerminationContext.tsx không tự đếm ViolationEngine event.
   const currentAiViolationCountRef = useRef(0);
+  // true = cho phép xử lý vi phạm (mặc định, giữ nguyên hành vi cũ — vd ProctoringTestPage.tsx
+  // không gọi updateProctoringConfig() bao giờ, chạy bằng participationId giả định sẵn trong
+  // EvidenceRecorder, vẫn phải hoạt động bình thường). start({ awaitRealParticipationId: true })
+  // đặt về false — dùng khi nơi gọi (StudentExamTakingPage.tsx) biết CHẮC sẽ gọi
+  // updateProctoringConfig() với participationId THẬT ngay sau đó, nhưng cần vài network call
+  // (createExamParticipation, /join, fetchExamParticipations...) mới xong. Nếu không có cờ này,
+  // vi phạm xảy ra ngay trong khoảng chờ đó (vd ABSENCE vì học sinh chưa kịp chỉnh camera) vẫn bị
+  // recordEvidence() gửi kèm participationId GIẢ (DEFAULT_PARTICIPATION_ID trong
+  // EvidenceRecorder.ts) — log vẫn hiện trong list cục bộ (onUpdate luôn gọi) nhưng BE không có
+  // participation thật để gắn vào, nên count phía giáo viên/học sinh không tăng và log đó coi như
+  // mất — đúng hiện tượng "2 vi phạm đầu hiện log nhưng không count, không ra clip dùng được" đã
+  // gặp khi test thật.
+  const hasRealParticipationRef = useRef(true);
 
   const stopLoop = useCallback(() => {
     runningRef.current = false;
@@ -210,7 +223,12 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
           // tiếp tục tăng dù giáo viên/BE đã dừng ghi nhận từ lâu — gây lệch giữa 2 bên.
           const reachedMaxCount = maxAiViolationCountRef.current !== null
             && currentAiViolationCountRef.current >= maxAiViolationCountRef.current;
-          if (evaluation.events.length > 0 && !engines.evidence.isBusy && !reachedMaxCount) {
+          if (
+            evaluation.events.length > 0
+            && !engines.evidence.isBusy
+            && !reachedMaxCount
+            && hasRealParticipationRef.current
+          ) {
             setViolations((current) => [...evaluation.events, ...current].slice(0, 25));
             evaluation.events.forEach((event) => {
               // recordEvidence() báo violation log NGAY (tách rời khỏi việc quay video) — onUpdate
@@ -246,12 +264,13 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
     [engines, stopLoop, videoRef],
   );
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (opts?: { awaitRealParticipationId?: boolean }) => {
     const video = videoRef.current;
     if (!video) return;
 
     setError(null);
     currentAiViolationCountRef.current = 0;
+    hasRealParticipationRef.current = !opts?.awaitRealParticipationId;
 
     // ── Camera ──
     try {
@@ -308,6 +327,10 @@ export function useAiProctoring(videoRef: React.RefObject<HTMLVideoElement | nul
   const updateProctoringConfig = useCallback(
     (opts: { participationId?: string; studentId?: string; sessionId?: string }) => {
       engines.evidence.updateConfig(opts);
+      // Nhận được participationId THẬT — mở khoá xử lý vi phạm nếu start() trước đó đã khoá bằng
+      // awaitRealParticipationId (xem comment ở hasRealParticipationRef). Vô hại nếu không khoá
+      // gì cả (vẫn đang true từ trước).
+      if (opts.participationId) hasRealParticipationRef.current = true;
     },
     [engines.evidence],
   );
