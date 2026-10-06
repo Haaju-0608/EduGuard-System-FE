@@ -87,7 +87,9 @@ export default function LiveMonitoringPage() {
   const [students, setStudents] = useState<Record<string, ExamRealtimeStudent>>({});
   const [examLabel, setExamLabel] = useState('');
   const [loadingState, setLoadingState] = useState(false);
-  const [feed, setFeed] = useState<FeedItem[]>([]);
+  // Live Feed UI đang tạm ẩn (chỉ bắt được browser violation, không khớp với camera violation) —
+  // vẫn giữ state/logic để bật lại sau khi sửa cho khớp.
+  const [, setFeed] = useState<FeedItem[]>([]);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   // BE không trả identityVerifiedAt qua bất kỳ response nào FE đang đọc (GetStatus/GetById/realtime
   // state đều thiếu field này) — tự nhớ cục bộ participation nào vừa duyệt tay để đổi UI ngay, thay
@@ -388,20 +390,20 @@ export default function LiveMonitoringPage() {
       )}
 
       {selectedExamId && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5">
           {/* Student grid */}
-          <div className="lg:col-span-2 space-y-3">
+          <div className="space-y-3">
             <h2 className="font-syne font-bold text-white-soft text-sm flex items-center gap-2">
               <FiUsers /> {examLabel || 'Students'}
             </h2>
             {loadingState ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)}
               </div>
             ) : studentList.length === 0 ? (
               <EmptyState icon="👥" title="No participants yet" description="Students will appear here as they join the exam." />
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 {studentList.map((s) => (
                   <div key={s.participationId} className="bg-navy-card border border-border rounded-2xl p-4">
                     <div className="flex items-start justify-between gap-2 mb-2">
@@ -452,23 +454,6 @@ export default function LiveMonitoringPage() {
                 ))}
               </div>
             )}
-          </div>
-
-          {/* Live violation feed */}
-          <div className="space-y-3">
-            <h2 className="font-syne font-bold text-white-soft text-sm flex items-center gap-2">
-              <FiRadio className="text-red animate-pulse" /> Live Feed
-            </h2>
-            <div className="bg-navy-card border border-border rounded-2xl p-3 space-y-2 max-h-[600px] overflow-y-auto custom-scrollbar">
-              {feed.length === 0 ? (
-                <div className="py-10 text-center">
-                  <FiCheckCircle className="text-3xl text-muted mx-auto mb-2 opacity-40" />
-                  <p className="text-muted text-xs">No events yet — this updates live as they happen.</p>
-                </div>
-              ) : (
-                feed.map((item) => <FeedRow key={item.id} item={item} />)
-              )}
-            </div>
           </div>
         </div>
       )}

@@ -8,6 +8,8 @@ const BLOCKED_KEY_COMBOS: Array<(e: KeyboardEvent) => boolean> = [
   (e) => e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c',
   (e) => e.ctrlKey && e.key.toLowerCase() === 'u',
   // Làm mới trang (F5 / Ctrl+R / Ctrl+Shift+R) — F5 làm mất trạng thái phiên proctoring đang chạy
+  // F11 bật/tắt fullscreen của trình duyệt — không để học sinh tự thoát fullscreen bằng phím này
+  (e) => e.key === 'F11',
   (e) => e.key === 'F5',
   (e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r',
 ];
