@@ -42,6 +42,7 @@ function formatRatio(value?: number) {
 
 function evidenceStatusLabel(status: string) {
   if (status === 'local') return 'Buffered locally';
+  if (status === 'blocked') return 'Not counted — duplicate';
   if (status === 'uploaded') return 'Uploaded';
   if (status === 'failed') return 'Upload failed';
   return 'Upload pending';

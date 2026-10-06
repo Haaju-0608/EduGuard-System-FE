@@ -27,8 +27,11 @@ const PRE_ROLL_MIN_MS = 4000;
 // Nếu không có violation nào "nhận" pre-roll trong khoảng này, tự huỷ + mở slot mới — CHỈ để giới
 // hạn kích thước clip/bộ nhớ (browser không flush ondataavailable nếu không gọi requestData/stop,
 // nên 1 slot bị bỏ quên rất lâu sẽ giữ ngày càng nhiều dữ liệu chưa flush trong bộ nhớ). Đặt rộng
-// hơn PRE_ROLL_MIN_MS khá nhiều để không rotate mất ngay lúc vừa chờ đủ mốc tối thiểu xong.
-const PRE_ROLL_ROTATE_MS = 10_000;
+// hơn PRE_ROLL_MIN_MS để không rotate mất ngay lúc vừa chờ đủ mốc tối thiểu xong. PHẢI nhỏ hơn
+// DEFAULT_CLIP_MS (8s) ít nhất ~0.5s: claimPreRoll() ghi tiếp max(clipMs - elapsed, 500ms), nên nếu
+// pre-roll đã tích quá 7.5s thì clip = elapsed + 0.5s > 8s (từng ra clip ~10s khi học sinh ngồi
+// yên lâu rồi mới vi phạm, pre-roll gần chạm mốc rotate 10s cũ). Với 7s, mọi clip đều đúng 8s.
+const PRE_ROLL_ROTATE_MS = 7_000;
 
 // "Watchdog": trình duyệt có thể tạm ngưng/giảm tần suất chạy setTimeout khi tab bị ẩn (chuyển tab
 // khác) — nếu đúng lúc đó có 1 violation đang xử lý (quay/upload/cooldown), timer quyết định lúc
@@ -215,7 +218,7 @@ export class EvidenceRecorder {
         capturedAt,
         videoSizeBytes: 0,
         durationMs: this.options.clipMs,
-        uploadStatus: violationId ? 'pending' : this.options.uploadUrl ? 'failed' : 'local',
+        uploadStatus: violationId ? (isNewLog ? 'pending' : 'blocked') : this.options.uploadUrl ? 'failed' : 'local',
         ...(violationId || !this.options.uploadUrl ? {} : { uploadError: 'Failed to create violation log.' }),
       };
       onUpdate(baseItem);
@@ -240,8 +243,9 @@ export class EvidenceRecorder {
       }
 
       if (!isNewLog) {
-        // BE không tạo log mới → không upload, giữ clip ở local (không tính là lỗi upload).
-        onUpdate({ ...withVideo, uploadStatus: 'local' });
+        // BE không tạo log mới → không upload, giữ clip ở local (không tính là lỗi upload). Gắn nhãn
+        // 'blocked' để UI hiện rõ "không được ghi nhận", khỏi nhầm với vi phạm đã đếm thật.
+        onUpdate({ ...withVideo, uploadStatus: 'blocked' });
         return;
       }
 

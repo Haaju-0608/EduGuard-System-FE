@@ -198,8 +198,9 @@ export default function ProctoringTestPage() {
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       item.uploadStatus === 'uploaded' ? 'text-green bg-green/10 border-green/25'
                         : item.uploadStatus === 'failed' ? 'text-red bg-red/10 border-red/25'
+                        : item.uploadStatus === 'blocked' ? 'text-muted bg-white/5 border-border'
                         : 'text-gold bg-gold/10 border-gold/25'
-                    }`}>{item.uploadStatus}</span>
+                    }`}>{item.uploadStatus === 'blocked' ? 'not counted — duplicate' : item.uploadStatus}</span>
                   </div>
                   <p className="text-[11px] text-muted">
                     {fmtTime(item.capturedAt)} · duration {(item.durationMs / 1000).toFixed(1)}s · {(item.videoSizeBytes / 1024).toFixed(0)} KB

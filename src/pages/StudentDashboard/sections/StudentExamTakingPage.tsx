@@ -464,7 +464,7 @@ export default function StudentExamTakingPage() {
     !submitted && !termination.isExamTerminated,
     termination.notifyViolationReported,
   );
-  useBlockLocalBehaviors(!submitted);
+  useBlockLocalBehaviors(!submitted && !termination.isExamTerminated);
 
   // Bắt buộc đọc + tự đánh dấu đã hiểu quy định thi trước khi được bắt đầu làm bài — chỉ hỏi 1 lần
   // mỗi lượt vào trang (mất lại nếu F5, giống các gate khác — chủ động đọc lại là hợp lý).
@@ -577,6 +577,9 @@ export default function StudentExamTakingPage() {
         } catch { /* giữ nguyên mốc local nếu không lấy được actualStart */ }
 
         proctoringRef.current.updateProctoringConfig({ participationId, studentId, sessionId });
+        // Lấy lại số vi phạm AI/browser từ BE ngay khi proctoring đã sẵn sàng (đặc biệt sau F5, khi
+        // đã có vi phạm từ trước) — lần check đầu lúc registerParticipation có thể chạy quá sớm.
+        void termination.refreshStatus();
       } else {
         // AI proctoring vẫn chạy local (evidence dùng participationId mặc định) nên UI vẫn hiện
         // được violations như bình thường — dễ nhầm là "mọi thứ đã hoạt động", trong khi thật ra
@@ -944,6 +947,13 @@ export default function StudentExamTakingPage() {
                   <div key={v.id} className="flex items-center gap-2">
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${v.severity === 'critical' ? 'bg-red' : 'bg-gold'}`} />
                     <span className="text-[10px] text-white-soft/80 truncate">{VIOLATION_LABEL[v.type]}</span>
+                    {/* BE từ chối ghi nhận (trùng loại liên tiếp / cooldown / đạt max) — dòng này chỉ có
+                        ở máy học sinh, không tính vào count và giáo viên không thấy. */}
+                    {evidence.some((item) => item.violationId === v.id && item.uploadStatus === 'blocked') && (
+                      <span className="shrink-0 text-[9px] text-muted border border-border rounded-full px-1.5 py-0.5">
+                        not counted — duplicate
+                      </span>
+                    )}
                   </div>
                 ))}
                 {violations.length > 4 && (

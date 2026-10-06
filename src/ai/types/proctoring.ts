@@ -103,7 +103,9 @@ export interface EvidenceItem {
   videoSizeBytes: number;
   filename: string;
   videoObjectUrl?: string;
-  uploadStatus: 'local' | 'pending' | 'uploaded' | 'failed';
+  // 'blocked' = BE không tạo log mới (đã đạt max count / còn trong cooldown / trùng loại liên tiếp) —
+  // KHÔNG được đếm, không upload, giáo viên không thấy; chỉ còn hiện trong danh sách cục bộ.
+  uploadStatus: 'local' | 'pending' | 'uploaded' | 'failed' | 'blocked';
   uploadError?: string;
 }
 

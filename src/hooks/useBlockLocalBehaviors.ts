@@ -7,11 +7,14 @@ const BLOCKED_KEY_COMBOS: Array<(e: KeyboardEvent) => boolean> = [
   (e) => e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'j',
   (e) => e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c',
   (e) => e.ctrlKey && e.key.toLowerCase() === 'u',
+  // Làm mới trang (F5 / Ctrl+R / Ctrl+Shift+R) — F5 làm mất trạng thái phiên proctoring đang chạy
+  (e) => e.key === 'F5',
+  (e) => (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'r',
 ];
 
 /**
  * Chặn các hành vi CỤC BỘ trong lúc làm bài (copy/paste/cut/menu chuột phải/kéo-thả/DevTools) —
- * chỉ preventDefault, KHÔNG báo cáo lên BE (khác với useBrowserViolation, vốn theo dõi hành vi
+ * chỉ preventDefault (kèm hộp xác nhận khi rời/refresh trang), KHÔNG báo cáo lên BE (khác với useBrowserViolation, vốn theo dõi hành vi
  * rời màn hình thi và report vi phạm thật sự).
  */
 export function useBlockLocalBehaviors(enabled: boolean): void {
@@ -25,6 +28,13 @@ export function useBlockLocalBehaviors(enabled: boolean): void {
       }
     };
 
+    // Nút Reload trên thanh trình duyệt / đóng tab không chặn được bằng JS — chỉ hỏi xác nhận lại.
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
     document.addEventListener('copy', preventDefault);
     document.addEventListener('paste', preventDefault);
     document.addEventListener('cut', preventDefault);
@@ -34,6 +44,7 @@ export function useBlockLocalBehaviors(enabled: boolean): void {
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('copy', preventDefault);
       document.removeEventListener('paste', preventDefault);
       document.removeEventListener('cut', preventDefault);

@@ -64,13 +64,11 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const refreshStatus = useCallback(async () => {
-    const pid = participationIdRef.current;
-    if (!pid) return;
+  const tryRefreshStatus = useCallback(async (pid: string): Promise<boolean> => {
     try {
       const status = await fetchExamParticipationStatus(pid);
       // participationId có thể đã đổi (sang bài thi khác) trong lúc request đang chạy — bỏ qua kết quả cũ.
-      if (participationIdRef.current !== pid) return;
+      if (participationIdRef.current !== pid) return true;
       setBrowserViolationCount(status.browserViolationCount);
       setAiViolationCount(status.aiViolationCount);
       if (status.isTerminated) {
@@ -83,10 +81,27 @@ export function ExamTerminationProvider({ children }: { children: ReactNode }) {
         setRecordedAt(null);
         setTerminationType(null);
       }
+      return true;
     } catch {
-      // Không chặn thi nếu check status lỗi tạm thời — lần check kế / SignalR sẽ bù sau.
+      // Không chặn thi nếu check status lỗi tạm thời — refreshStatus() tự thử lại, SignalR bù sau.
+      return false;
     }
   }, [applyTerminated]);
+
+  const refreshStatus = useCallback(async () => {
+    const pid = participationIdRef.current;
+    if (!pid) return;
+    // Thử lại vài lần nếu request lỗi tạm thời (vd backend free-tier vừa ngủ dậy ngay lúc F5) — sau
+    // khi bỏ polling, không còn lần check nào bù lại, nên 1 lần lỗi là count AI/browser kẹt ở 0
+    // cho tới khi có event SignalR kế tiếp.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, 2000));
+        if (participationIdRef.current !== pid) return;
+      }
+      if (await tryRefreshStatus(pid)) return;
+    }
+  }, [tryRefreshStatus]);
 
   const registerParticipation = useCallback((id: string | null, slotId?: string | null) => {
     setParticipationId((prev) => (prev === id ? prev : id));
